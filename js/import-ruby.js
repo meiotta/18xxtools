@@ -108,9 +108,9 @@ function parsePhaseRevenue(revStr) {
 }
 
 // ── Parse a single Ruby hex code string (for white/yellow/green) ──────────────
-// Returns: { city, oo, town, dualTown, paths, label, terrain, terrainCost }
+// Returns: { city, oo, town, dualTown, paths, label, terrain, terrainCost, borders, icons }
 function parseHexCode(code) {
-  const result = { city: null, oo: false, town: false, dualTown: false, paths: [], label: '', terrain: '', terrainCost: 0 };
+  const result = { city: null, oo: false, town: false, dualTown: false, paths: [], label: '', terrain: '', terrainCost: 0, borders: [], icons: [] };
   let cityCount = 0, townCount = 0;
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
@@ -131,18 +131,48 @@ function parseHexCode(code) {
       if (m2) result.paths.push(parseInt(m2[1]));
     } else if (part.startsWith('label=')) {
       result.label = part.slice(6).trim();
+    } else if (part.startsWith('icon=')) {
+      // Preserve icons (port, NWR franchise marker, fish, etc.)
+      const imgM = part.match(/image:([^\s,;]+)/);
+      if (imgM) result.icons.push({ image: imgM[1] });
     } else if (part.includes('terrain:')) {
       const m = part.match(/terrain:([a-z|]+)/);
-      if (m) result.terrain = m[1].split('|')[0];
+      if (m) {
+        const types = m[1].split('|');
+        // Prefer non-water terrain for visual rendering (water = crossing cost, not ocean color)
+        result.terrain = types.find(t => t !== 'water') || types[0];
+      }
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) result.terrainCost = parseInt(c);
     } else if (part.startsWith('upgrade=')) {
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) result.terrainCost = parseInt(c);
+      const m = part.match(/terrain:([a-z|]+)/);
+      if (m) {
+        const types = m[1].split('|');
+        result.terrain = types.find(t => t !== 'water') || types[0];
+      }
+    } else if (part.startsWith('border=')) {
+      const edgeM = part.match(/edge:(\d+)/);
+      const typeM = part.match(/type:(\w+)/);
+      const costM = part.match(/cost:(\d+)/);
+      if (edgeM) {
+        result.borders.push({
+          edge: parseInt(edgeM[1]),
+          type: typeM ? typeM[1] : 'impassable',
+          cost: costM ? parseInt(costM[1]) : 0,
+        });
+      }
     }
   }
   // Synthesise compound flags
-  if (cityCount >= 2) result.oo = true;
+  if (cityCount >= 3) {
+    // Triple (or more) city: treat as multi-slot city, not OO
+    result.city = result.city || { revenue: '0', slots: cityCount };
+    result.city.slots = cityCount;
+  } else if (cityCount === 2) {
+    result.oo = true;
+  }
   if (townCount >= 2) result.dualTown = true;
   if (townCount >= 1) result.town = true;
   return result;
@@ -218,7 +248,10 @@ function parseStaticHex(code, bg, locationName) {
       hex.label = part.slice(6).trim();
     } else if (part.includes('terrain:')) {
       const m = part.match(/terrain:([a-z|]+)/);
-      if (m) hex.terrain = m[1].split('|')[0];
+      if (m) {
+        const types = m[1].split('|');
+        hex.terrain = types.find(t => t !== 'water') || types[0];
+      }
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) hex.terrainCost = parseInt(c);
     } else if (part.startsWith('upgrade=')) {
@@ -239,6 +272,8 @@ function parseStaticHex(code, bg, locationName) {
       const imgM = part.match(/image:([^\s,;]+)/);
       const stickyM = part.match(/sticky:1/);
       if (imgM) hex.icons.push({ image: imgM[1], sticky: !!stickyM });
+    } else if (/^hide:\s*1/.test(part)) {
+      hex.hidden = true;
     }
   }
 
@@ -250,7 +285,13 @@ function parseStaticHex(code, bg, locationName) {
 
   // Determine feature from counts (only override for non-offboard hexes)
   if (hex.feature !== 'offboard') {
-    if (cityCount >= 2) {
+    if (cityCount >= 3) {
+      // Triple-city hex (e.g. Moscow, Kiev in 1861) — rendered as 3-slot city
+      hex.feature = 'city';
+      hex.slots    = cityCount;
+      // Use first city's revenue for the single revenue display
+      // (already set from cityCount===1 branch above; keep it)
+    } else if (cityCount === 2) {
       hex.feature = 'oo';
       hex.ooFlatRevenues = [
         cityRevs[0]?.flat !== null ? (cityRevs[0]?.flat || 0) : (cityRevs[0]?.phases?.yellow || 0),
@@ -268,6 +309,23 @@ function parseStaticHex(code, bg, locationName) {
     } else if (townCount === 1) {
       hex.feature = 'town';
     }
+  }
+
+  // Sync phaseRevenue for town/dualTown features (townRevenue parsed separately)
+  if (hex.feature === 'town' || hex.feature === 'dualTown') {
+    const rev = hex.townRevenue || 0;
+    if (rev > 0) {
+      hex.phaseRevenue = { yellow: rev, green: rev, brown: rev, gray: rev };
+      hex.activePhases = { yellow: true, green: true, brown: true, gray: true };
+    } else {
+      // Town with no revenue — hide boxes
+      hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
+    }
+  }
+
+  // Pure path hex (no feature, no revenue) — suppress zero-revenue boxes
+  if (hex.feature === 'none') {
+    hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
   }
 
   return hex;
@@ -345,6 +403,7 @@ function importRubyMap(content) {
   // ── Grid bounds ─────────────────────────────────────────────────────────
   console.log(`[importRubyMap] hexEntries=${Object.keys(hexEntries).length} locationNames=${Object.keys(locationNames).length}`);
   let maxRow = 0, maxCol = 0, skippedCoords = 0;
+  const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 
   function coordToGrid(coord) {
@@ -355,12 +414,27 @@ function importRubyMap(content) {
       const letterIdx = coord.charCodeAt(0) - 65;
       col = numPart - 1;
       row = (col % 2 === 0) ? letterIdx / 2 : (letterIdx - 1) / 2;
+    } else if (orientation === 'pointy') {
+      // Pointy-top: letter=row, number=col
+      const letterIdx = coord.charCodeAt(0) - 65;
+      const numPart   = parseInt(coord.slice(1));
+      row = letterIdx;
+      col = (letterIdx % 2 === 0) ? (numPart - 1) / 2 : (numPart - 2) / 2;
+      if (!Number.isInteger(col)) {
+        col = (letterIdx % 2 === 0) ? (numPart - 2) / 2 : (numPart - 1) / 2;
+      }
     } else {
+      // Flat-top: letter=col, number=row
+      // Two stagger conventions exist; try formula A then formula B
       col = coord.charCodeAt(0) - 65;
       const coordRow = parseInt(coord.slice(1));
       row = (col % 2 === 0) ? (coordRow - 2) / 2 : (coordRow - 1) / 2;
+      if (!Number.isInteger(row)) {
+        // Formula B: opposite parity convention
+        row = (col % 2 === 0) ? (coordRow - 1) / 2 : (coordRow - 2) / 2;
+      }
     }
-    if (!Number.isInteger(row) || row < 0 || col < 0) return null;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) return null;
     return { col, row };
   }
 
@@ -369,6 +443,7 @@ function importRubyMap(content) {
     if (!g) { skippedCoords++; continue; }
     maxRow = Math.max(maxRow, g.row + 1);
     maxCol = Math.max(maxCol, g.col + 1);
+    maxRowPerCol[g.col] = Math.max(maxRowPerCol[g.col] || 0, g.row + 1);
   }
   console.log(`[importRubyMap] bounds → maxRow=${maxRow} maxCol=${maxCol} skipped=${skippedCoords}`);
 
@@ -415,13 +490,22 @@ function importRubyMap(content) {
         } else if (parsed.town) {
           h.town = { name };
         }
+        if (parsed.borders && parsed.borders.length > 0) h.borders = parsed.borders;
+        // Carry icon directives (port, franchise markers, etc.) to white hexes
+        if (parsed.icons && parsed.icons.length > 0) h.icons = parsed.icons;
         newHexes[key] = h;
 
       } else {
-        // Yellow or green: try to match a tile, fall back to static if not found
+        // Yellow or green: pre-placed tiles.
+        // Force static hex for: OO hexes, 2+ slot cities, hexes with labels (special),
+        // hexes with icons — all cases where a standard tile would lose information.
         const targetEdges = new Set(parsed.paths);
         const hasCityOrOO = !!(parsed.city);
-        const match = !parsed.oo ? matchTileDef(targetEdges, color, hasCityOrOO) : null;
+        const needsStatic = parsed.oo ||
+          (parsed.city && parsed.city.slots > 1) ||
+          (parsed.label && parsed.label !== '') ||
+          (parsed.icons && parsed.icons.length > 0);
+        const match = !needsStatic ? matchTileDef(targetEdges, color, hasCityOrOO) : null;
 
         if (match) {
           h.tile     = match.tile;
@@ -429,7 +513,7 @@ function importRubyMap(content) {
           if (name) h.cityName = name;
           newHexes[key] = h;
         } else {
-          // No matching tile → import as static hex at this color
+          // No matching tile (or forced static) → import as static hex at this color
           const sh = parseStaticHex(code, color, name);
           newHexes[key] = sh;
         }
@@ -437,9 +521,12 @@ function importRubyMap(content) {
     }
   }
 
-  // Kill all grid positions not in the .rb file
+  // Kill all grid positions not in the .rb file.
+  // Use per-column row bounds to avoid adding phantom rows beyond each column's extent
+  // (e.g. in 1882 transposedAxes, odd internal cols are one row shorter than even cols).
   for (let r = 0; r < maxRow; r++) {
     for (let c = 0; c < maxCol; c++) {
+      if (r >= (maxRowPerCol[c] || 0)) continue;
       const k = hexId(r, c);
       if (!newHexes[k]) {
         newHexes[k] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, label: '', killed: true };
@@ -451,7 +538,7 @@ function importRubyMap(content) {
   const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
   const statics = Object.values(newHexes).filter(h => h.static).length;
   console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
-  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation };
+  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0 };
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -471,9 +558,9 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       state.meta.rows = result.rows;
       state.meta.cols = result.cols;
       state.meta.orientation = result.orientation;
-      // Sync orientation radio buttons in the UI
-      const radioEl = document.querySelector(`input[name="orientation"][value="${result.orientation}"]`);
-      if (radioEl) radioEl.checked = true;
+      state.meta.staggerParity = result.staggerParity;
+      // Sync orientation select in the config panel
+      syncOrientationSelect();
       // Reset pan so map is visible
       panX = 0; panY = 0; zoom = 1;
       render();
