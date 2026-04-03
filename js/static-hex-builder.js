@@ -67,7 +67,8 @@
       pathPairs:     [],    // [[edgeA, edgeB], ...] for gray city directed routing
       townRevenue:   10,    // flat revenue for single town
       townRevenues:  [10, 10], // per-node revenue for dual town
-      ooRevenues:    null,  // [{yellow:30,...}, {yellow:30,...}] for OO, null = use shared phaseRevenue
+      ooFlatRevenues: [20, 20], // flat per-node revenue for OO (always static integer)
+      ooRevenues:    null,  // legacy phase-based OO revenues (unused in wizard now)
       phaseRevenue:  { yellow: 20, green: 30, brown: 40, gray: 60 },
       activePhases:  { yellow: true, green: true, brown: true, gray: true },
       name:          '',
@@ -98,7 +99,7 @@
       if (!wizardData.exitPairs) wizardData.exitPairs = [];
       if (wizardData.townRevenue === undefined)   wizardData.townRevenue  = 10;
       if (!wizardData.townRevenues) wizardData.townRevenues = [10, 10];
-      // ooRevenues intentionally left as-is (null = use shared phaseRevenue)
+      if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
     } else {
       wizardData = freshData();
     }
@@ -130,9 +131,7 @@
       exitPairs:     (h.exitPairs || []).map(function (p) { return p.slice(); }),
       townRevenue:   h.townRevenue !== undefined ? h.townRevenue : 10,
       townRevenues:  h.townRevenues ? h.townRevenues.slice() : [10, 10],
-      ooRevenues:    h.ooRevenues
-        ? h.ooRevenues.map(function (r) { return Object.assign({}, r); })
-        : null,
+      ooFlatRevenues: h.ooFlatRevenues ? h.ooFlatRevenues.slice() : [20, 20],
       phaseRevenue: Object.assign({}, h.phaseRevenue),
       activePhases: Object.assign({}, h.activePhases),
       name:         h.name,
@@ -424,6 +423,7 @@
 
   function renderStep3(body) {
     var isDualTown = wizardData.feature === 'dualTown';
+    var isOO       = wizardData.feature === 'oo';
     var isGrayCity = wizardData.bg === 'gray' && wizardData.feature === 'city';
     var pendingEdge = null;
 
@@ -431,9 +431,11 @@
     div.innerHTML = '<h3 class="shw-title">Select track exits</h3>' +
       '<p class="shw-subtitle">Click edges of the hex to toggle exits.' +
       (isDualTown ? ' <em>Dual town needs an even number of exits (2, 4, or 6).</em>' : '') +
+      (isOO ? ' <em>Assign exits to each OO city node in the pairing step below.</em>' : '') +
       '</p>' +
       '<div id="shwExitsWrap" style="display:flex;justify-content:center;margin:16px 0;"></div>' +
       (isDualTown ? '<div id="shwPairingWrap" style="margin-top:4px;"></div>' : '') +
+      (isOO       ? '<div id="shwOOPairingWrap" style="margin-top:4px;"></div>' : '') +
       (isGrayCity ? '<div id="shwPathTopWrap" style="margin-top:4px;"></div>' : '') +
       '<p class="shw-note">Orientation is set in the next step.</p>';
     body.appendChild(div);
@@ -443,6 +445,11 @@
       onExitsChange = function () {
         wizardData.exitPairs = [];
         renderPairingSection();
+      };
+    } else if (isOO) {
+      onExitsChange = function () {
+        wizardData.exitPairs = [];
+        renderOOPairingSection();
       };
     } else if (isGrayCity) {
       onExitsChange = function () {
@@ -457,6 +464,7 @@
     renderExitsHex(body, onExitsChange);
 
     if (isDualTown)  renderPairingSection();
+    if (isOO)        renderOOPairingSection();
     if (isGrayCity)  renderTopologySection();
 
     // ── Dual-town pairing section ────────────────────────────────────────────
@@ -563,6 +571,52 @@
       // Store valid pairings on the wrap for click handler
       wrap._validPairings = valid;
 
+      wrap.querySelectorAll('.shw-pairing-card').forEach(function (card) {
+        card.onclick = function () {
+          var idx = parseInt(card.dataset.idx, 10);
+          wizardData.exitPairs = wrap._validPairings[idx].map(function (g) { return g.slice(); });
+          wrap.querySelectorAll('.shw-pairing-card').forEach(function (c) {
+            c.style.borderColor = c.dataset.idx == idx ? '#ffd700' : '#555';
+            c.style.background  = c.dataset.idx == idx ? 'rgba(255,215,0,0.08)' : 'transparent';
+          });
+        };
+      });
+    }
+
+    // ── OO pairing section ───────────────────────────────────────────────────
+    function renderOOPairingSection() {
+      var wrap = body.querySelector('#shwOOPairingWrap');
+      if (!wrap) return;
+      var exits = wizardData.exits;
+
+      if (exits.length < 2) {
+        wrap.innerHTML = '<p style="text-align:center;font-size:11px;color:#aaa;margin:6px 0;">' +
+          'Need \u22652 exits to assign nodes. Single exit goes to node A.</p>';
+        return;
+      }
+
+      var pairings = generateOOPairings(exits);
+      wrap.innerHTML =
+        '<h4 style="margin:12px 0 6px;text-align:center;font-size:13px;color:#ddd;">Assign exits to each OO node</h4>' +
+        '<div style="font-size:10px;color:#888;text-align:center;margin-bottom:6px;">' +
+        'Yellow = node A &nbsp;\u2022&nbsp; Cyan = node B</div>' +
+        '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
+        pairings.map(function (pairing, idx) {
+          var sel = pairingEquals(pairing, wizardData.exitPairs);
+          var aLabel = pairing[0].join(',');
+          var bLabel = pairing[1].join(',');
+          return '<div class="shw-pairing-card" data-idx="' + idx + '"' +
+                 ' style="border:2px solid ' + (sel ? '#ffd700' : '#555') + ';' +
+                 'border-radius:8px;padding:4px;cursor:pointer;text-align:center;' +
+                 'background:' + (sel ? 'rgba(255,215,0,0.08)' : 'transparent') + ';">' +
+                 buildPairingPreviewSVG(pairing[0], pairing[1], 80) +
+                 '<div style="font-size:9px;color:#aaa;margin-top:2px;">' +
+                 'A:' + aLabel + ' / B:' + bLabel + '</div>' +
+                 '</div>';
+        }).join('') +
+        '</div>';
+
+      wrap._validPairings = pairings;
       wrap.querySelectorAll('.shw-pairing-card').forEach(function (card) {
         card.onclick = function () {
           var idx = parseInt(card.dataset.idx, 10);
@@ -776,7 +830,27 @@
            edgeHits + labels + '</svg>';
   }
 
-  // ── Dual-town pairing helpers ──────────────────────────────────────────────
+  // ── OO / Dual-town pairing helpers ────────────────────────────────────────
+
+  // Generate all valid ways to split exits between two OO nodes.
+  // Allows unequal splits (e.g. 2+1 for a 3-exit OO like tile #65).
+  // exits[0] is always in groupA to avoid A↔B duplicates.
+  // Returns array of [groupA, groupB].
+  function generateOOPairings(exits) {
+    var n = exits.length;
+    var result = [];
+    // Iterate all 2^(n-1) subsets of exits[1..n-1]; exits[0] always in A
+    for (var bits = 0; bits < (1 << (n - 1)); bits++) {
+      var groupA = [exits[0]];
+      var groupB = [];
+      for (var i = 1; i < n; i++) {
+        if (bits & (1 << (i - 1))) { groupA.push(exits[i]); }
+        else { groupB.push(exits[i]); }
+      }
+      if (groupB.length > 0) result.push([groupA, groupB]);
+    }
+    return result;
+  }
 
   // Generate all ways to split exits into two equal groups.
   // Returns array of [groupA, groupB] where each group is sorted exit indices.
@@ -1037,7 +1111,7 @@
     if (wizardData.feature === 'none')     return false; // track-only
     if (wizardData.feature === 'town')     return false; // flat integer revenue
     if (wizardData.feature === 'dualTown') return false; // per-node flat revenue
-    if (wizardData.feature === 'oo')       return false; // per-node phase revenues via ooRevenues
+    if (wizardData.feature === 'oo')       return false; // flat per-node integer revenues via ooFlatRevenues
     return wizardData.feature === 'city' ||
            wizardData.feature === 'offboard' ||
            wizardData.bg === 'red' ||
@@ -1045,26 +1119,13 @@
   }
 
   function buildOORevenueHtml() {
-    function nodeSection(node, label, accentColor) {
-      var suffix = node === 0 ? 'A' : 'B';
-      var rev = (wizardData.ooRevenues || [])[node] || wizardData.phaseRevenue;
-      return '<div class="shw-field" style="border-left:3px solid ' + accentColor +
-             ';padding-left:8px;margin-bottom:8px;">' +
-             '<label style="color:' + accentColor + ';">' + label + ' revenue by phase</label>' +
-             '<div class="shw-phase-rows">' +
-             PHASES.map(function (ph) {
-               return '<div class="shw-phase-row">' +
-                 '<span class="shw-phase-dot" style="background:' + PHASE_COLORS[ph] + ';"></span>' +
-                 '<input type="checkbox" id="shwOOChk_' + suffix + '_' + ph + '"' +
-                 (wizardData.activePhases[ph] ? ' checked' : '') + '>' +
-                 '<label for="shwOOChk_' + suffix + '_' + ph + '" class="shw-phase-label">' + ph + '</label>' +
-                 '<input type="number" id="shwOORev_' + suffix + '_' + ph + '" class="shw-rev-input"' +
-                 ' value="' + (rev[ph] || 0) + '" min="0" max="9999">' +
-                 '</div>';
-             }).join('') +
-             '</div></div>';
-    }
-    return nodeSection(0, 'City A', '#ffd700') + nodeSection(1, 'City B', '#40e0d0');
+    var revs = wizardData.ooFlatRevenues || [20, 20];
+    return '<div class="shw-field" style="border-left:3px solid #ffd700;padding-left:8px;margin-bottom:8px;">' +
+           '<label style="color:#ffd700;">City A revenue</label>' +
+           '<input type="number" id="shwOORevA" value="' + revs[0] + '" min="0" max="999" style="width:80px;"></div>' +
+           '<div class="shw-field" style="border-left:3px solid #40e0d0;padding-left:8px;margin-bottom:8px;">' +
+           '<label style="color:#40e0d0;">City B revenue</label>' +
+           '<input type="number" id="shwOORevB" value="' + revs[1] + '" min="0" max="999" style="width:80px;"></div>';
   }
 
   function renderStep5(body) {
@@ -1095,13 +1156,8 @@
         '<input type="number" id="shwTownRevB" value="' + ((wizardData.townRevenues || [10, 10])[1]) +
         '" min="0" max="999" style="width:80px;"></div>';
     } else if (feat === 'oo') {
-      // OO: two independent 1-slot city nodes — per-node phase revenues
-      if (!wizardData.ooRevenues) {
-        wizardData.ooRevenues = [
-          Object.assign({}, wizardData.phaseRevenue),
-          Object.assign({}, wizardData.phaseRevenue),
-        ];
-      }
+      // OO: two independent 1-slot city nodes — flat static integer revenue per node
+      if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
       revenueHtml = buildOORevenueHtml();
     } else if (usePhaseRevenue()) {
       // Phase-based revenue (single-node city, offboard)
@@ -1175,29 +1231,17 @@
         wizardData.townRevenues[1] = parseInt(e.target.value, 10) || 0;
       };
     } else if (feat === 'oo') {
-      // OO per-node revenue handlers
-      [0, 1].forEach(function (node) {
-        var suffix = node === 0 ? 'A' : 'B';
-        PHASES.forEach(function (ph) {
-          var chk = body.querySelector('#shwOOChk_' + suffix + '_' + ph);
-          var inp = body.querySelector('#shwOORev_' + suffix + '_' + ph);
-          if (chk) chk.onchange = function (e) {
-            // OO active phases are shared (same phases active for both nodes)
-            wizardData.activePhases[ph] = e.target.checked;
-            // Sync the other node's checkbox visually
-            var otherSuffix = node === 0 ? 'B' : 'A';
-            var otherChk = body.querySelector('#shwOOChk_' + otherSuffix + '_' + ph);
-            if (otherChk) otherChk.checked = e.target.checked;
-          };
-          if (inp) inp.oninput = function (e) {
-            if (!wizardData.ooRevenues) wizardData.ooRevenues = [
-              Object.assign({}, wizardData.phaseRevenue),
-              Object.assign({}, wizardData.phaseRevenue),
-            ];
-            wizardData.ooRevenues[node][ph] = parseInt(e.target.value, 10) || 0;
-          };
-        });
-      });
+      // OO flat revenue handlers
+      var inpA = body.querySelector('#shwOORevA');
+      var inpB = body.querySelector('#shwOORevB');
+      if (inpA) inpA.oninput = function (e) {
+        if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
+        wizardData.ooFlatRevenues[0] = parseInt(e.target.value, 10) || 0;
+      };
+      if (inpB) inpB.oninput = function (e) {
+        if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
+        wizardData.ooFlatRevenues[1] = parseInt(e.target.value, 10) || 0;
+      };
     } else if (usePhaseRevenue()) {
       PHASES.forEach(function (ph) {
         body.querySelector('#shwChk_' + ph).onchange = function (e) {
@@ -1287,17 +1331,10 @@
         parts.push('offboard=revenue:' + revenueStr);
         break;
       case 'oo': {
-        // RULE 2: two separate 1-slot city nodes with per-node revenues + label=OO
-        var ooRevStrOf = function (nodeIdx) {
-          if (!noExits && hex.ooRevenues && hex.ooRevenues[nodeIdx]) {
-            return activePhases.map(function (p) {
-              return p + '_' + (hex.ooRevenues[nodeIdx][p] || 0);
-            }).join('|');
-          }
-          return revenueStr;
-        };
-        parts.push('city=revenue:' + ooRevStrOf(0));
-        parts.push('city=revenue:' + ooRevStrOf(1));
+        // RULE 2: two separate 1-slot city nodes with flat static revenue + label=OO
+        var ooFlatRevs = hex.ooFlatRevenues || [20, 20];
+        parts.push('city=revenue:' + (noExits ? 0 : (ooFlatRevs[0] || 0)));
+        parts.push('city=revenue:' + (noExits ? 0 : (ooFlatRevs[1] || 0)));
         break;
       }
       case 'city': {
@@ -1326,13 +1363,24 @@
     }
 
     if (hex.feature === 'oo') {
-      // RULE 2: OO — split exits between _0 and _1 (two separate nodes)
-      var ooHalf = Math.ceil(exits.length / 2);
-      exits.forEach(function (e, i) {
-        var re = (e + (hex.rotation || 0)) % 6;
-        var station = i < ooHalf ? '_0' : '_1';
-        parts.push('path=a:' + re + ',b:' + station + termSuffix);
-      });
+      // Use exitPairs if set, otherwise fall back to simple ceil/2 split
+      var ooAExits = (hex.exitPairs && hex.exitPairs[0] && hex.exitPairs[0].length) ? hex.exitPairs[0] : null;
+      var ooBExits = (hex.exitPairs && hex.exitPairs[1] && hex.exitPairs[1].length) ? hex.exitPairs[1] : null;
+      if (ooAExits && ooBExits) {
+        ooAExits.forEach(function (e) {
+          parts.push('path=a:' + (e + (hex.rotation || 0)) % 6 + ',b:_0' + termSuffix);
+        });
+        ooBExits.forEach(function (e) {
+          parts.push('path=a:' + (e + (hex.rotation || 0)) % 6 + ',b:_1' + termSuffix);
+        });
+      } else {
+        var ooHalf = Math.ceil(exits.length / 2);
+        exits.forEach(function (e, i) {
+          var re = (e + (hex.rotation || 0)) % 6;
+          var station = i < ooHalf ? '_0' : '_1';
+          parts.push('path=a:' + re + ',b:' + station + termSuffix);
+        });
+      }
     } else if (hex.feature === 'dualTown') {
       // Use exitPairs if set, otherwise fall back to first-half/_0 second-half/_1
       var nodeAExits = (hex.exitPairs && hex.exitPairs[0]) ? hex.exitPairs[0] : [];
@@ -1353,7 +1401,7 @@
         });
       }
     } else if (hex.feature === 'city' && hex.pathMode === 'directed' &&
-               (hex.pathPairs || []).length > 0) {
+                      (hex.pathPairs || []).length > 0) {
       // Directed routing: paired exits first, then star for any unpaired exits
       var pairedExitSet = {};
       (hex.pathPairs || []).forEach(function (pair) {
