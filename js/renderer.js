@@ -27,13 +27,48 @@ const STATIC_PHASE_COLORS = {
   gray:   '#BCBDC0',
 };
 
+// ─── EDGE POSITION HELPERS ────────────────────────────────────────────────────
+// edgePos: returns {x,y} (relative to hex center) for 18xx edge number e.
+//   18xx edge 0 = bottom (flat-top), 1 = lower-left, 2 = upper-left, 3 = top,
+//                4 = upper-right, 5 = lower-right.
+//   For pointy-top games the whole hex is rotated 30°, so we rotate edge positions too.
+//   dist defaults to 43.3 (apothem of a 50-unit hex).
+function edgePos(edge, dist) {
+  if (dist === undefined) dist = 43.3;
+  const a = edge * Math.PI / 3;
+  const x0 = -Math.sin(a) * dist;
+  const y0 =  Math.cos(a) * dist;
+  if (state && state.meta && state.meta.orientation === 'pointy') {
+    // Rotate 30° clockwise in SVG space to align with pointy-top hex shape
+    const R = Math.PI / 6;
+    const cosR = Math.cos(R), sinR = Math.sin(R);
+    return { x: x0 * cosR - y0 * sinR, y: x0 * sinR + y0 * cosR };
+  }
+  return { x: x0, y: y0 };
+}
+
+// calcArc: given start/end positions relative to hex center (canvas scale),
+// returns {radius, sweep} for SVG arc  "A r r 0 0 sweep ex ey".
+// Translated from 18xx.games track_node_path.rb.
+function calcArc(bx, by, ex, ey) {
+  const dist   = Math.hypot(bx - ex, by - ey);
+  const angleBo = Math.atan2(by, -bx);
+  const angleBe = Math.atan2(by - ey, ex - bx);
+  let da = angleBo - angleBe;
+  if (da < -Math.PI) da += 2 * Math.PI;
+  else if (da > Math.PI) da -= 2 * Math.PI;
+  const cosA = Math.cos(Math.PI / 2 - Math.abs(da));
+  const radius = cosA < 0.001 ? 1e6 : dist / (2 * cosA);
+  return { radius, sweep: da < 0 ? 0 : 1 };
+}
+
 // Draw impassable / water-crossing border markers for a hex.
 // Called at the end of both drawStaticHex and drawHex.
 function drawBorders(hex, cx, cy, size) {
   if (!hex || !hex.borders || hex.borders.length === 0) return;
   const sc = size / 50;
   for (const border of hex.borders) {
-    const mp = EDGE_MIDPOINTS[border.edge];
+    const mp = edgePos(border.edge);
     const len = Math.hypot(mp.x, mp.y);
     // Direction along the hex side (perpendicular to radial)
     const edgeDx = -mp.y / len;
@@ -78,7 +113,7 @@ function drawStaticHex(row, col, hex) {
   const size = HEX_SIZE * zoom;
   const sc = size / 50;
 
-  const corners = hexCorners(cx, cy, size);
+  const corners = hexCorners(cx, cy, size, state.meta.orientation);
 
   // 1. Fill background
   ctx.fillStyle = STATIC_BG_COLORS[hex.bg] || '#D4B483';
@@ -94,8 +129,38 @@ function drawStaticHex(row, col, hex) {
   ctx.lineWidth   = selectedHex === hexId(row, col) ? 2 * zoom : 1;
   ctx.stroke();
 
+  // Hidden offboard hex (hide:1) — solid color only, no features
+  if (hex.hidden) return;
+
   // Plain red fill hex — solid color area only, no features or labels
   if (isPlainRed) return;
+
+  // Pre-compute multi-city node positions for OO, C, and M features.
+  //   OO — two cities at opposite vertices (180° default)
+  //   C  — two cities at 120° diagonal vertices
+  //   M  — three cities in equilateral triangle (Moscow / ATL layout)
+  // Positions snap toward the average exit direction for each node group;
+  // defaults are used when no exits are assigned.
+  const MULTI_DEFAULTS = {
+    oo: [{ x: -14, y:   0 }, { x:  14, y:   0 }],
+    c:  [{ x:  14, y:   0 }, { x:  -7, y:  12 }],
+    m:  [{ x:   0, y: -16 }, { x:  14, y:   9 }, { x: -14, y:  9 }],
+  };
+  let ooNodes = null;  // alias used throughout sections 3–6
+  if (MULTI_DEFAULTS[hex.feature]) {
+    const ep = hex.exitPairs;
+    ooNodes = MULTI_DEFAULTS[hex.feature].map((def, ni) => {
+      const grp = ep && ep[ni] ? ep[ni] : [];
+      if (!grp.length) return def;
+      let sx = 0, sy = 0;
+      for (const e of grp) {
+        const re = (e + (hex.rotation || 0)) % 6;
+        const pos = edgePos(re);
+        sx += pos.x; sy += pos.y;
+      }
+      return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
+    });
+  }
 
   // 3. Track stubs — offboard exits draw short tapered arrows; others draw lines to center
   if (hex.exits && hex.exits.length > 0) {
@@ -111,7 +176,7 @@ function drawStaticHex(row, col, hex) {
       ctx.fillStyle = '#222';
       for (const exit of hex.exits) {
         const re = (exit + (hex.rotation || 0)) % 6;
-        const mp = EDGE_MIDPOINTS[re];
+        const mp = edgePos(re);
         const len = Math.hypot(mp.x, mp.y);
         const dx = mp.x / len; // unit vector pointing outward (center → edge)
         const dy = mp.y / len;
@@ -133,42 +198,82 @@ function drawStaticHex(row, col, hex) {
       ctx.strokeStyle = '#222';
       ctx.lineWidth   = 6 * sc;
       ctx.lineCap     = 'round';
-      if (hex.feature === 'oo') {
-        const ooEP = hex.exitPairs;
-        const ooHasEP = ooEP && ((ooEP[0] || []).length + (ooEP[1] || []).length) > 0;
-        const ooNodes = [0, 1].map(ni => {
-          if (!ooHasEP) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-          const grp = ooEP[ni] || [];
-          if (!grp.length) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-          let sx = 0, sy = 0;
-          for (const e of grp) {
-            const re = (e + (hex.rotation || 0)) % 6;
-            sx += EDGE_MIDPOINTS[re].x;
-            sy += EDGE_MIDPOINTS[re].y;
-          }
-          return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
-        });
+      if (MULTI_DEFAULTS[hex.feature]) {
+        // OO/C/M: tracks drawn in section 4 (after box fill so they're visible)
+      } else if (hex.feature === 'city') {
+        // City hex: each exit draws a straight line to center (city circle sits at center)
         for (const exit of hex.exits) {
           const re = (exit + (hex.rotation || 0)) % 6;
-          const mp = EDGE_MIDPOINTS[re];
-          const nodeIdx = ooHasEP
-            ? ((ooEP[0] || []).includes(exit) ? 0 : 1)
-            : (hex.exits.indexOf(exit) < Math.ceil(hex.exits.length / 2) ? 0 : 1);
-          const npos = ooNodes[nodeIdx];
-          ctx.beginPath();
-          ctx.moveTo(cx + mp.x * sc, cy + mp.y * sc);
-          ctx.lineTo(cx + npos.x * sc, cy + npos.y * sc);
-          ctx.stroke();
-        }
-      } else {
-        for (const exit of hex.exits) {
-          const re = (exit + (hex.rotation || 0)) % 6;
-          const mp = EDGE_MIDPOINTS[re];
+          const mp = edgePos(re);
           ctx.beginPath();
           ctx.moveTo(cx + mp.x * sc, cy + mp.y * sc);
           ctx.lineTo(cx, cy);
           ctx.stroke();
         }
+      } else {
+        // Town/dualTown/generic: arcs between paired exits (track curves through town).
+        const exits = hex.exits.slice();
+        for (let i = 0; i + 1 < exits.length; i += 2) {
+          const ra = (exits[i]   + (hex.rotation || 0)) % 6;
+          const rb = (exits[i+1] + (hex.rotation || 0)) % 6;
+          const pa = edgePos(ra), pb = edgePos(rb);
+          const bxA = cx + pa.x * sc, byA = cy + pa.y * sc;
+          const exA = cx + pb.x * sc, eyA = cy + pb.y * sc;
+          if (Math.abs(ra - rb) === 3) {
+            ctx.beginPath(); ctx.moveTo(bxA, byA); ctx.lineTo(exA, eyA); ctx.stroke();
+          } else {
+            const arc = calcArc(pa.x * sc, pa.y * sc, pb.x * sc, pb.y * sc);
+            ctx.stroke(new Path2D(`M ${bxA} ${byA} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${exA} ${eyA}`));
+          }
+        }
+        // Odd remaining exit: straight stub to center
+        if (exits.length % 2 === 1) {
+          const re = (exits[exits.length - 1] + (hex.rotation || 0)) % 6;
+          const mp = edgePos(re);
+          ctx.beginPath();
+          ctx.moveTo(cx + mp.x * sc, cy + mp.y * sc);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  // 3b. pathPairs — edge-to-edge tracks not through any node (e.g. bypass arc at Dünaberg)
+  if (hex.pathPairs && hex.pathPairs.length > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.closePath();
+    ctx.clip();
+
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth   = 6 * sc;
+    ctx.lineCap     = 'round';
+
+    for (const [a, b] of hex.pathPairs) {
+      const ra = (a + (hex.rotation || 0)) % 6;
+      const rb = (b + (hex.rotation || 0)) % 6;
+      const pa  = edgePos(ra);   // relative to center, 43.3-unit space
+      const pb  = edgePos(rb);
+      const pax = pa.x * sc, pay = pa.y * sc;
+      const pbx = pb.x * sc, pby = pb.y * sc;
+      const bxA = cx + pax, byA = cy + pay;
+      const exA = cx + pbx, eyA = cy + pby;
+
+      if (Math.abs(ra - rb) === 3) {
+        // Straight through center
+        ctx.beginPath();
+        ctx.moveTo(bxA, byA);
+        ctx.lineTo(exA, eyA);
+        ctx.stroke();
+      } else {
+        // Curved arc using 18xx.games calcArc formula
+        const arc = calcArc(pax, pay, pbx, pby);
+        const p = new Path2D(`M ${bxA} ${byA} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${exA} ${eyA}`);
+        ctx.stroke(p);
       }
     }
     ctx.restore();
@@ -182,37 +287,65 @@ function drawStaticHex(row, col, hex) {
   const slots = hex.slots || 1;
   switch (hex.feature) {
     case 'town':
-      ctx.fillStyle = '#000';
       ctx.beginPath();
-      ctx.roundRect(-16, -8, 32, 16, 2);
+      ctx.arc(0, 0, 10, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
       ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 4;
+      ctx.stroke();
       break;
 
     case 'dualTown':
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.roundRect(-30, -7, 24, 14, 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.roundRect(6, -7, 24, 14, 2);
-      ctx.fill();
+      for (const [px, py] of [[-14, 0], [14, 0]]) {
+        ctx.beginPath();
+        ctx.arc(px, py, 10, 0, Math.PI * 2);
+        ctx.fillStyle = '#000';
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      }
       break;
 
-    case 'oo': {
-      const ooEP = hex.exitPairs;
-      const ooHasEP = ooEP && ((ooEP[0] || []).length + (ooEP[1] || []).length) > 0;
-      const ooNodes = [0, 1].map(ni => {
-        if (!ooHasEP) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-        const grp = ooEP[ni] || [];
-        if (!grp.length) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-        let sx = 0, sy = 0;
-        for (const e of grp) {
-          const re = (e + (hex.rotation || 0)) % 6;
-          sx += EDGE_MIDPOINTS[re].x;
-          sy += EDGE_MIDPOINTS[re].y;
+    case 'oo':
+    case 'c':
+    case 'm': {
+      // Box frame enclosing all edge-positioned city circles
+      const xs = ooNodes.map(n => n.x), ys = ooNodes.map(n => n.y);
+      const pad = 14;
+      const fMinX = Math.min(...xs) - pad, fMaxX = Math.max(...xs) + pad;
+      const fMinY = Math.min(...ys) - pad, fMaxY = Math.max(...ys) + pad;
+      ctx.fillStyle = 'white';
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(fMinX, fMinY, fMaxX - fMinX, fMaxY - fMinY, 3);
+      ctx.fill();
+      ctx.stroke();
+      // Draw tracks over the box fill so they're visible connecting edges to nodes
+      if (hex.exits && hex.exits.length > 0) {
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        const ep4 = hex.exitPairs;
+        for (const exit of hex.exits) {
+          const re = (exit + (hex.rotation || 0)) % 6;
+          const mp = edgePos(re);
+          let nodeIdx = 0;
+          if (ep4) {
+            for (let ni = 0; ni < ep4.length; ni++) {
+              if ((ep4[ni] || []).includes(exit)) { nodeIdx = ni; break; }
+            }
+          }
+          const npos = ooNodes[nodeIdx] || ooNodes[0];
+          ctx.beginPath();
+          ctx.moveTo(mp.x, mp.y);
+          ctx.lineTo(npos.x, npos.y);
+          ctx.stroke();
         }
-        return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
-      });
+      }
+      // One circle per node (drawn on top of tracks)
       for (const npos of ooNodes) {
         ctx.beginPath();
         ctx.arc(npos.x, npos.y, 11, 0, Math.PI * 2);
@@ -284,41 +417,121 @@ function drawStaticHex(row, col, hex) {
 
   ctx.restore();
 
-  // 5. Phase revenue boxes — colored rectangles near bottom
-  const phases = ['yellow', 'green', 'brown', 'gray'];
-  const activePhases = phases.filter(p => hex.activePhases && hex.activePhases[p]);
-  if (hex.phaseRevenue && activePhases.length > 0) {
-    const bw = 14 * sc, bh = 10 * sc, gap = 2 * sc;
-    const totalW = activePhases.length * (bw + gap) - gap;
-    let bx = cx - totalW / 2;
-    const by = cy + size * 0.44;
+  // 5a. Per-city revenue for OO, C, and M — one bubble per node, positioned outward.
+  if (MULTI_DEFAULTS[hex.feature] && ooNodes) {
+    // Prefer explicit per-node flat revenues; fall back to phaseRevenue uniform value.
+    const flatRevs = hex.feature === 'm'
+      ? (hex.mFlatRevenues || null)
+      : (hex.ooFlatRevenues || null);
 
-    for (const ph of activePhases) {
-      ctx.fillStyle = STATIC_PHASE_COLORS[ph];
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(bx, by, bw, bh);
-      ctx.fillStyle = '#111';
-      ctx.font = `bold ${Math.max(5, Math.round(6 * zoom))}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(hex.phaseRevenue[ph] || 0), bx + bw / 2, by + bh / 2);
-      bx += bw + gap;
+    let perNodeRevs = null;
+    if (flatRevs && flatRevs.some(v => v > 0)) {
+      perNodeRevs = flatRevs;
+    } else {
+      const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
+      const activePhases = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
+      if (hex.phaseRevenue && activePhases.length > 0) {
+        const rv = hex.phaseRevenue[activePhases[0]] || 0;
+        if (rv > 0) perNodeRevs = ooNodes.map(() => rv);
+      }
+    }
+
+    if (perNodeRevs) {
+      for (let ni = 0; ni < ooNodes.length; ni++) {
+        const rv = perNodeRevs[ni] || perNodeRevs[0] || 0;
+        if (!rv) continue;
+        const npos = ooNodes[ni];
+        const mag = Math.hypot(npos.x, npos.y) || 1;
+        const dx = npos.x / mag, dy = npos.y / mag;
+        const revX = cx + (npos.x + dx * 20) * sc;
+        const revY = cy + (npos.y + dy * 20) * sc;
+        const r = 10 * sc;
+        ctx.beginPath();
+        ctx.arc(revX, revY, r, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.max(6, Math.round(8 * zoom))}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(rv), revX, revY);
+      }
     }
   }
 
-  // 6. Name label — above center or near top
+  // 5. Revenue display (OO/C/M handled above per-city; skip for those)
+  if (!MULTI_DEFAULTS[hex.feature]) {
+    const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
+    const activePhases = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
+    if (hex.phaseRevenue && activePhases.length > 0) {
+      const revVals = activePhases.map(p => hex.phaseRevenue[p] || 0);
+      const allSame = revVals.every(v => v === revVals[0]);
+      const revenueY = cy + size * 0.44;
+
+      if (allSame && revVals[0] > 0) {
+        // Single white circle (matches 18xx.games single_revenue.rb)
+        const r = 12 * sc;
+        ctx.beginPath();
+        ctx.arc(cx, revenueY, r, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#888';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.max(6, Math.round(8 * zoom))}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(revVals[0]), cx, revenueY);
+      } else if (!allSame) {
+        // Colored phase boxes for offboard-style varying revenues
+        const bw = 14 * sc, bh = 10 * sc, gap = 2 * sc;
+        const totalW = activePhases.length * (bw + gap) - gap;
+        let bx = cx - totalW / 2;
+        const by = revenueY;
+        for (const ph of activePhases) {
+          ctx.fillStyle = STATIC_PHASE_COLORS[ph];
+          ctx.fillRect(bx, by, bw, bh);
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 0.5;
+          ctx.strokeRect(bx, by, bw, bh);
+          ctx.fillStyle = '#111';
+          ctx.font = `bold ${Math.max(5, Math.round(6 * zoom))}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(hex.phaseRevenue[ph] || 0), bx + bw / 2, by + bh / 2);
+          bx += bw + gap;
+        }
+      }
+      // allSame && revVals[0] === 0: no display (zero revenue, suppress)
+    }
+  }
+
+  // 6. Name label — OO/C/M: center of all nodes (inside frame); others: below feature.
   if (hex.name) {
-    const ly = cy - size * 0.42;
+    let lx = cx;
+    let ly;
+    if (MULTI_DEFAULTS[hex.feature] && ooNodes) {
+      // Centroid of all nodes
+      const avgX = ooNodes.reduce((s, n) => s + n.x, 0) / ooNodes.length;
+      const avgY = ooNodes.reduce((s, n) => s + n.y, 0) / ooNodes.length;
+      lx = cx + avgX * sc;
+      ly = cy + avgY * sc;
+    } else {
+      // Below the city/town feature; avoids overlap with center circle
+      ly = cy + size * 0.35;
+    }
     ctx.font = `bold ${Math.max(7, Math.round(8 * zoom))}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2.5;
-    ctx.strokeText(hex.name, cx, ly);
+    ctx.strokeText(hex.name, lx, ly);
     ctx.fillStyle = '#111';
-    ctx.fillText(hex.name, cx, ly);
+    ctx.fillText(hex.name, lx, ly);
   }
 
   // 7. Tile label (label=X)
@@ -352,7 +565,7 @@ function drawHex(row, col, hex = null) {
   const tileDef = hex?.tile ? TILE_DEFS[String(hex.tile)] : null;
   const color = tileDef ? (TILE_HEX_COLORS[tileDef.color] || '#F0D070') : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']);
 
-  const corners = hexCorners(cx, cy, size);
+  const corners = hexCorners(cx, cy, size, state.meta.orientation);
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(corners[0].x, corners[0].y);
@@ -520,29 +733,30 @@ function drawHex(row, col, hex = null) {
     ctx.fillText(name, cx, by + bh / 2);
   }
 
-  // OO white hex: two city circles with OO label (no tile placed)
+  // OO white hex: two horizontal city circles in a frame (no tile placed)
   if (hex?.oo && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    for (const oy of [-22, 22]) {
+    // Rectangular frame
+    ctx.fillStyle = 'white';
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-27, -15, 54, 30, 3);
+    ctx.fill();
+    ctx.stroke();
+    // Two horizontal city circles
+    for (const ox of [-14, 14]) {
       ctx.beginPath();
-      ctx.arc(0, oy, 14, 0, Math.PI * 2);
+      ctx.arc(ox, 0, 11, 0, Math.PI * 2);
       ctx.fillStyle = 'white';
       ctx.fill();
       ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
-    ctx.restore();
-    // OO label between the circles
-    ctx.save();
-    ctx.font = `bold ${10 * zoom}px Arial`;
-    ctx.fillStyle = '#555';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('OO', cx, cy);
     ctx.restore();
     if (hex.ooCityName) {
       const name = hex.ooCityName;
@@ -597,17 +811,117 @@ function drawHex(row, col, hex = null) {
     ctx.restore();
   }
 
-  // Town bar for hexes that have a town marker but no placed tile
+  // Town dot for hexes that have a town marker but no placed tile
   if (hex?.town && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.roundRect(-16, -8, 32, 16, 2);
+    ctx.arc(0, 0, 10, 0, Math.PI * 2);
+    ctx.fillStyle = '#000';
     ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 4;
+    ctx.stroke();
     ctx.restore();
+  }
+
+  // Location name for unplaced city/town hexes (below the feature)
+  {
+    const locName = (hex?.city && !hex?.tile) ? (hex.city.name || '') :
+                    (hex?.town && !hex?.tile)  ? (hex.town.name  || '') : '';
+    if (locName) {
+      const ny = cy + size * 0.35;
+      ctx.font = `bold ${Math.max(7, Math.round(8 * zoom))}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(locName, cx, ny);
+      ctx.fillStyle = '#111';
+      ctx.fillText(locName, cx, ny);
+    }
+  }
+
+  // Terrain cost icon for hexes with an upgrade cost (mountain/hill/water/swamp icons + cost)
+  if (hex?.terrainCost && hex.terrainCost > 0 && !hex?.tile) {
+    const terrain = hex.terrain || '';
+    const iconX = cx;
+    const iconY = cy + size * 0.22;
+    const is = Math.max(6, Math.round(8 * zoom));  // icon scale
+    ctx.save();
+    ctx.translate(iconX, iconY);
+
+    if (terrain === 'mountain') {
+      // Large triangle (snow-capped)
+      ctx.beginPath();
+      ctx.moveTo(0, -is * 1.4);
+      ctx.lineTo(-is * 1.2, is * 0.6);
+      ctx.lineTo( is * 1.2, is * 0.6);
+      ctx.closePath();
+      ctx.fillStyle = '#777';
+      ctx.fill();
+      // Snow cap
+      ctx.beginPath();
+      ctx.moveTo(0, -is * 1.4);
+      ctx.lineTo(-is * 0.4, -is * 0.5);
+      ctx.lineTo( is * 0.4, -is * 0.5);
+      ctx.closePath();
+      ctx.fillStyle = 'white';
+      ctx.fill();
+    } else if (terrain === 'hill') {
+      // Smaller rounded hill bump
+      ctx.beginPath();
+      ctx.arc(0, is * 0.2, is * 0.9, Math.PI, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#8B7355';
+      ctx.fill();
+    } else if (terrain === 'water') {
+      // Water drop / wave
+      ctx.beginPath();
+      ctx.moveTo(0, -is);
+      ctx.bezierCurveTo(is * 0.8, -is * 0.2, is * 0.8, is * 0.6, 0, is * 0.7);
+      ctx.bezierCurveTo(-is * 0.8, is * 0.6, -is * 0.8, -is * 0.2, 0, -is);
+      ctx.fillStyle = '#3366CC';
+      ctx.fill();
+    } else if (terrain === 'swamp' || terrain === 'marsh') {
+      // Three vertical grass tufts
+      ctx.strokeStyle = '#4A7A4A';
+      ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
+      ctx.lineCap = 'round';
+      for (const ox of [-is * 0.6, 0, is * 0.6]) {
+        ctx.beginPath();
+        ctx.moveTo(ox, is * 0.5);
+        ctx.lineTo(ox, -is * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ox, -is * 0.2);
+        ctx.lineTo(ox - is * 0.35, -is * 0.8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ox, -is * 0.2);
+        ctx.lineTo(ox + is * 0.35, -is * 0.8);
+        ctx.stroke();
+      }
+    } else {
+      // Generic: small diamond
+      ctx.beginPath();
+      ctx.moveTo(0, -is); ctx.lineTo(is * 0.7, 0); ctx.lineTo(0, is); ctx.lineTo(-is * 0.7, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#AA8844';
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Cost number below icon
+    const fs = Math.max(6, Math.round(7 * zoom));
+    ctx.font = `bold ${fs}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#222';
+    ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
   }
 
   // Killed hex — dark overlay so it reads as out-of-bounds

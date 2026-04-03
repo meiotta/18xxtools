@@ -67,7 +67,8 @@
       pathPairs:     [],    // [[edgeA, edgeB], ...] for gray city directed routing
       townRevenue:   10,    // flat revenue for single town
       townRevenues:  [10, 10], // per-node revenue for dual town
-      ooFlatRevenues: [20, 20], // flat per-node revenue for OO (always static integer)
+      ooFlatRevenues: [20, 20],     // flat per-node revenue for OO and C (2 nodes)
+      mFlatRevenues:  [20, 20, 20], // flat per-node revenue for M (3 nodes)
       ooRevenues:    null,  // legacy phase-based OO revenues (unused in wizard now)
       phaseRevenue:  { yellow: 20, green: 30, brown: 40, gray: 60 },
       activePhases:  { yellow: true, green: true, brown: true, gray: true },
@@ -98,8 +99,9 @@
       if (!wizardData.pathPairs) wizardData.pathPairs = [];
       if (!wizardData.exitPairs) wizardData.exitPairs = [];
       if (wizardData.townRevenue === undefined)   wizardData.townRevenue  = 10;
-      if (!wizardData.townRevenues) wizardData.townRevenues = [10, 10];
+      if (!wizardData.townRevenues)  wizardData.townRevenues  = [10, 10];
       if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
+      if (!wizardData.mFlatRevenues)  wizardData.mFlatRevenues  = [20, 20, 20];
     } else {
       wizardData = freshData();
     }
@@ -132,6 +134,7 @@
       townRevenue:   h.townRevenue !== undefined ? h.townRevenue : 10,
       townRevenues:  h.townRevenues ? h.townRevenues.slice() : [10, 10],
       ooFlatRevenues: h.ooFlatRevenues ? h.ooFlatRevenues.slice() : [20, 20],
+      mFlatRevenues:  h.mFlatRevenues  ? h.mFlatRevenues.slice()  : [20, 20, 20],
       phaseRevenue: Object.assign({}, h.phaseRevenue),
       activePhases: Object.assign({}, h.activePhases),
       name:         h.name,
@@ -248,10 +251,20 @@
         return '<rect x="5" y="24" width="22" height="14" rx="2" fill="#000"/>' +
                '<rect x="33" y="24" width="22" height="14" rx="2" fill="#000"/>';
       case 'oo':
-        // RULE 3: two separate circles, no rect
         return '<circle cx="18" cy="27" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
                '<circle cx="42" cy="27" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<text x="30" y="47" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">OO</text>';
+               '<text x="30" y="48" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">OO</text>';
+      case 'c':
+        // Two circles at ~120° apart
+        return '<circle cx="40" cy="17" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="20" cy="43" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<text x="30" y="57" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">C</text>';
+      case 'm':
+        // Three circles in equilateral triangle
+        return '<circle cx="30" cy="12" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="13" cy="43" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="47" cy="43" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<text x="30" y="57" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">M</text>';
       case 'city':
         if (slots === 4) {
           return '<rect x="8" y="16" width="44" height="28" rx="3" fill="white" stroke="#333" stroke-width="1.5"/>' +
@@ -277,50 +290,165 @@
     }
   }
 
-  function renderStep2(body) {
-    // Feature options: feature key + slots
-    var allOptions = [
-      { feature: 'none',     slots: 1, label: 'None'             },
-      { feature: 'town',     slots: 1, label: 'Town'             },
-      { feature: 'dualTown', slots: 1, label: 'Dual Town'        },
-      { feature: 'city',     slots: 1, label: 'City (1 slot)'    },
-      { feature: 'oo',       slots: 1, label: 'OO city (two nodes)'},
-      { feature: 'city',     slots: 2, label: 'City (2 slot)'    },
-      { feature: 'city',     slots: 3, label: 'City (3 slot)'    },
-      { feature: 'city',     slots: 4, label: 'City (Vancouver, 4 slot)'},
-      { feature: 'offboard', slots: 1, label: 'Offboard'         },
-    ];
-    var options = wizardData.bg === 'red'
-      ? allOptions.filter(function (o) { return o.feature === 'offboard' || o.feature === 'none'; })
-      : allOptions;
+  // ── Step 2 helpers ────────────────────────────────────────────────────────────
 
-    function isSelected(opt) {
-      return wizardData.feature === opt.feature &&
-             (opt.feature !== 'city' || wizardData.slots === opt.slots);
+  function step2FeatureCard(feat, label, active) {
+    return '<div class="shw-feature-item' + (active ? ' selected' : '') + '" data-s2base="' + feat + '">' +
+           '<svg viewBox="0 0 60 60" width="52" height="52">' + thumbSVG(feat, 1) + '</svg>' +
+           '<span>' + label + '</span></div>';
+  }
+
+  function step2CountPill(n, active) {
+    return '<div class="shw-count-pill" data-s2count="' + n + '"' +
+           ' style="display:inline-flex;align-items:center;justify-content:center;' +
+           'width:36px;height:36px;border-radius:50%;cursor:pointer;font-weight:bold;font-size:15px;' +
+           'border:2px solid ' + (active ? '#ffd700' : '#555') + ';' +
+           'color:' + (active ? '#ffd700' : '#aaa') + ';' +
+           'background:' + (active ? 'rgba(255,215,0,0.1)' : 'transparent') + ';">' +
+           n + '</div>';
+  }
+
+  function step2ArrangeBtn(val, label, active) {
+    return '<div data-s2arrange="' + val + '"' +
+           ' style="padding:5px 14px;border-radius:4px;cursor:pointer;font-size:12px;' +
+           'border:2px solid ' + (active ? '#ffd700' : '#555') + ';' +
+           'color:' + (active ? '#ffd700' : '#aaa') + ';' +
+           'background:' + (active ? 'rgba(255,215,0,0.1)' : 'transparent') + ';">' +
+           label + '</div>';
+  }
+
+  function renderStep2(body) {
+    var isRed = wizardData.bg === 'red';
+    var f     = wizardData.feature || 'none';
+    var slots = wizardData.slots   || 1;
+
+    // Derive city UI state from current feature
+    var inCity    = (f === 'city' || f === 'oo' || f === 'c' || f === 'm');
+    var cityCount = (f === 'oo' || f === 'c') ? 2 : (f === 'm') ? 3 : inCity ? slots : 1;
+    var citySep   = (f === 'oo' || f === 'c' || f === 'm');
+    var cityType  = (f === 'c') ? 'c' : 'oo';  // default separate-2 type
+
+    // Apply new feature/slots to wizardData, resetting pairs when config changes
+    function setFeature(newFeat, newSlots, resetPairs) {
+      if (resetPairs !== false && (newFeat !== wizardData.feature || newSlots !== wizardData.slots)) {
+        wizardData.pathMode  = 'star';
+        wizardData.pathPairs = [];
+        wizardData.exitPairs = [];
+      }
+      wizardData.feature = newFeat;
+      wizardData.slots   = newSlots || 1;
+      body.innerHTML = '';
+      renderStep2(body);
     }
 
-    var html = '<h3 class="shw-title">What\'s on this hex?</h3><div class="shw-feature-grid">';
-    options.forEach(function (opt) {
-      html += '<div class="shw-feature-item' + (isSelected(opt) ? ' selected' : '') +
-              '" data-feature="' + opt.feature + '" data-slots="' + opt.slots + '">' +
-              '<svg viewBox="0 0 60 60" width="52" height="52">' + thumbSVG(opt.feature, opt.slots) + '</svg>' +
-              '<span>' + opt.label + '</span></div>';
-    });
-    html += '</div><p class="shw-note">Full preview available after exits and orientation are set.</p>';
+    var html = '<h3 class="shw-title">What\'s on this hex?</h3>';
+
+    if (isRed) {
+      html += '<div class="shw-feature-grid">';
+      html += step2FeatureCard('offboard', 'Offboard', f === 'offboard');
+      html += step2FeatureCard('none', 'None', f === 'none');
+      html += '</div>';
+    } else {
+      // Non-city base options
+      html += '<div class="shw-feature-grid" style="margin-bottom:2px;">';
+      html += step2FeatureCard('none',     'None',       f === 'none');
+      html += step2FeatureCard('town',     'Town',       f === 'town');
+      html += step2FeatureCard('dualTown', 'Dual Town',  f === 'dualTown');
+      html += '</div>';
+
+      // City section header
+      var cityActive = inCity;
+      html += '<div style="margin:10px 0 8px;font-size:11px;font-weight:bold;' +
+              'text-transform:uppercase;letter-spacing:1px;text-align:center;' +
+              'color:' + (cityActive ? '#ffd700' : '#777') + ';">Cities</div>';
+
+      // City count pills
+      html += '<div style="display:flex;gap:10px;justify-content:center;margin-bottom:12px;">';
+      [1, 2, 3, 4].forEach(function (n) {
+        html += step2CountPill(n, inCity && cityCount === n);
+      });
+      html += '</div>';
+
+      if (inCity) {
+        if (cityCount >= 2) {
+          // Arrangement toggle
+          html += '<div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-bottom:12px;">' +
+                  '<span style="font-size:11px;color:#888;">Arrangement:</span>' +
+                  step2ArrangeBtn('connected', 'Connected', !citySep) +
+                  step2ArrangeBtn('separate',  'Separate',  citySep) +
+                  '</div>';
+        }
+
+        if (citySep) {
+          if (cityCount === 2) {
+            // OO vs C type selector
+            html += '<div class="shw-feature-grid" style="justify-content:center;">';
+            html += '<div class="shw-feature-item' + (cityType === 'oo' ? ' selected' : '') + '" data-s2type="oo">' +
+                    '<svg viewBox="0 0 60 60" width="52" height="52">' + thumbSVG('oo') + '</svg>' +
+                    '<span>OO</span></div>';
+            html += '<div class="shw-feature-item' + (cityType === 'c' ? ' selected' : '') + '" data-s2type="c">' +
+                    '<svg viewBox="0 0 60 60" width="52" height="52">' + thumbSVG('c') + '</svg>' +
+                    '<span>C</span></div>';
+            html += '</div>';
+            html += '<p class="shw-note" style="text-align:center;margin-top:4px;">' +
+                    (cityType === 'oo'
+                      ? 'OO &mdash; two cities at opposite hex vertices (180&deg;)'
+                      : 'C &mdash; two cities at diagonal hex vertices (120&deg;)') + '</p>';
+          } else if (cityCount === 3) {
+            html += '<div style="text-align:center;margin-bottom:4px;">' +
+                    '<div class="shw-feature-item selected" style="display:inline-flex;flex-direction:column;align-items:center;">' +
+                    '<svg viewBox="0 0 60 60" width="52" height="52">' + thumbSVG('m') + '</svg>' +
+                    '<span>M</span></div></div>' +
+                    '<p class="shw-note" style="text-align:center;">M &mdash; three cities in triangle arrangement (Moscow / ATL)</p>';
+          }
+        }
+      }
+    }
+
+    html += '<p class="shw-note" style="margin-top:8px;">Full preview available after exits and orientation are set.</p>';
 
     var div = document.createElement('div');
     div.innerHTML = html;
     body.appendChild(div);
 
-    body.querySelectorAll('.shw-feature-item').forEach(function (el) {
+    // Base feature clicks (None, Town, Dual Town, Offboard)
+    div.querySelectorAll('[data-s2base]').forEach(function (el) {
+      el.onclick = function () { setFeature(el.dataset.s2base, 1); };
+    });
+
+    // City count pills
+    div.querySelectorAll('[data-s2count]').forEach(function (el) {
       el.onclick = function () {
-        wizardData.feature   = el.dataset.feature;
-        wizardData.slots     = parseInt(el.dataset.slots, 10) || 1;
-        wizardData.pathMode  = 'star';
-        wizardData.pathPairs = [];
-        wizardData.exitPairs = [];
-        body.querySelectorAll('.shw-feature-item').forEach(function (s) { s.classList.remove('selected'); });
-        el.classList.add('selected');
+        var n   = parseInt(el.dataset.s2count, 10);
+        var sep = citySep && n >= 2;
+        var newFeat, newSlots;
+        if (n === 1)      { newFeat = 'city'; newSlots = 1; }
+        else if (!sep)    { newFeat = 'city'; newSlots = n; }
+        else if (n === 2) { newFeat = cityType; newSlots = 1; }
+        else if (n === 3) { newFeat = 'm';       newSlots = 1; }
+        else              { newFeat = 'city'; newSlots = n; sep = false; }
+        setFeature(newFeat, newSlots, true);
+      };
+    });
+
+    // Arrangement buttons (Connected / Separate)
+    div.querySelectorAll('[data-s2arrange]').forEach(function (el) {
+      el.onclick = function () {
+        var sep = el.dataset.s2arrange === 'separate';
+        var newFeat, newSlots;
+        if (!sep)              { newFeat = 'city'; newSlots = cityCount; }
+        else if (cityCount === 2) { newFeat = cityType; newSlots = 1; }
+        else if (cityCount === 3) { newFeat = 'm';       newSlots = 1; }
+        else                      { newFeat = 'city'; newSlots = cityCount; }
+        setFeature(newFeat, newSlots, true);
+      };
+    });
+
+    // OO vs C type selector
+    div.querySelectorAll('[data-s2type]').forEach(function (el) {
+      el.onclick = function () {
+        var t = el.dataset.s2type;  // 'oo' or 'c'
+        setFeature(t, 1, t !== f);  // don't reset pairs when staying in same 2-node family
       };
     });
   }
@@ -341,20 +469,25 @@
       case 'dualTown':
         return '<rect x="-30" y="-7" width="24" height="14" rx="2" fill="#000"/>' +
                '<rect x="6"   y="-7" width="24" height="14" rx="2" fill="#000"/>';
-      case 'oo': {
-        // Compute node positions from exitPairs; fall back to (±14, 0) if not set
-        var ooHasEP = exitPairs && ((exitPairs[0] || []).length + (exitPairs[1] || []).length) > 0;
-        var ooPos = [0, 1].map(function (ni) {
-          if (!ooHasEP) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-          var grp = exitPairs[ni] || [];
-          if (!grp.length) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
+      case 'oo':
+      case 'c':
+      case 'm': {
+        // Shared multi-city renderer — node count and defaults vary by feature type
+        var multiDefs = {
+          oo: [{ x: -14, y:  0 }, { x:  14, y:  0 }],
+          c:  [{ x:  14, y:  0 }, { x:  -7, y: 12 }],
+          m:  [{ x:   0, y:-16 }, { x:  14, y:  9 }, { x: -14, y:  9 }],
+        }[feature];
+        var mNodePos = multiDefs.map(function (def, ni) {
+          var grp = exitPairs && exitPairs[ni] ? exitPairs[ni] : [];
+          if (!grp.length) return def;
           var sx = 0, sy = 0;
           grp.forEach(function (e) { sx += EDGE_MPS[e % 6].x; sy += EDGE_MPS[e % 6].y; });
           return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
         });
-        return '<circle cx="' + ooPos[0].x.toFixed(1) + '" cy="' + ooPos[0].y.toFixed(1) + '" r="10" fill="white" stroke="#333" stroke-width="2"/>' +
-               '<circle cx="' + ooPos[1].x.toFixed(1) + '" cy="' + ooPos[1].y.toFixed(1) + '" r="10" fill="white" stroke="#333" stroke-width="2"/>' +
-               '<text x="0" y="24" text-anchor="middle" fill="#555" font-size="9" font-family="Arial">OO</text>';
+        return mNodePos.map(function (p) {
+          return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="11" fill="white" stroke="#333" stroke-width="2"/>';
+        }).join('');
       }
       case 'city':
         if ((slots || 1) === 4) {
@@ -423,20 +556,24 @@
 
   function renderStep3(body) {
     var isDualTown = wizardData.feature === 'dualTown';
-    var isOO       = wizardData.feature === 'oo';
+    var isOO       = wizardData.feature === 'oo' || wizardData.feature === 'c'; // C reuses OO pairing
+    var isM        = wizardData.feature === 'm';
     var isGrayCity = wizardData.bg === 'gray' && wizardData.feature === 'city';
     var pendingEdge = null;
 
+    var subtitle = '';
+    if (isDualTown)  subtitle = ' <em>Dual town needs an even number of exits (2, 4, or 6).</em>';
+    if (isOO)        subtitle = ' <em>Assign exits to each city node in the pairing step below.</em>';
+    if (isM)         subtitle = ' <em>Assign exits to each M city node in the pairing step below.</em>';
+
     var div = document.createElement('div');
     div.innerHTML = '<h3 class="shw-title">Select track exits</h3>' +
-      '<p class="shw-subtitle">Click edges of the hex to toggle exits.' +
-      (isDualTown ? ' <em>Dual town needs an even number of exits (2, 4, or 6).</em>' : '') +
-      (isOO ? ' <em>Assign exits to each OO city node in the pairing step below.</em>' : '') +
-      '</p>' +
+      '<p class="shw-subtitle">Click edges of the hex to toggle exits.' + subtitle + '</p>' +
       '<div id="shwExitsWrap" style="display:flex;justify-content:center;margin:16px 0;"></div>' +
       (isDualTown ? '<div id="shwPairingWrap" style="margin-top:4px;"></div>' : '') +
       (isOO       ? '<div id="shwOOPairingWrap" style="margin-top:4px;"></div>' : '') +
-      (isGrayCity ? '<div id="shwPathTopWrap" style="margin-top:4px;"></div>' : '') +
+      (isM        ? '<div id="shwMPairingWrap"  style="margin-top:4px;"></div>' : '') +
+      (isGrayCity ? '<div id="shwPathTopWrap"   style="margin-top:4px;"></div>' : '') +
       '<p class="shw-note">Orientation is set in the next step.</p>';
     body.appendChild(div);
 
@@ -450,6 +587,11 @@
       onExitsChange = function () {
         wizardData.exitPairs = [];
         renderOOPairingSection();
+      };
+    } else if (isM) {
+      onExitsChange = function () {
+        wizardData.exitPairs = [];
+        renderMPairingSection();
       };
     } else if (isGrayCity) {
       onExitsChange = function () {
@@ -465,6 +607,7 @@
 
     if (isDualTown)  renderPairingSection();
     if (isOO)        renderOOPairingSection();
+    if (isM)         renderMPairingSection();
     if (isGrayCity)  renderTopologySection();
 
     // ── Dual-town pairing section ────────────────────────────────────────────
@@ -596,8 +739,9 @@
       }
 
       var pairings = generateOOPairings(exits);
+      var featLabel = wizardData.feature === 'c' ? 'C' : 'OO';
       wrap.innerHTML =
-        '<h4 style="margin:12px 0 6px;text-align:center;font-size:13px;color:#ddd;">Assign exits to each OO node</h4>' +
+        '<h4 style="margin:12px 0 6px;text-align:center;font-size:13px;color:#ddd;">Assign exits to each ' + featLabel + ' city node</h4>' +
         '<div style="font-size:10px;color:#888;text-align:center;margin-bottom:6px;">' +
         'Yellow = node A &nbsp;\u2022&nbsp; Cyan = node B</div>' +
         '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
@@ -609,7 +753,7 @@
                  ' style="border:2px solid ' + (sel ? '#ffd700' : '#555') + ';' +
                  'border-radius:8px;padding:4px;cursor:pointer;text-align:center;' +
                  'background:' + (sel ? 'rgba(255,215,0,0.08)' : 'transparent') + ';">' +
-                 buildPairingPreviewSVG(pairing[0], pairing[1], 80) +
+                 buildCityPairingPreviewSVG(pairing[0], pairing[1], 80) +
                  '<div style="font-size:9px;color:#aaa;margin-top:2px;">' +
                  'A:' + aLabel + ' / B:' + bLabel + '</div>' +
                  '</div>';
@@ -626,6 +770,113 @@
             c.style.background  = c.dataset.idx == idx ? 'rgba(255,215,0,0.08)' : 'transparent';
           });
         };
+      });
+    }
+
+    // ── M pairing section (3-node interactive assignment) ────────────────────
+    function renderMPairingSection() {
+      var wrap = body.querySelector('#shwMPairingWrap');
+      if (!wrap) return;
+      var exits = wizardData.exits;
+
+      if (exits.length === 0) {
+        wrap.innerHTML = '<p style="text-align:center;font-size:11px;color:#aaa;margin:6px 0;">' +
+          'Add exits above then assign each to a node.</p>';
+        return;
+      }
+
+      // Node colours: 0=A yellow, 1=B cyan, 2=C pink
+      var NODE_COLORS  = ['#ffd700', '#00cfff', '#ff7eb3'];
+      var NODE_LABELS  = ['A', 'B', 'C'];
+      var NODE_MULTI   = { m: [{ x: 0, y: -16 }, { x: 14, y: 9 }, { x: -14, y: 9 }] };
+      var nodeDefs     = NODE_MULTI.m;
+
+      // Build assignment map from exitPairs: edge → nodeIdx
+      var assignMap = {};
+      var ep = wizardData.exitPairs || [];
+      for (var ni = 0; ni < 3; ni++) {
+        (ep[ni] || []).forEach(function (e) { assignMap[e] = ni; });
+      }
+
+      // Build interactive SVG
+      var bg   = BG_COLORS[wizardData.bg] || '#D4B483';
+      var path = hexPathStr();
+      var size = 180;
+
+      // Track stubs from each exit to node position, coloured by assignment
+      var stubs = exits.map(function (e) {
+        var mp  = EDGE_MPS[e];
+        var ni  = (assignMap[e] !== undefined) ? assignMap[e] : -1;
+        var col = ni >= 0 ? NODE_COLORS[ni] : '#555';
+        // Compute approx node position (default triangle scaled to SVG unit space)
+        var nx = ni >= 0 ? nodeDefs[ni].x : 0;
+        var ny = ni >= 0 ? nodeDefs[ni].y : 0;
+        return '<line x1="' + mp.x + '" y1="' + mp.y + '" x2="' + nx + '" y2="' + ny + '"' +
+               ' stroke="' + col + '" stroke-width="5" stroke-linecap="round"/>';
+      }).join('');
+
+      // Node circles in triangle
+      var nodeCircles = nodeDefs.map(function (nd, ni) {
+        return '<circle cx="' + nd.x + '" cy="' + nd.y + '" r="10"' +
+               ' fill="white" stroke="' + NODE_COLORS[ni] + '" stroke-width="2.5"/>' +
+               '<text x="' + nd.x + '" y="' + (nd.y + 4) + '"' +
+               ' text-anchor="middle" font-size="9" font-family="Arial" font-weight="bold"' +
+               ' fill="' + NODE_COLORS[ni] + '">' + NODE_LABELS[ni] + '</text>';
+      }).join('');
+
+      // Edge hit targets cycling A→B→C→unassigned
+      var hitTargets = '';
+      for (var j = 0; j < 6; j++) {
+        var c1 = HEX_CORNERS[j], c2 = HEX_CORNERS[(j + 1) % 6];
+        var isExit = exits.indexOf(j) >= 0;
+        if (!isExit) continue;
+        var curNode  = (assignMap[j] !== undefined) ? assignMap[j] : -1;
+        var label    = curNode >= 0 ? NODE_LABELS[curNode] : '?';
+        var labelCol = curNode >= 0 ? NODE_COLORS[curNode] : '#888';
+        var lx = EDGE_MPS[j].x * 1.25, ly = EDGE_MPS[j].y * 1.25;
+        hitTargets += '<line x1="' + c1.x + '" y1="' + c1.y + '" x2="' + c2.x + '" y2="' + c2.y + '"' +
+                      ' stroke="transparent" stroke-width="18" class="shwm-edge-hit" data-edge="' + j + '" style="cursor:pointer;"/>';
+        hitTargets += '<text x="' + lx + '" y="' + (ly + 4) + '" text-anchor="middle"' +
+                      ' font-size="10" font-family="Arial" font-weight="bold" fill="' + labelCol + '"' +
+                      ' pointer-events="none">' + label + '</text>';
+      }
+
+      wrap.innerHTML =
+        '<h4 style="margin:12px 0 6px;text-align:center;font-size:13px;color:#ddd;">Assign exits to M nodes</h4>' +
+        '<div style="font-size:10px;color:#888;text-align:center;margin-bottom:6px;">' +
+        'Click each exit edge to cycle: <span style="color:#ffd700">A</span> &rarr; ' +
+        '<span style="color:#00cfff">B</span> &rarr; <span style="color:#ff7eb3">C</span> &rarr; unassigned</div>' +
+        '<div style="display:flex;justify-content:center;">' +
+        '<svg width="' + size + '" height="' + size + '" viewBox="-65 -65 130 130">' +
+        '<path d="' + path + '" fill="' + bg + '" stroke="#555" stroke-width="1.5"/>' +
+        stubs + nodeCircles + hitTargets +
+        '</svg></div>';
+
+      // Summary line
+      var summary = NODE_LABELS.map(function (lbl, ni) {
+        var assigned = (ep[ni] || []);
+        return '<span style="color:' + NODE_COLORS[ni] + '">' + lbl + ': ' +
+               (assigned.length ? assigned.join(',') : '—') + '</span>';
+      }).join('<span style="color:#555">&nbsp;·&nbsp;</span>');
+      wrap.innerHTML += '<div style="text-align:center;font-size:10px;margin-top:4px;">' + summary + '</div>';
+
+      // Click handler: cycle assignment
+      wrap.querySelectorAll('.shwm-edge-hit').forEach(function (el) {
+        el.addEventListener('click', function () {
+          var e      = parseInt(el.dataset.edge, 10);
+          var curNi  = (assignMap[e] !== undefined) ? assignMap[e] : -1;
+          var nextNi = (curNi + 1) % 4; // 0→1→2→3(unassigned)→0
+
+          // Remove this exit from all current groups
+          var newPairs = [[], [], []];
+          for (var k = 0; k < 3; k++) {
+            newPairs[k] = (ep[k] || []).filter(function (x) { return x !== e; });
+          }
+          // Assign to new node (3 = unassigned)
+          if (nextNi < 3) newPairs[nextNi].push(e);
+          wizardData.exitPairs = newPairs;
+          renderMPairingSection();
+        });
       });
     }
 
@@ -929,6 +1180,62 @@
 
   // Mini SVG showing one pairing: groupA exits (yellow arcs) + groupB exits (cyan arcs).
   // RULE 5: quadratic bezier arcs; town dot at centroid scaled to 60% apothem.
+  // City-pairing preview: shows circles at predicted node positions (OO/C aware).
+  // Uses 0.55 centroid factor to match the renderer's node placement.
+  function buildCityPairingPreviewSVG(groupA, groupB, size) {
+    var bg   = BG_COLORS[wizardData.bg] || '#D4B483';
+    var path = hexPathStr();
+    var feat = wizardData.feature;
+
+    // Default node positions when the group has no exits
+    var MULTI_DEFS = {
+      oo: [{ x: -14, y:  0 }, { x:  14, y:  0 }],
+      c:  [{ x:  14, y:  0 }, { x:  -7, y: 12 }],
+    };
+    var defs = MULTI_DEFS[feat] || MULTI_DEFS.oo;
+
+    function nodePos(group, defPos) {
+      if (!group || !group.length) return defPos;
+      var sx = 0, sy = 0;
+      group.forEach(function (e) { sx += EDGE_MPS[e % 6].x; sy += EDGE_MPS[e % 6].y; });
+      return { x: sx / group.length * 0.55, y: sy / group.length * 0.55 };
+    }
+
+    var nA = nodePos(groupA, defs[0]);
+    var nB = nodePos(groupB, defs[1]);
+
+    // Box frame
+    var pad  = 10;
+    var bx1  = Math.min(nA.x, nB.x) - pad, bx2 = Math.max(nA.x, nB.x) + pad;
+    var by1  = Math.min(nA.y, nB.y) - pad, by2 = Math.max(nA.y, nB.y) + pad;
+    var frame = '<rect x="' + bx1.toFixed(1) + '" y="' + by1.toFixed(1) +
+                '" width="' + (bx2 - bx1).toFixed(1) + '" height="' + (by2 - by1).toFixed(1) +
+                '" rx="2" fill="white" stroke="#555" stroke-width="1"/>';
+
+    // Stubs: each exit → its node
+    var stubs = groupA.map(function (e) {
+      var mp = EDGE_MPS[e % 6];
+      return '<line x1="' + mp.x.toFixed(1) + '" y1="' + mp.y.toFixed(1) +
+             '" x2="' + nA.x.toFixed(1) + '" y2="' + nA.y.toFixed(1) +
+             '" stroke="#ffd700" stroke-width="5" stroke-linecap="round"/>';
+    }).join('') + groupB.map(function (e) {
+      var mp = EDGE_MPS[e % 6];
+      return '<line x1="' + mp.x.toFixed(1) + '" y1="' + mp.y.toFixed(1) +
+             '" x2="' + nB.x.toFixed(1) + '" y2="' + nB.y.toFixed(1) +
+             '" stroke="#40e0d0" stroke-width="5" stroke-linecap="round"/>';
+    }).join('');
+
+    // City circles
+    var circA = '<circle cx="' + nA.x.toFixed(1) + '" cy="' + nA.y.toFixed(1) +
+                '" r="9" fill="white" stroke="#ffd700" stroke-width="2"/>';
+    var circB = '<circle cx="' + nB.x.toFixed(1) + '" cy="' + nB.y.toFixed(1) +
+                '" r="9" fill="white" stroke="#40e0d0" stroke-width="2"/>';
+
+    return '<svg width="' + size + '" height="' + size + '" viewBox="-60 -60 120 120">' +
+           '<path d="' + path + '" fill="' + bg + '" stroke="#666" stroke-width="1.5"/>' +
+           frame + stubs + circA + circB + '</svg>';
+  }
+
   function buildPairingPreviewSVG(groupA, groupB, size) {
     var bg   = BG_COLORS[wizardData.bg] || '#D4B483';
     var path = hexPathStr();
@@ -1012,14 +1319,20 @@
     var slots = data.slots || 1;
     var exitPairs = data.exitPairs;
 
+    var PREVIEW_MULTI_DEFAULTS = {
+      oo: [{ x: -14, y:  0 }, { x:  14, y:  0 }],
+      c:  [{ x:  14, y:  0 }, { x:  -7, y: 12 }],
+      m:  [{ x:   0, y:-16 }, { x:  14, y:  9 }, { x: -14, y:  9 }],
+    };
     var stubs;
-    if (feat === 'oo') {
-      // Compute OO node positions from exitPairs (raw, no rotation) for circle placement
-      var ooHasEP = exitPairs && ((exitPairs[0] || []).length + (exitPairs[1] || []).length) > 0;
-      var ooNodePos = [0, 1].map(function (ni) {
-        if (!ooHasEP) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
-        var grp = exitPairs[ni] || [];
-        if (!grp.length) return ni === 0 ? { x: -14, y: 0 } : { x: 14, y: 0 };
+    if (PREVIEW_MULTI_DEFAULTS[feat]) {
+      // OO/C/M: draw each stub to its assigned node, colour by node
+      var multiDefs = PREVIEW_MULTI_DEFAULTS[feat];
+      var numNodes  = multiDefs.length;
+      var hasEP = exitPairs && exitPairs.some(function (g) { return g && g.length > 0; });
+      var mNodePos = multiDefs.map(function (def, ni) {
+        var grp = (exitPairs && exitPairs[ni]) ? exitPairs[ni] : [];
+        if (!grp.length) return def;
         var sx = 0, sy = 0;
         grp.forEach(function (e) { sx += EDGE_MPS[e % 6].x; sy += EDGE_MPS[e % 6].y; });
         return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
@@ -1027,10 +1340,16 @@
       stubs = (data.exits || []).map(function (e) {
         var re = (e + (data.rotation || 0) + 6) % 6;
         var mp = EDGE_MPS[re];
-        var nodeIdx = ooHasEP
-          ? ((exitPairs[0] || []).indexOf(e) >= 0 ? 0 : 1)
-          : ((data.exits || []).indexOf(e) < Math.ceil((data.exits || []).length / 2) ? 0 : 1);
-        var np = ooNodePos[nodeIdx];
+        // Find which node this exit belongs to
+        var nodeIdx = 0;
+        if (hasEP) {
+          for (var ni = 0; ni < numNodes; ni++) {
+            if ((exitPairs[ni] || []).indexOf(e) >= 0) { nodeIdx = ni; break; }
+          }
+        } else {
+          nodeIdx = (data.exits || []).indexOf(e) % numNodes;
+        }
+        var np = mNodePos[nodeIdx];
         return '<line x1="' + mp.x + '" y1="' + mp.y + '" x2="' + np.x.toFixed(1) + '" y2="' + np.y.toFixed(1) + '"' +
                ' stroke="#222" stroke-width="8" stroke-linecap="round"/>';
       }).join('');
@@ -1111,7 +1430,9 @@
     if (wizardData.feature === 'none')     return false; // track-only
     if (wizardData.feature === 'town')     return false; // flat integer revenue
     if (wizardData.feature === 'dualTown') return false; // per-node flat revenue
-    if (wizardData.feature === 'oo')       return false; // flat per-node integer revenues via ooFlatRevenues
+    if (wizardData.feature === 'oo')       return false; // flat per-node via ooFlatRevenues
+    if (wizardData.feature === 'c')        return false; // same as OO — ooFlatRevenues
+    if (wizardData.feature === 'm')        return false; // 3-node flat via mFlatRevenues
     return wizardData.feature === 'city' ||
            wizardData.feature === 'offboard' ||
            wizardData.bg === 'red' ||
@@ -1155,10 +1476,24 @@
         '<div class="shw-field"><label>Town B revenue</label>' +
         '<input type="number" id="shwTownRevB" value="' + ((wizardData.townRevenues || [10, 10])[1]) +
         '" min="0" max="999" style="width:80px;"></div>';
-    } else if (feat === 'oo') {
-      // OO: two independent 1-slot city nodes — flat static integer revenue per node
+    } else if (feat === 'oo' || feat === 'c') {
+      // OO/C: two independent 1-slot city nodes — flat static integer revenue per node
       if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
       revenueHtml = buildOORevenueHtml();
+    } else if (feat === 'm') {
+      // M: three independent city nodes
+      if (!wizardData.mFlatRevenues) wizardData.mFlatRevenues = [20, 20, 20];
+      var mRevs = wizardData.mFlatRevenues;
+      revenueHtml =
+        '<div class="shw-field" style="border-left:3px solid #ffd700;padding-left:8px;margin-bottom:8px;">' +
+        '<label style="color:#ffd700;">City A revenue</label>' +
+        '<input type="number" id="shwMRevA" value="' + mRevs[0] + '" min="0" max="999" style="width:80px;"></div>' +
+        '<div class="shw-field" style="border-left:3px solid #00cfff;padding-left:8px;margin-bottom:8px;">' +
+        '<label style="color:#00cfff;">City B revenue</label>' +
+        '<input type="number" id="shwMRevB" value="' + mRevs[1] + '" min="0" max="999" style="width:80px;"></div>' +
+        '<div class="shw-field" style="border-left:3px solid #ff7eb3;padding-left:8px;margin-bottom:8px;">' +
+        '<label style="color:#ff7eb3;">City C revenue</label>' +
+        '<input type="number" id="shwMRevC" value="' + mRevs[2] + '" min="0" max="999" style="width:80px;"></div>';
     } else if (usePhaseRevenue()) {
       // Phase-based revenue (single-node city, offboard)
       revenueHtml = '<div class="shw-field"><label>Revenue by phase</label>' +
@@ -1230,8 +1565,8 @@
         if (!wizardData.townRevenues) wizardData.townRevenues = [10, 10];
         wizardData.townRevenues[1] = parseInt(e.target.value, 10) || 0;
       };
-    } else if (feat === 'oo') {
-      // OO flat revenue handlers
+    } else if (feat === 'oo' || feat === 'c') {
+      // OO/C flat revenue handlers
       var inpA = body.querySelector('#shwOORevA');
       var inpB = body.querySelector('#shwOORevB');
       if (inpA) inpA.oninput = function (e) {
@@ -1242,6 +1577,15 @@
         if (!wizardData.ooFlatRevenues) wizardData.ooFlatRevenues = [20, 20];
         wizardData.ooFlatRevenues[1] = parseInt(e.target.value, 10) || 0;
       };
+    } else if (feat === 'm') {
+      // M three-node flat revenue handlers
+      ['A', 'B', 'C'].forEach(function (lbl, idx) {
+        var inp = body.querySelector('#shwMRev' + lbl);
+        if (inp) inp.oninput = function (e) {
+          if (!wizardData.mFlatRevenues) wizardData.mFlatRevenues = [20, 20, 20];
+          wizardData.mFlatRevenues[idx] = parseInt(e.target.value, 10) || 0;
+        };
+      });
     } else if (usePhaseRevenue()) {
       PHASES.forEach(function (ph) {
         body.querySelector('#shwChk_' + ph).onchange = function (e) {
