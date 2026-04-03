@@ -13,8 +13,11 @@
 const STATIC_BG_COLORS = {
   white:  '#D4B483',
   yellow: '#F0D070',
+  green:  '#71BF44',
+  brown:  '#CB7745',
   gray:   '#BCBDC0',
   red:    '#E05050',
+  blue:   '#35A7FF',
 };
 
 const STATIC_PHASE_COLORS = {
@@ -48,19 +51,18 @@ function drawBorders(hex, cx, cy, size) {
       ctx.moveTo(bx - edgeDx * halfLen, by - edgeDy * halfLen);
       ctx.lineTo(bx + edgeDx * halfLen, by + edgeDy * halfLen);
       ctx.stroke();
-    } else if (border.type === 'water') {
-      ctx.strokeStyle = '#2266cc';
+    } else if (border.type === 'water' || border.type === 'mountain') {
+      ctx.strokeStyle = border.type === 'water' ? '#2266cc' : '#8B6914';
       ctx.lineWidth = Math.max(1.5, 3 * zoom);
       ctx.beginPath();
       ctx.moveTo(bx - edgeDx * halfLen, by - edgeDy * halfLen);
       ctx.lineTo(bx + edgeDx * halfLen, by + edgeDy * halfLen);
       ctx.stroke();
       if (border.cost) {
-        ctx.fillStyle = '#2266cc';
+        ctx.fillStyle = ctx.strokeStyle;
         ctx.font = `bold ${Math.max(6, Math.round(7 * zoom))}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        // Offset label slightly inward (radial direction)
         const radDx = mp.x / len, radDy = mp.y / len;
         ctx.fillText(String(border.cost), bx - radDx * 8 * sc, by - radDy * 8 * sc);
       }
@@ -599,4 +601,66 @@ function drawHex(row, col, hex = null) {
   if (hex?.town && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
-    const sc 
+    const sc = size / 50;
+    ctx.scale(sc, sc);
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.roundRect(-16, -8, 32, 16, 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Killed hex — dark overlay so it reads as out-of-bounds
+  if (hex?.killed) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Hex label (label= field, rendered at center when no tile)
+  if (hex?.label && !hex?.tile) {
+    ctx.font = `bold ${Math.max(8, Math.round(9 * zoom))}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#555';
+    ctx.fillText(hex.label, cx, cy);
+  }
+
+  // Border markers (impassable / water crossing)
+  drawBorders(hex, cx, cy, size);
+
+  // Coordinate ID — small label near top of each hex
+  const coordLabel = hexId(row, col);
+  ctx.font = `${Math.max(6, Math.round(7 * zoom))}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(140,140,140,0.7)';
+  ctx.fillText(coordLabel, cx, cy - size * 0.62);
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+// Clears the canvas and redraws all hex cells.
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let r = 0; r < state.meta.rows; r++) {
+    for (let c = 0; c < state.meta.cols; c++) {
+      drawHex(r, c, state.hexes[hexId(r, c)] || null);
+    }
+  }
+}
+
+// ─── RESIZE CANVAS ────────────────────────────────────────────────────────────
+// Matches the canvas pixel dimensions to its CSS container and re-renders.
+// Called once at startup and on every window resize event.
+
+function resizeCanvas() {
+  canvas.width  = container.clientWidth  || 800;
+  canvas.height = container.clientHeight || 600;
+  render();
+} 

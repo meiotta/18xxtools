@@ -1434,8 +1434,10 @@
 
     // ── Border directives ──────────────────────────────────────────────────
     (hex.borders || []).forEach(function (b) {
-      var dir = 'border=edge:' + b.edge + ',type:' + b.type;
-      if (b.type === 'water' && b.cost) dir += ',cost:' + b.cost;
+      var dir = 'border=edge:' + b.edge;
+      if (b.type && b.type !== 'impassable') dir += ',type:' + b.type;
+      else if (b.type === 'impassable') dir += ',type:impassable';
+      if (b.cost) dir += ',cost:' + b.cost;
       parts.push(dir);
     });
 
