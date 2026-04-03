@@ -6,6 +6,10 @@
 let _stampTile = null;
 let _stampRotation = 0;
 
+// Shift+drag lasso selection
+let _lasso = null;               // {startX, startY, endX, endY} in canvas pixel coords
+let _lassoJustCompleted = false; // suppress the click that fires after mouseup
+
 // Returns the index (0–5) of the hex edge midpoint closest to world point (wx, wy).
 // Uses edgePos() (renderer convention: edge 0=bottom, 1=lower-left, …) to match
 // how border.edge is used throughout the renderer.
@@ -30,7 +34,8 @@ function findNearestEdge(row, col, wx, wy) {
 // edge convention: 0=bottom, 1=lower-left, 2=upper-left, 3=top, 4=upper-right, 5=lower-right.
 // Returns null if the neighbor would be off the grid (col < 0 or row < 0).
 function getNeighborHex(row, col, edge) {
-  const isEven = col % 2 === 0;
+  const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;
+  const isEven = (col + sp) % 2 === 0;
   let nr, nc;
   switch (edge) {
     case 0: nr = row + 1; nc = col;     break;
@@ -45,7 +50,64 @@ function getNeighborHex(row, col, edge) {
   return { row: nr, col: nc };
 }
 
+// ── Shift+drag lasso selection ────────────────────────────────────────────────
+canvas.addEventListener('mousedown', (e) => {
+  if (e.shiftKey && e.button === 0) {
+    const rect = canvas.getBoundingClientRect();
+    _lasso = {
+      startX: e.clientX - rect.left,
+      startY: e.clientY - rect.top,
+      endX:   e.clientX - rect.left,
+      endY:   e.clientY - rect.top,
+    };
+    e.preventDefault();
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (_lasso) {
+    const rect = canvas.getBoundingClientRect();
+    _lasso.endX = e.clientX - rect.left;
+    _lasso.endY = e.clientY - rect.top;
+    render();
+  }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (_lasso && e.button === 0) {
+    const wasDrag = Math.abs(_lasso.endX - _lasso.startX) > 5 ||
+                    Math.abs(_lasso.endY - _lasso.startY) > 5;
+    if (wasDrag) {
+      // Convert pixel rect to world coords
+      const px1 = Math.min(_lasso.startX, _lasso.endX);
+      const py1 = Math.min(_lasso.startY, _lasso.endY);
+      const px2 = Math.max(_lasso.startX, _lasso.endX);
+      const py2 = Math.max(_lasso.startY, _lasso.endY);
+      const wx1 = (px1 - LABEL_PAD) / zoom - panX;
+      const wy1 = (py1 - LABEL_PAD) / zoom - panY;
+      const wx2 = (px2 - LABEL_PAD) / zoom - panX;
+      const wy2 = (py2 - LABEL_PAD) / zoom - panY;
+
+      selectedHexes.clear();
+      for (let r = 0; r < state.meta.rows; r++) {
+        for (let c = 0; c < state.meta.cols; c++) {
+          const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
+          if (center.x >= wx1 && center.x <= wx2 &&
+              center.y >= wy1 && center.y <= wy2) {
+            selectedHexes.add(hexId(r, c));
+          }
+        }
+      }
+      _lassoJustCompleted = true;
+    }
+    _lasso = null;
+    render();
+  }
+});
+
 canvas.addEventListener('click', (e) => {
+  // Suppress click that fires immediately after a completed lasso drag
+  if (_lassoJustCompleted) { _lassoJustCompleted = false; return; }
   const rect = canvas.getBoundingClientRect();
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
@@ -116,6 +178,19 @@ canvas.addEventListener('click', (e) => {
       return;
     }
 
+    // Ctrl/Cmd+click → toggle multi-select without disturbing sidebar
+    if (e.ctrlKey || e.metaKey) {
+      if (selectedHexes.has(id)) {
+        selectedHexes.delete(id);
+      } else {
+        selectedHexes.add(id);
+      }
+      render();
+      return;
+    }
+
+    // Plain click → clear multi-select, select this hex
+    selectedHexes.clear();
     selectedHex = id;
     const existingHex = state.hexes[id];
     if (e.shiftKey && _stampTile) {
@@ -150,7 +225,12 @@ canvas.addEventListener('contextmenu', (e) => {
   const py = e.clientY - rect.top;
   const hex = pixelToHex(((px - LABEL_PAD) / zoom - panX), ((py - LABEL_PAD) / zoom - panY), HEX_SIZE, state.meta.orientation);
   const id = hexId(hex.row, hex.col);
-  showContextMenu(e.clientX, e.clientY, id);
+  // If right-clicking inside an existing multi-selection (2+ hexes), show multi-menu
+  if (selectedHexes.size >= 2 && selectedHexes.has(id)) {
+    showMultiContextMenu(e.clientX, e.clientY, Array.from(selectedHexes));
+  } else {
+    showContextMenu(e.clientX, e.clientY, id);
+  }
 });
 
 canvas.addEventListener('wheel', (e) => {
