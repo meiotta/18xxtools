@@ -148,6 +148,18 @@
   // ── Navigation ─────────────────────────────────────────────────────────────
 
   function nextStep() {
+    // Leaving step 3 (exits/pairing) — auto-apply the first valid pairing for OO/C
+    // if the user didn't explicitly click one, so the preview and export are correct.
+    if (currentStep === 3 && (wizardData.feature === 'oo' || wizardData.feature === 'c')) {
+      var hasExits = wizardData.exits && wizardData.exits.length >= 2;
+      var hasEP    = wizardData.exitPairs && wizardData.exitPairs.some(function (g) { return g && g.length > 0; });
+      if (hasExits && !hasEP) {
+        var auto = generateOOPairings(wizardData.exits);
+        if (auto.length > 0) {
+          wizardData.exitPairs = auto[0].map(function (g) { return g.slice(); });
+        }
+      }
+    }
     if (currentStep < TOTAL_STEPS) {
       currentStep++;
       renderStep();
@@ -251,20 +263,21 @@
         return '<rect x="5" y="24" width="22" height="14" rx="2" fill="#000"/>' +
                '<rect x="33" y="24" width="22" height="14" rx="2" fill="#000"/>';
       case 'oo':
-        return '<circle cx="18" cy="27" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<circle cx="42" cy="27" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<text x="30" y="48" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">OO</text>';
+        // Flat-top hex outline + two cities 180° apart (left/right), matching MULTI_DEFAULTS oo
+        return '<polygon points="56,30 43,52.5 17,52.5 4,30 17,7.5 43,7.5" fill="rgba(255,255,255,0.06)" stroke="#555" stroke-width="1.2"/>' +
+               '<circle cx="16" cy="30" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="44" cy="30" r="9" fill="white" stroke="#333" stroke-width="1.5"/>';
       case 'c':
-        // Two circles at ~120° apart
-        return '<circle cx="40" cy="17" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<circle cx="20" cy="43" r="10" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<text x="30" y="57" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">C</text>';
+        // Flat-top hex outline + two cities 120° apart, matching MULTI_DEFAULTS c [{x:14,y:0},{x:-7,y:12}]
+        return '<polygon points="56,30 43,52.5 17,52.5 4,30 17,7.5 43,7.5" fill="rgba(255,255,255,0.06)" stroke="#555" stroke-width="1.2"/>' +
+               '<circle cx="44" cy="30" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="23" cy="42" r="9" fill="white" stroke="#333" stroke-width="1.5"/>';
       case 'm':
-        // Three circles in equilateral triangle
-        return '<circle cx="30" cy="12" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<circle cx="13" cy="43" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<circle cx="47" cy="43" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
-               '<text x="30" y="57" text-anchor="middle" fill="#555" font-size="7" font-family="Arial">M</text>';
+        // Flat-top hex outline + three cities in triangle, matching MULTI_DEFAULTS m [{x:0,y:-16},{x:14,y:9},{x:-14,y:9}]
+        return '<polygon points="56,30 43,52.5 17,52.5 4,30 17,7.5 43,7.5" fill="rgba(255,255,255,0.06)" stroke="#555" stroke-width="1.2"/>' +
+               '<circle cx="30" cy="16" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="43" cy="38" r="9" fill="white" stroke="#333" stroke-width="1.5"/>' +
+               '<circle cx="17" cy="38" r="9" fill="white" stroke="#333" stroke-width="1.5"/>';
       case 'city':
         if (slots === 4) {
           return '<rect x="8" y="16" width="44" height="28" rx="3" fill="white" stroke="#333" stroke-width="1.5"/>' +
@@ -462,7 +475,9 @@
   }
 
   // Full-size feature SVG (centered at 0,0, SVG space radius-50)
-  function featureSVGFull(feature, slots, exitPairs) {
+  // rotation: how many 60° steps to rotate default node positions (0-5). Only used when
+  // exitPairs groups are empty — if exits are assigned the centroid determines position instead.
+  function featureSVGFull(feature, slots, exitPairs, rotation) {
     switch (feature) {
       case 'town':
         return '<rect x="-16" y="-8" width="32" height="16" rx="2" fill="#000"/>';
@@ -478,11 +493,19 @@
           c:  [{ x:  14, y:  0 }, { x:  -7, y: 12 }],
           m:  [{ x:   0, y:-16 }, { x:  14, y:  9 }, { x: -14, y:  9 }],
         }[feature];
+        var rot = rotation || 0;
         var mNodePos = multiDefs.map(function (def, ni) {
           var grp = exitPairs && exitPairs[ni] ? exitPairs[ni] : [];
-          if (!grp.length) return def;
+          if (!grp.length) {
+            // Rotate default position to match hex rotation so circles move with the tile
+            if (rot === 0) return def;
+            var θ = rot * Math.PI / 3;
+            var cosθ = Math.cos(θ), sinθ = Math.sin(θ);
+            return { x: def.x * cosθ - def.y * sinθ, y: def.x * sinθ + def.y * cosθ };
+          }
           var sx = 0, sy = 0;
-          grp.forEach(function (e) { sx += EDGE_MPS[e % 6].x; sy += EDGE_MPS[e % 6].y; });
+          // Use rotated edge midpoints so city circles track with the tile when rotated
+          grp.forEach(function (e) { var re = (e + rot + 6) % 6; sx += EDGE_MPS[re].x; sy += EDGE_MPS[re].y; });
           return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
         });
         return mNodePos.map(function (p) {
@@ -740,6 +763,13 @@
 
       var pairings = generateOOPairings(exits);
       var featLabel = wizardData.feature === 'c' ? 'C' : 'OO';
+      // Auto-select the only option — no choice to make, so pre-apply it.
+      // Also auto-select the first pairing if nothing is set yet, giving the
+      // user a sensible starting point they can change if needed.
+      var hasEP = wizardData.exitPairs && wizardData.exitPairs.some(function (g) { return g && g.length > 0; });
+      if (!hasEP && pairings.length > 0) {
+        wizardData.exitPairs = pairings[0].map(function (g) { return g.slice(); });
+      }
       wrap.innerHTML =
         '<h4 style="margin:12px 0 6px;text-align:center;font-size:13px;color:#ddd;">Assign exits to each ' + featLabel + ' city node</h4>' +
         '<div style="font-size:10px;color:#888;text-align:center;margin-bottom:6px;">' +
@@ -753,7 +783,7 @@
                  ' style="border:2px solid ' + (sel ? '#ffd700' : '#555') + ';' +
                  'border-radius:8px;padding:4px;cursor:pointer;text-align:center;' +
                  'background:' + (sel ? 'rgba(255,215,0,0.08)' : 'transparent') + ';">' +
-                 buildCityPairingPreviewSVG(pairing[0], pairing[1], 80) +
+                 buildCityPairingPreviewSVG(pairing[0], pairing[1], 100) +
                  '<div style="font-size:9px;color:#aaa;margin-top:2px;">' +
                  'A:' + aLabel + ' / B:' + bLabel + '</div>' +
                  '</div>';
@@ -1204,36 +1234,28 @@
     var nA = nodePos(groupA, defs[0]);
     var nB = nodePos(groupB, defs[1]);
 
-    // Box frame
-    var pad  = 10;
-    var bx1  = Math.min(nA.x, nB.x) - pad, bx2 = Math.max(nA.x, nB.x) + pad;
-    var by1  = Math.min(nA.y, nB.y) - pad, by2 = Math.max(nA.y, nB.y) + pad;
-    var frame = '<rect x="' + bx1.toFixed(1) + '" y="' + by1.toFixed(1) +
-                '" width="' + (bx2 - bx1).toFixed(1) + '" height="' + (by2 - by1).toFixed(1) +
-                '" rx="2" fill="white" stroke="#555" stroke-width="1"/>';
-
     // Stubs: each exit → its node
     var stubs = groupA.map(function (e) {
       var mp = EDGE_MPS[e % 6];
       return '<line x1="' + mp.x.toFixed(1) + '" y1="' + mp.y.toFixed(1) +
              '" x2="' + nA.x.toFixed(1) + '" y2="' + nA.y.toFixed(1) +
-             '" stroke="#ffd700" stroke-width="5" stroke-linecap="round"/>';
+             '" stroke="#ffd700" stroke-width="7" stroke-linecap="round"/>';
     }).join('') + groupB.map(function (e) {
       var mp = EDGE_MPS[e % 6];
       return '<line x1="' + mp.x.toFixed(1) + '" y1="' + mp.y.toFixed(1) +
              '" x2="' + nB.x.toFixed(1) + '" y2="' + nB.y.toFixed(1) +
-             '" stroke="#40e0d0" stroke-width="5" stroke-linecap="round"/>';
+             '" stroke="#40e0d0" stroke-width="7" stroke-linecap="round"/>';
     }).join('');
 
-    // City circles
+    // City circles (slightly larger for readability at small thumbnail sizes)
     var circA = '<circle cx="' + nA.x.toFixed(1) + '" cy="' + nA.y.toFixed(1) +
-                '" r="9" fill="white" stroke="#ffd700" stroke-width="2"/>';
+                '" r="11" fill="white" stroke="#ffd700" stroke-width="3"/>';
     var circB = '<circle cx="' + nB.x.toFixed(1) + '" cy="' + nB.y.toFixed(1) +
-                '" r="9" fill="white" stroke="#40e0d0" stroke-width="2"/>';
+                '" r="11" fill="white" stroke="#40e0d0" stroke-width="3"/>';
 
     return '<svg width="' + size + '" height="' + size + '" viewBox="-60 -60 120 120">' +
            '<path d="' + path + '" fill="' + bg + '" stroke="#666" stroke-width="1.5"/>' +
-           frame + stubs + circA + circB + '</svg>';
+           stubs + circA + circB + '</svg>';
   }
 
   function buildPairingPreviewSVG(groupA, groupB, size) {
@@ -1330,11 +1352,19 @@
       var multiDefs = PREVIEW_MULTI_DEFAULTS[feat];
       var numNodes  = multiDefs.length;
       var hasEP = exitPairs && exitPairs.some(function (g) { return g && g.length > 0; });
+      var previewRot = data.rotation || 0;
       var mNodePos = multiDefs.map(function (def, ni) {
         var grp = (exitPairs && exitPairs[ni]) ? exitPairs[ni] : [];
-        if (!grp.length) return def;
+        if (!grp.length) {
+          // Rotate default position to match hex rotation so circles move with the tile
+          if (previewRot === 0) return def;
+          var θ = previewRot * Math.PI / 3;
+          var cosθ = Math.cos(θ), sinθ = Math.sin(θ);
+          return { x: def.x * cosθ - def.y * sinθ, y: def.x * sinθ + def.y * cosθ };
+        }
         var sx = 0, sy = 0;
-        grp.forEach(function (e) { sx += EDGE_MPS[e % 6].x; sy += EDGE_MPS[e % 6].y; });
+        // Use rotated edge midpoints so city circles track with the tile when rotated
+        grp.forEach(function (e) { var re = (e + previewRot + 6) % 6; sx += EDGE_MPS[re].x; sy += EDGE_MPS[re].y; });
         return { x: sx / grp.length * 0.55, y: sy / grp.length * 0.55 };
       });
       stubs = (data.exits || []).map(function (e) {
@@ -1363,7 +1393,7 @@
       }).join('');
     }
 
-    var feature = featureSVGFull(feat, slots, exitPairs);
+    var feature = featureSVGFull(feat, slots, exitPairs, data.rotation || 0);
 
     return '<svg width="' + size + '" height="' + size + '" viewBox="-60 -60 120 120">' +
            '<path d="' + path + '" fill="' + bg + '" stroke="#666" stroke-width="1.5"/>' +
@@ -1421,7 +1451,17 @@
 
   function renderOrientPreview(body) {
     var wrap = body.querySelector('#shwOrientWrap');
-    wrap.innerHTML = buildPreviewSVG(wizardData, 170);
+    wrap.innerHTML = '';
+    var previewCanvas = document.createElement('canvas');
+    previewCanvas.style.display = 'block';
+    previewCanvas.style.margin = '0 auto';
+    wrap.appendChild(previewCanvas);
+    if (typeof renderStaticHexPreview === 'function') {
+      renderStaticHexPreview(previewCanvas, wizardData, 170);
+    } else {
+      // Fallback if renderer not loaded yet
+      wrap.innerHTML = buildPreviewSVG(wizardData, 170);
+    }
   }
 
   // ── Step 5 — Revenue, terminal, name, label ────────────────────────────────
@@ -1433,10 +1473,9 @@
     if (wizardData.feature === 'oo')       return false; // flat per-node via ooFlatRevenues
     if (wizardData.feature === 'c')        return false; // same as OO — ooFlatRevenues
     if (wizardData.feature === 'm')        return false; // 3-node flat via mFlatRevenues
-    return wizardData.feature === 'city' ||
-           wizardData.feature === 'offboard' ||
-           wizardData.bg === 'red' ||
-           wizardData.bg === 'gray';
+    // Only gray and red hexes have phase-dependent fixed revenue; yellow/green/white upgrade
+    if (wizardData.bg !== 'gray' && wizardData.bg !== 'red') return false;
+    return wizardData.feature === 'city' || wizardData.feature === 'offboard';
   }
 
   function buildOORevenueHtml() {
@@ -1622,7 +1661,9 @@
     document.getElementById('shwBtnBack').onclick   = prevStep;
     document.getElementById('shwBtnNext').onclick   = nextStep;
     modal.addEventListener('click', function (e) {
-      if (e.target === modal) closeWizard();
+      if (e.target === modal) {
+        if (confirm('Discard this hex build?')) closeWizard();
+      }
     });
   }
 
@@ -1681,6 +1722,21 @@
         parts.push('city=revenue:' + (noExits ? 0 : (ooFlatRevs[1] || 0)));
         break;
       }
+      case 'c': {
+        // C = two city nodes at ~120° apart, each with flat revenue
+        var cFlatRevs = hex.ooFlatRevenues || [20, 20];
+        parts.push('city=revenue:' + (noExits ? 0 : (cFlatRevs[0] || 0)));
+        parts.push('city=revenue:' + (noExits ? 0 : (cFlatRevs[1] || 0)));
+        break;
+      }
+      case 'm': {
+        // M = three city nodes in triangle, each with flat revenue
+        var mFlatRevs = hex.mFlatRevenues || [20, 20, 20];
+        parts.push('city=revenue:' + (noExits ? 0 : (mFlatRevs[0] || 0)));
+        parts.push('city=revenue:' + (noExits ? 0 : (mFlatRevs[1] || 0)));
+        parts.push('city=revenue:' + (noExits ? 0 : (mFlatRevs[2] || 0)));
+        break;
+      }
       case 'city': {
         var slots = hex.slots || 1;
         if (slots === 2) {
@@ -1706,8 +1762,8 @@
       termSuffix = ',terminal:1';
     }
 
-    if (hex.feature === 'oo') {
-      // Use exitPairs if set, otherwise fall back to simple ceil/2 split
+    if (hex.feature === 'oo' || hex.feature === 'c') {
+      // Two city nodes — use exitPairs if set, otherwise fall back to simple ceil/2 split
       var ooAExits = (hex.exitPairs && hex.exitPairs[0] && hex.exitPairs[0].length) ? hex.exitPairs[0] : null;
       var ooBExits = (hex.exitPairs && hex.exitPairs[1] && hex.exitPairs[1].length) ? hex.exitPairs[1] : null;
       if (ooAExits && ooBExits) {
@@ -1723,6 +1779,28 @@
           var re = (e + (hex.rotation || 0)) % 6;
           var station = i < ooHalf ? '_0' : '_1';
           parts.push('path=a:' + re + ',b:' + station + termSuffix);
+        });
+      }
+    } else if (hex.feature === 'm') {
+      // Three city nodes — use exitPairs if set
+      var mAExits = (hex.exitPairs && hex.exitPairs[0] && hex.exitPairs[0].length) ? hex.exitPairs[0] : null;
+      var mBExits = (hex.exitPairs && hex.exitPairs[1] && hex.exitPairs[1].length) ? hex.exitPairs[1] : null;
+      var mCExits = (hex.exitPairs && hex.exitPairs[2] && hex.exitPairs[2].length) ? hex.exitPairs[2] : null;
+      if (mAExits || mBExits || mCExits) {
+        (mAExits || []).forEach(function (e) {
+          parts.push('path=a:' + (e + (hex.rotation || 0)) % 6 + ',b:_0' + termSuffix);
+        });
+        (mBExits || []).forEach(function (e) {
+          parts.push('path=a:' + (e + (hex.rotation || 0)) % 6 + ',b:_1' + termSuffix);
+        });
+        (mCExits || []).forEach(function (e) {
+          parts.push('path=a:' + (e + (hex.rotation || 0)) % 6 + ',b:_2' + termSuffix);
+        });
+      } else {
+        // Fallback: round-robin distribute
+        exits.forEach(function (e, i) {
+          var re = (e + (hex.rotation || 0)) % 6;
+          parts.push('path=a:' + re + ',b:_' + (i % 3) + termSuffix);
         });
       }
     } else if (hex.feature === 'dualTown') {

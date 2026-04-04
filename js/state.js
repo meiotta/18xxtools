@@ -10,8 +10,31 @@
 //
 // canvas/ctx/container — DOM references initialized once on DOMContentLoaded
 
+// ── meta.staggerParity ────────────────────────────────────────────────────────
+// Controls which set of internal columns receives the half-row downward offset
+// in the flat-top hex grid layout.
+//
+//   0 (default) — even internal cols (0,2,4…) are the staggered/tall ones.
+//                 This is the standard 18xx.games convention where letter=column
+//                 and even columns (A,C,E…) start at string-row 2,4,6… (lower).
+//
+//   1           — odd internal cols (1,3,5…) are the staggered/tall ones.
+//                 Set automatically when importing Ruby files that declare
+//                 AXES = { x: :number, y: :letter } (e.g. 1882 Saskatchewan).
+//                 In those files the coord letter encodes the ROW and the number
+//                 encodes the COLUMN, so after coordToGrid transposes them the
+//                 stagger direction is reversed relative to the internal grid.
+//
+// This value is read by getHexCenter, pixelToHex (hex-geometry.js), and
+// getNeighborHex (canvas-input.js) via  (col + staggerParity) % 2 === 0.
+// It is serialized in the save file so imported maps reload correctly.
 const state = {
-  meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, bank: 12000, playersMin: 2, playersMax: 6 },
+  // maxRowPerCol: populated by importRubyMap when per-column row extents differ.
+  // The render loop uses this to skip positions beyond each column's valid range
+  // (e.g. the rightmost cols of 1889 Shikoku only extend part-way down the grid).
+  // null means no per-column clipping (user-created maps, or maps where every
+  // column spans the full height).
+  meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
   hexes: {},
   companies: [],
   trains: [],
