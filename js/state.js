@@ -28,12 +28,16 @@
 // This value is read by getHexCenter, pixelToHex (hex-geometry.js), and
 // getNeighborHex (canvas-input.js) via  (col + staggerParity) % 2 === 0.
 // It is serialized in the save file so imported maps reload correctly.
+
+// ── meta.maxRowPerCol ─────────────────────────────────────────────────────────
+// When set (by importRubyMap), this records the max valid internal row for each
+// column: maxRowPerCol[col] = first row index that is OUT of bounds for that col.
+// null means no per-column clipping (user-created maps or uniform-height maps).
+// The render loop uses this to skip positions beyond each column's valid range
+// (e.g. 1889 Shikoku: rightmost cols only extend partway down the island).
+// It is serialized in the save file so imported maps reload correctly.
+
 const state = {
-  // maxRowPerCol: populated by importRubyMap when per-column row extents differ.
-  // The render loop uses this to skip positions beyond each column's valid range
-  // (e.g. the rightmost cols of 1889 Shikoku only extend part-way down the grid).
-  // null means no per-column clipping (user-created maps, or maps where every
-  // column spans the full height).
   meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
   hexes: {},
   companies: [],
