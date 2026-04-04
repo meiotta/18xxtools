@@ -70,9 +70,9 @@ function getNeighborHex(row, col, edge) {
   return { row: nr, col: nc };
 }
 
-// ── Shift+drag lasso selection ────────────────────────────────────────────────
+// ── Lasso selection (plain left-button drag) ──────────────────────────────────
 canvas.addEventListener('mousedown', (e) => {
-  if (e.shiftKey && e.button === 0) {
+  if (e.button === 0 && !e.ctrlKey && !e.metaKey) {
     const rect = canvas.getBoundingClientRect();
     _lasso = {
       startX: e.clientX - rect.left,
@@ -80,7 +80,6 @@ canvas.addEventListener('mousedown', (e) => {
       endX:   e.clientX - rect.left,
       endY:   e.clientY - rect.top,
     };
-    e.preventDefault();
   }
 });
 
@@ -198,13 +197,22 @@ canvas.addEventListener('click', (e) => {
       return;
     }
 
-    // Ctrl/Cmd+click → toggle multi-select without disturbing sidebar
+    // Ctrl/Cmd+click → toggle multi-select
     if (e.ctrlKey || e.metaKey) {
       if (selectedHexes.has(id)) {
         selectedHexes.delete(id);
       } else {
         selectedHexes.add(id);
+        selectedHex = id;
       }
+      render();
+      return;
+    }
+
+    // Shift+click → add hex to multi-select
+    if (e.shiftKey) {
+      selectedHexes.add(id);
+      selectedHex = id;
       render();
       return;
     }
@@ -213,13 +221,7 @@ canvas.addEventListener('click', (e) => {
     selectedHexes.clear();
     selectedHex = id;
     const existingHex = state.hexes[id];
-    if (e.shiftKey && _stampTile) {
-      // STAMP: shift+click repeats the last placed tile at the same rotation
-      if (!state.hexes[id]) state.hexes[id] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, oo: false, dualTown: false, ooCityName: '', label: '', killed: false };
-      state.hexes[id].tile = _stampTile;
-      state.hexes[id].rotation = _stampRotation;
-      autosave();
-    } else if (activeTool === 'tile' && activeTile) {
+    if (activeTool === 'tile' && activeTile) {
       // DROP: place tile, applyTool handles deselect
       applyTool(id);
     } else if (!activeTool && existingHex?.tile) {
