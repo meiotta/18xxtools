@@ -123,11 +123,21 @@ function drawStaticHex(row, col, hex) {
   ctx.closePath();
   ctx.fill();
 
-  // 2. Hex border (gold when selected; darker for plain red fill hexes)
+  // 2. Hex border (gold when selected; cyan dashed when in multi-selection; darker for plain red fill hexes)
   const isPlainRed = hex.bg === 'red' && (!hex.feature || hex.feature === 'none');
-  ctx.strokeStyle = selectedHex === hexId(row, col) ? '#ffd700' : (isPlainRed ? '#333' : '#666');
-  ctx.lineWidth   = selectedHex === hexId(row, col) ? 2 * zoom : 1;
+  const thisId = hexId(row, col);
+  const inMulti = selectedHexes && selectedHexes.has(thisId);
+  if (inMulti) {
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = 2 * zoom;
+    ctx.setLineDash([4 * zoom, 3 * zoom]);
+  } else {
+    ctx.strokeStyle = selectedHex === thisId ? '#ffd700' : (isPlainRed ? '#333' : '#666');
+    ctx.lineWidth   = selectedHex === thisId ? 2 * zoom : 1;
+    ctx.setLineDash([]);
+  }
   ctx.stroke();
+  ctx.setLineDash([]);
 
   // Hidden offboard hex (hide:1) — solid color only, no features
   if (hex.hidden) return;
@@ -151,7 +161,14 @@ function drawStaticHex(row, col, hex) {
     const ep = hex.exitPairs;
     ooNodes = MULTI_DEFAULTS[hex.feature].map((def, ni) => {
       const grp = ep && ep[ni] ? ep[ni] : [];
-      if (!grp.length) return def;
+      if (!grp.length) {
+        // Rotate the default position to match hex.rotation so circles move with the tile
+        const rot = hex.rotation || 0;
+        if (rot === 0) return def;
+        const θ = rot * Math.PI / 3;
+        const cosθ = Math.cos(θ), sinθ = Math.sin(θ);
+        return { x: def.x * cosθ - def.y * sinθ, y: def.x * sinθ + def.y * cosθ };
+      }
       let sx = 0, sy = 0;
       for (const e of grp) {
         const re = (e + (hex.rotation || 0)) % 6;
@@ -286,15 +303,29 @@ function drawStaticHex(row, col, hex) {
 
   const slots = hex.slots || 1;
   switch (hex.feature) {
-    case 'town':
+    case 'town': {
+      // Gray pre-printed town: revenue box on the track rather than a black dot.
+      // The track arc passes through center; this white rectangle sits on top of it,
+      // showing the revenue value (like 18xx.games gray town rendering).
+      const revVal = (hex.phaseRevenue && Object.values(hex.phaseRevenue).find(v => v > 0)) || 0;
+      const boxW = revVal > 0 ? 30 : 18;
+      const boxH = 16;
+      ctx.fillStyle = 'white';
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(0, 0, 10, 0, Math.PI * 2);
-      ctx.fillStyle = '#000';
+      ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 2);
       ctx.fill();
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 4;
       ctx.stroke();
+      if (revVal > 0) {
+        ctx.fillStyle = '#000';
+        ctx.font = `bold 10px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(revVal), 0, 0);
+      }
       break;
+    }
 
     case 'dualTown':
       for (const [px, py] of [[-14, 0], [14, 0]]) {
@@ -311,19 +342,7 @@ function drawStaticHex(row, col, hex) {
     case 'oo':
     case 'c':
     case 'm': {
-      // Box frame enclosing all edge-positioned city circles
-      const xs = ooNodes.map(n => n.x), ys = ooNodes.map(n => n.y);
-      const pad = 14;
-      const fMinX = Math.min(...xs) - pad, fMaxX = Math.max(...xs) + pad;
-      const fMinY = Math.min(...ys) - pad, fMaxY = Math.max(...ys) + pad;
-      ctx.fillStyle = 'white';
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(fMinX, fMinY, fMaxX - fMinX, fMaxY - fMinY, 3);
-      ctx.fill();
-      ctx.stroke();
-      // Draw tracks over the box fill so they're visible connecting edges to nodes
+      // Draw tracks connecting edges to city nodes
       if (hex.exits && hex.exits.length > 0) {
         ctx.strokeStyle = '#222';
         ctx.lineWidth = 6;
@@ -443,8 +462,9 @@ function drawStaticHex(row, col, hex) {
         const npos = ooNodes[ni];
         const mag = Math.hypot(npos.x, npos.y) || 1;
         const dx = npos.x / mag, dy = npos.y / mag;
-        const revX = cx + (npos.x + dx * 20) * sc;
-        const revY = cy + (npos.y + dy * 20) * sc;
+        // Perpendicular offset so bubble sits beside track rather than on it
+        const revX = cx + (npos.x - dy * 16) * sc;
+        const revY = cy + (npos.y + dx * 16) * sc;
         const r = 10 * sc;
         ctx.beginPath();
         ctx.arc(revX, revY, r, 0, Math.PI * 2);
@@ -462,8 +482,9 @@ function drawStaticHex(row, col, hex) {
     }
   }
 
-  // 5. Revenue display (OO/C/M handled above per-city; skip for those)
-  if (!MULTI_DEFAULTS[hex.feature]) {
+  // 5. Revenue display (OO/C/M handled above per-city; skip for those and for
+  //    town/dualTown which embed revenue in their center marker instead)
+  if (!MULTI_DEFAULTS[hex.feature] && hex.feature !== 'town' && hex.feature !== 'dualTown') {
     const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
     const activePhases = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
     if (hex.phaseRevenue && activePhases.length > 0) {
@@ -543,12 +564,7 @@ function drawStaticHex(row, col, hex) {
     ctx.fillText(hex.label, cx, cy);
   }
 
-  // 8. "STATIC" badge (small, bottom-right corner) so designer can identify it
-  ctx.font = `${Math.max(5, Math.round(5.5 * zoom))}px Arial`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
-  ctx.fillText('S', cx + size * 0.54, cy + size * 0.62);
+  // 8. (Static badge removed — was "S" in bottom-right corner; unnecessary noise.)
 
   // 9. Border markers (impassable / water crossing)
   drawBorders(hex, cx, cy, size);
@@ -844,8 +860,77 @@ function drawHex(row, col, hex = null) {
     }
   }
 
-  // Terrain cost icon for hexes with an upgrade cost (mountain/hill/water/swamp icons + cost)
-  if (hex?.terrainCost && hex.terrainCost > 0 && !hex?.tile) {
+  // Resource icons (mine, port, factory) — drawn in lower-right cluster.
+  // iconSize is kept intentionally small so icons don't obscure city/town markers.
+  if (hex?.icons && hex.icons.length > 0 && !hex?.tile) {
+    const iconSize = Math.max(6, Math.round(7 * zoom));
+    const startX = cx + size * 0.32;
+    const startY = cy + size * 0.28;
+    const gap = iconSize * 1.6;
+    hex.icons.forEach((icon, idx) => {
+      const ix = startX + (idx - (hex.icons.length - 1) / 2) * gap;
+      const iy = startY;
+      ctx.save();
+      ctx.translate(ix, iy);
+      const s = iconSize;
+      if (icon.image === 'mine') {
+        // Crossed pick axes (two diagonal strokes forming an X, with a dot shaft end)
+        ctx.strokeStyle = '#5a3e1b';
+        ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-s * 0.7, -s * 0.7); ctx.lineTo(s * 0.7,  s * 0.7); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo( s * 0.7, -s * 0.7); ctx.lineTo(-s * 0.7, s * 0.7); ctx.stroke();
+        // Pick head at top-left of each stroke
+        ctx.beginPath(); ctx.arc(-s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
+        ctx.fillStyle = '#8B6914'; ctx.fill();
+        ctx.beginPath(); ctx.arc( s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
+        ctx.fillStyle = '#8B6914'; ctx.fill();
+      } else if (icon.image === 'port') {
+        // Small anchor icon. No large badge circle — just the anchor outline so it
+        // doesn't block city/town markers.  Dark blue on land, lighter on water.
+        const isWaterHex = (hex.bg === 'blue') || (hex.terrain === 'water' || hex.terrain === 'lake' || hex.terrain === 'river');
+        const aStroke = isWaterHex ? '#cce0ff' : '#1a3a7a';
+        ctx.strokeStyle = aStroke;
+        ctx.lineWidth = Math.max(1, 1.2 * zoom);
+        ctx.lineCap = 'round';
+        // Vertical shaft
+        ctx.beginPath(); ctx.moveTo(0, -s * 0.75); ctx.lineTo(0, s * 0.75); ctx.stroke();
+        // Top crossbar
+        ctx.beginPath(); ctx.moveTo(-s * 0.42, -s * 0.42); ctx.lineTo(s * 0.42, -s * 0.42); ctx.stroke();
+        // Top ring
+        ctx.beginPath(); ctx.arc(0, -s * 0.75, s * 0.16, 0, Math.PI * 2);
+        ctx.fillStyle = aStroke; ctx.fill();
+        // Bottom arc
+        ctx.beginPath(); ctx.arc(0, s * 0.05, s * 0.65, 0.2, Math.PI - 0.2);
+        ctx.strokeStyle = aStroke; ctx.stroke();
+        // Bottom endpoints (small dots)
+        ctx.beginPath(); ctx.arc(-s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
+        ctx.fillStyle = aStroke; ctx.fill();
+        ctx.beginPath(); ctx.arc( s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
+        ctx.fillStyle = aStroke; ctx.fill();
+      } else if (icon.image === 'factory') {
+        // Simple factory silhouette: base rectangle + two chimneys
+        ctx.fillStyle = '#555';
+        // Building body
+        ctx.fillRect(-s * 0.7, -s * 0.2, s * 1.4, s * 1.0);
+        // Left chimney
+        ctx.fillRect(-s * 0.45, -s * 0.9, s * 0.28, s * 0.7);
+        // Right chimney
+        ctx.fillRect( s * 0.17, -s * 0.75, s * 0.28, s * 0.55);
+        // Window
+        ctx.fillStyle = '#aaddff';
+        ctx.fillRect(-s * 0.2, s * 0.0, s * 0.4, s * 0.3);
+      } else {
+        // Unknown icon: small circle
+        ctx.beginPath(); ctx.arc(0, 0, s * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#888'; ctx.fill();
+      }
+      ctx.restore();
+    });
+  }
+
+  // Terrain icon — show whenever terrain type is set and no tile placed
+  if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
     const terrain = hex.terrain || '';
     const iconX = cx;
     const iconY = cy + size * 0.22;
@@ -915,13 +1000,31 @@ function drawHex(row, col, hex = null) {
 
     ctx.restore();
 
-    // Cost number below icon
-    const fs = Math.max(6, Math.round(7 * zoom));
-    ctx.font = `bold ${fs}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#222';
-    ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
+    // Supplemental water indicator: small blue drop beside the main terrain icon.
+    // Shown when a hex has compound terrain like water|mountain (water crossing cost
+    // stacks with the other terrain cost — both are shown visually).
+    if (hex?.terrainHasWater && terrain !== 'water') {
+      const ws = Math.max(4, Math.round(5 * zoom));
+      ctx.save();
+      ctx.translate(iconX + is * 1.5, iconY - is * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(0, -ws);
+      ctx.bezierCurveTo(ws * 0.8, -ws * 0.2, ws * 0.8, ws * 0.6, 0, ws * 0.7);
+      ctx.bezierCurveTo(-ws * 0.8, ws * 0.6, -ws * 0.8, -ws * 0.2, 0, -ws);
+      ctx.fillStyle = '#3366CC';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Cost number below icon — only when cost is explicitly set and > 0
+    if (hex.terrainCost && hex.terrainCost > 0) {
+      const fs = Math.max(6, Math.round(7 * zoom));
+      ctx.font = `bold ${fs}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#222';
+      ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
+    }
   }
 
   // Killed hex — dark overlay so it reads as out-of-bounds
@@ -962,10 +1065,32 @@ function drawHex(row, col, hex = null) {
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // maxRowPerCol: per-column row extents set by importRubyMap.
+  // When present, skip positions beyond each column's valid range so that
+  // imported maps (e.g. 1889 Shikoku) don't render blank tan hexes outside
+  // the island shape.  Null = no per-column clipping (user-created maps).
+  const mRPC = state.meta.maxRowPerCol || null;
   for (let r = 0; r < state.meta.rows; r++) {
     for (let c = 0; c < state.meta.cols; c++) {
+      if (mRPC !== null && r >= (mRPC[c] !== undefined ? mRPC[c] : state.meta.rows)) continue;
       drawHex(r, c, state.hexes[hexId(r, c)] || null);
     }
+  }
+  // Lasso selection rectangle overlay
+  if (typeof _lasso !== 'undefined' && _lasso) {
+    const lx = Math.min(_lasso.startX, _lasso.endX);
+    const ly = Math.min(_lasso.startY, _lasso.endY);
+    const lw = Math.abs(_lasso.endX - _lasso.startX);
+    const lh = Math.abs(_lasso.endY - _lasso.startY);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,204,255,0.07)';
+    ctx.fillRect(lx, ly, lw, lh);
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(lx, ly, lw, lh);
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 }
 
@@ -977,4 +1102,51 @@ function resizeCanvas() {
   canvas.width  = container.clientWidth  || 800;
   canvas.height = container.clientHeight || 600;
   render();
-} 
+}
+
+// ── Wizard preview adapter ───────────────────────────────────────────────────
+// Called by static-hex-builder.js to render a wizard hex using the canonical
+// canvas renderer rather than duplicating logic in SVG.
+function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
+  previewSize = previewSize || 170;
+  previewCanvas.width  = previewSize;
+  previewCanvas.height = previewSize;
+  const ctx2 = previewCanvas.getContext('2d');
+  ctx2.clearRect(0, 0, previewSize, previewSize);
+
+  const hs = previewSize * 0.45;
+  const orientation = 'flat';
+  const center = getHexCenter(0, 0, hs, orientation);
+
+  // Save and override globals that drawStaticHex reads
+  const savedCtx         = window.ctx;
+  const savedZoom        = window.zoom;
+  const savedPanX        = window.panX;
+  const savedPanY        = window.panY;
+  const savedHexSize     = window.HEX_SIZE;
+  const savedLabelPad    = window.LABEL_PAD;
+  const savedSelectedHex = window.selectedHex;
+  const savedOrientation = state.meta.orientation;
+
+  window.ctx              = ctx2;
+  window.zoom             = 1;
+  window.LABEL_PAD        = 0;
+  window.HEX_SIZE         = hs;
+  window.panX             = previewSize / 2 - center.x;
+  window.panY             = previewSize / 2 - center.y;
+  window.selectedHex      = null;   // never show selection border in preview
+  state.meta.orientation  = orientation;
+
+  try {
+    drawStaticHex(0, 0, hexData);
+  } finally {
+    window.ctx             = savedCtx;
+    window.zoom            = savedZoom;
+    window.panX            = savedPanX;
+    window.panY            = savedPanY;
+    window.HEX_SIZE        = savedHexSize;
+    window.LABEL_PAD       = savedLabelPad;
+    window.selectedHex     = savedSelectedHex;
+    state.meta.orientation = savedOrientation;
+  }
+}

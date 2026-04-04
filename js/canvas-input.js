@@ -33,6 +33,26 @@ function findNearestEdge(row, col, wx, wy) {
 // Returns {row, col} of the hex sharing edge `edge` with hex (row, col).
 // edge convention: 0=bottom, 1=lower-left, 2=upper-left, 3=top, 4=upper-right, 5=lower-right.
 // Returns null if the neighbor would be off the grid (col < 0 or row < 0).
+//
+// ── Stagger parity ────────────────────────────────────────────────────────────
+// In a flat-top hex grid the row offsets for diagonal neighbors depend on which
+// columns are "staggered" (shifted down by half a row).  This is controlled by
+// state.meta.staggerParity (see hex-geometry.js for the full explanation):
+//
+//   staggerParity=0 (default): even cols are staggered.
+//     isEven=true  → col is lower than its odd neighbours → diagonal edges go
+//                    one row DOWN on the left/right.
+//     isEven=false → col is higher → diagonal edges go one row UP.
+//
+//   staggerParity=1 (1882 transposed axes): odd cols are staggered.
+//     The (col + sp) % 2 trick flips the even/odd sense so the same adjacency
+//     table remains correct — no other logic changes needed.
+//
+// Without this fix, for a transposed-axes game (sp=1) the neighbour of e.g.
+// Western Canada (I1 → internal col=0, even) would be computed as if col=0 is
+// the high column, placing Lethbridge (L2 → col=1) adjacent to it — which is
+// wrong.  With sp=1, col=0 is treated as odd (high), and col=1 as even (low),
+// matching the actual visual stagger and the Ruby coordinate geometry.
 function getNeighborHex(row, col, edge) {
   const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;
   const isEven = (col + sp) % 2 === 0;

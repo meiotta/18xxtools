@@ -2,11 +2,38 @@
 // Pure geometric functions for flat-top hexagonal grids.
 // Load order: THIRD — after state.js (uses HEX_SIZE, EDGE_MIDPOINTS from constants).
 //
-// Flat-top hex: corners at 0°, 60°, 120°, 180°, 240°, 300°.
-// Coordinate system: columns are letters (A–Z), rows are numbers (1–N).
-// Odd columns (B, D, F…) are at their base height; even columns (A, C, E…)
-// are staggered down by half a row — matching the 18xx.games flat layout.
+// ── Coordinate systems ───────────────────────────────────────────────────────
 //
+// INTERNAL (editor) grid:  row=0..N, col=0..M  (integers, 0-based)
+//
+// 18XX.GAMES coord string: letter + number, e.g. "B3", "J10"
+//   Standard convention:  letter = column (A=col0, B=col1 …), number = row
+//   hexId(row, col) converts internal → string.
+//
+//   Standard row numbering per column (flat-top stagger):
+//     even cols (0,2,4…): string rows 2,4,6,8…  → internal row = (strRow-2)/2
+//     odd  cols (1,3,5…): string rows 1,3,5,7…  → internal row = (strRow-1)/2
+//
+// ── Transposed-axes games (e.g. 1882 Saskatchewan) ──────────────────────────
+//
+// Some Ruby source files declare  AXES = { x: :number, y: :letter }
+// meaning the coord string is  {letter}{number}  but letter = ROW, number = COL.
+// So "I1" = row I (letterIdx=8), col 1.
+//
+// coordToGrid (import-ruby.js) handles this reversal.  After the reversal the
+// internal (row, col) indices are correct, BUT the stagger direction flips:
+//
+//   Standard game:  even internal cols are the "tall" ones (get t_y/2 offset).
+//   1882 transposed: odd  internal cols are the "tall" ones (get t_y/2 offset).
+//
+// This is encoded in  state.meta.staggerParity:
+//   0 = default (even cols staggered)
+//   1 = transposed (odd cols staggered)
+//
+// getHexCenter, pixelToHex, and getNeighborHex all read staggerParity so the
+// visual layout and click-to-hex math match the actual coordinate mapping.
+//
+// ── API ──────────────────────────────────────────────────────────────────────
 // hexId(row, col) → '18xx.games' coord string, e.g. (0,0)→'A2', (0,1)→'B1'
 // getHexCenter(row, col, size, orientation) → {x, y} canvas coords
 // pixelToHex(px, py, size, orientation) → {row, col} from canvas pixel coords
@@ -34,9 +61,29 @@ function getHexCenter(row, col, size, orientation) {
     y = row * dy + size;
     if (row % 2 === 1) x += dx / 2;
   } else {
-    // Flat-top: columns spaced by size*1.5, rows by size*√3; even cols stagger down by half row.
-    // staggerParity=0 (default): even internal cols get the half-row offset.
-    // staggerParity=1 (1882 transposed): odd internal cols get the offset instead.
+    // Flat-top layout:
+    //   Column pitch  = size * 1.5  (3/4 of hex width)
+    //   Row pitch     = size * √3   (full hex height)
+    //
+    // In a standard 18xx flat-top grid, alternate columns are offset downward by
+    // half a row (t_y/2) so that adjacent columns interlock.  Which set of columns
+    // gets the offset depends on the coordinate convention of the source game:
+    //
+    //   staggerParity = 0  (default, most games)
+    //     Even internal cols (0,2,4…) receive the t_y/2 downward offset.
+    //     In 18xx.games coords these are the A,C,E… columns whose string rows
+    //     are 2,4,6… — i.e. the "lower" starting position.
+    //
+    //   staggerParity = 1  (transposed-axes games, e.g. 1882 Saskatchewan)
+    //     The Ruby file uses  AXES = { x: :number, y: :letter }, so the coord
+    //     letter encodes the ROW and the number encodes the COLUMN.  After
+    //     coordToGrid transposes them into internal (row,col) the mapping between
+    //     "which internal cols are tall" flips: odd internal cols now need the
+    //     offset.  Adding sp=1 before the modulo test achieves this cheaply.
+    //
+    // The formula  (col + sp) % 2 === 0  evaluates to:
+    //   sp=0: true for even cols  → even cols staggered  (standard)
+    //   sp=1: true for odd  cols  → odd  cols staggered  (1882 transposed)
     const t_x = size * 1.5;
     const t_y = size * Math.sqrt(3);
     const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;
@@ -50,7 +97,10 @@ function pixelToHex(px, py, size, orientation) {
   // Inverse of getHexCenter: convert pixel coords back to col/row
   let col, row;
   if (orientation === 'flat') {
-    // Flat-top hexagon hit test
+    // Flat-top hexagon hit test — inverse of getHexCenter's flat-top branch.
+    // Must use the same staggerParity so that clicking a hex returns the exact
+    // (row,col) that getHexCenter would place it at.
+    // See getHexCenter's comment block for a full explanation of staggerParity.
     const t_x = size * 1.5;
     const t_y = size * Math.sqrt(3);
     const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;

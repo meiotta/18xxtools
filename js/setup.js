@@ -1,0 +1,196 @@
+// ─── SETUP ────────────────────────────────────────────────────────────────────
+// Setup screen logic: show/hide, presets, and the Start button.
+// Load order: TENTH — after companies-panel.js (calls renderCompaniesTable etc.)
+
+function showSetup() {
+  document.getElementById('setupScreen').style.display = 'flex';
+  document.getElementById('editor').classList.remove('active');
+  state.phase = 'setup';
+}
+
+function hideSetup() {
+  document.getElementById('setupScreen').style.display = 'none';
+  document.getElementById('editor').classList.add('active');
+  state.phase = 'design';
+  requestAnimationFrame(() => {
+    resizeCanvas();
+    render();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Help drawer
+  document.getElementById('helpBtn').addEventListener('click', () => {
+    document.getElementById('helpDrawer').style.display = 'block';
+  });
+  const helpClose = document.getElementById('helpDrawerClose');
+  if (helpClose) helpClose.addEventListener('click', () => {
+    document.getElementById('helpDrawer').style.display = 'none';
+  });
+
+  // Loading splash — show briefly then hide
+  const splash = document.getElementById('loadingSplash');
+  if (splash) {
+    splash.style.display = 'flex';
+    setTimeout(() => { splash.style.display = 'none'; }, 850);
+  }
+
+  // Skip setup screen — initialise with defaults and go straight to editor
+  buildPalette();
+  renderCompaniesTable();
+  renderTrainsTable();
+  renderPrivatesTable();
+  renderTerrainCostsTable();
+  renderHomeCompanySelect();
+  syncOrientationSelect();
+  const ri = document.getElementById('mapRows');
+  const ci = document.getElementById('mapCols');
+  if (ri) ri.value = state.meta.rows;
+  if (ci) ci.value = state.meta.cols;
+  hideSetup();
+});
+
+function loadPreset(game) {
+  const presets = {
+    custom: {
+      rows: 8, cols: 12, bank: 12000, playersMin: 2, playersMax: 6,
+      terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
+      companies: [],
+      trains: [],
+      privates: []
+    },
+    '1830': {
+      rows: 9, cols: 11, bank: 12000, playersMin: 2, playersMax: 6,
+      terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
+      companies: [
+        { name: 'Pennsylvania RR', abbr: 'PRR', color: '#cc2222', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'New York Central', abbr: 'NYC', color: '#888888', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Chesapeake & Ohio', abbr: 'C&O', color: '#ccaa00', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'B&O', abbr: 'B&O', color: '#1166aa', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 }
+      ],
+      trains: [
+        { type: '2', cost: 80,  distance: 2, rustsOn: '4', obsoleteOn: '', count: 6 },
+        { type: '3', cost: 180, distance: 3, rustsOn: '6', obsoleteOn: '', count: 5 },
+        { type: '4', cost: 300, distance: 4, rustsOn: 'D', obsoleteOn: '', count: 4 },
+        { type: '5', cost: 450, distance: 5, rustsOn: '',  obsoleteOn: '', count: 3 },
+        { type: '6', cost: 630, distance: 6, rustsOn: '',  obsoleteOn: '', count: 2 }
+      ],
+      privates: []
+    },
+    '1846': {
+      rows: 7, cols: 9, bank: 9999, playersMin: 3, playersMax: 6,
+      terrainCosts: { mountain: 100, hill: 40, water: 60, swamp: 20, forest: 20, desert: 40, pass: 120 },
+      companies: [
+        { name: 'Michigan Central', abbr: 'MC',  color: '#cc2222', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Illinois Central', abbr: 'IC',  color: '#228822', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'B&O',              abbr: 'B&O', color: '#1166aa', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 }
+      ],
+      trains: [
+        { type: '2', cost: 80,  distance: 2, rustsOn: '', obsoleteOn: '', count: 5 },
+        { type: '3', cost: 180, distance: 3, rustsOn: '', obsoleteOn: '', count: 4 },
+        { type: '4', cost: 290, distance: 4, rustsOn: '', obsoleteOn: '', count: 3 },
+        { type: '5', cost: 390, distance: 5, rustsOn: '', obsoleteOn: '', count: 2 }
+      ],
+      privates: [
+        { name: 'Michigan Southern', cost: 80,  revenue: 15, ability: 'Connect' },
+        { name: 'Ohio & Indiana',    cost: 100, revenue: 15, ability: 'Tunnel'  }
+      ]
+    },
+    '1822': {
+      rows: 9, cols: 12, bank: 12000, playersMin: 3, playersMax: 7,
+      terrainCosts: { mountain: 200, hill: 40, water: 80, swamp: 20, forest: 20, desert: 40, pass: 120 },
+      companies: [
+        { name: 'London & North Western', abbr: 'LNWR', color: '#222222', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Great Western',          abbr: 'GWR',  color: '#228822', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Midland',                abbr: 'MR',   color: '#cc2222', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 }
+      ],
+      trains: [
+        { type: 'L', cost: 100, distance: 1, rustsOn: '', obsoleteOn: '', count: 4 },
+        { type: '2', cost: 180, distance: 2, rustsOn: '', obsoleteOn: '', count: 5 },
+        { type: '3', cost: 300, distance: 3, rustsOn: '', obsoleteOn: '', count: 4 }
+      ],
+      privates: []
+    },
+    '1889': {
+      rows: 6, cols: 7, bank: 7000, playersMin: 3, playersMax: 6,
+      terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
+      companies: [
+        { name: 'Aomori Railway', abbr: 'AR', color: '#cc6600', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Iyo Railway',    abbr: 'IR', color: '#cc2222', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 },
+        { name: 'Sanuki Railway', abbr: 'SR', color: '#2244cc', homeHex: '', parValue: 100, tokens: 5, floatPct: 60 }
+      ],
+      trains: [
+        { type: '2', cost: 80,  distance: 2, rustsOn: '', obsoleteOn: '', count: 6 },
+        { type: '3', cost: 180, distance: 3, rustsOn: '', obsoleteOn: '', count: 5 },
+        { type: '4', cost: 300, distance: 4, rustsOn: '', obsoleteOn: '', count: 4 }
+      ],
+      privates: []
+    }
+  };
+  const p = presets[game] || presets.custom;
+  state.meta.baseGame  = game;
+  state.meta.rows      = p.rows;
+  state.meta.cols      = p.cols;
+  state.meta.bank      = p.bank;
+  state.meta.playersMin = p.playersMin;
+  state.meta.playersMax = p.playersMax;
+  state.terrainCosts   = p.terrainCosts;
+  state.companies      = JSON.parse(JSON.stringify(p.companies));
+  state.trains         = JSON.parse(JSON.stringify(p.trains));
+  state.privates       = JSON.parse(JSON.stringify(p.privates));
+}
+
+// ── Setup screen event listeners ─────────────────────────────────────────────
+
+// When the base game select changes, load the preset and sync all fields
+document.getElementById('baseGame').addEventListener('change', (e) => {
+  loadPreset(e.target.value);
+  document.getElementById('gridRows').value   = state.meta.rows;
+  document.getElementById('gridCols').value   = state.meta.cols;
+  document.getElementById('bankSize').value   = state.meta.bank;
+  document.getElementById('playersMin').value = state.meta.playersMin;
+  document.getElementById('playersMax').value = state.meta.playersMax;
+});
+
+// Start button — read all setup fields into state, then enter the editor
+document.getElementById('startBtn').addEventListener('click', () => {
+  state.meta.title       = document.getElementById('gameTitle').value.trim();
+  state.meta.baseGame    = document.getElementById('baseGame').value;
+  state.meta.rows        = Math.max(1, parseInt(document.getElementById('gridRows').value)  || 8);
+  state.meta.cols        = Math.max(1, parseInt(document.getElementById('gridCols').value)  || 12);
+  state.meta.orientation = state.meta.orientation || 'flat';
+  state.meta.bank        = parseInt(document.getElementById('bankSize').value)   || 12000;
+  state.meta.playersMin  = parseInt(document.getElementById('playersMin').value) || 2;
+  state.meta.playersMax  = parseInt(document.getElementById('playersMax').value) || 6;
+
+  // Sync toolbar fields
+  document.getElementById('gameTitleEdit').value        = state.meta.title;
+  document.getElementById('baseGameLabel').textContent  = 'Base: ' + state.meta.baseGame;
+
+  // Build palette and panel tables with the new state
+  buildPalette();
+  renderCompaniesTable();
+  renderTrainsTable();
+  renderPrivatesTable();
+  renderTerrainCostsTable();
+  renderHomeCompanySelect();
+
+  syncOrientationSelect();
+  hideSetup();
+});
+
+// ── Orientation config control ────────────────────────────────────────────────
+
+// Sync the CONFIG tab orientation select to the current state.
+// Call after any operation that changes state.meta.orientation.
+function syncOrientationSelect() {
+  const sel = document.getElementById('configOrientation');
+  if (sel) sel.value = state.meta.orientation || 'flat';
+}
+
+// Re-render map whenever orientation is changed in the config panel.
+document.getElementById('configOrientation').addEventListener('change', (e) => {
+  state.meta.orientation = e.target.value;
+  render();
+  autosave();
+});

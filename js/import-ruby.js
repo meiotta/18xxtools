@@ -100,17 +100,16 @@ function parsePhaseRevenue(revStr) {
       if (val > phases.gray) { phases.gray = val; active.gray = true; }
     }
   });
-  // Fill gaps: inherit forward
-  if (!active.green  && active.yellow)  { phases.green  = phases.yellow;  active.green  = true; }
-  if (!active.brown  && active.green)   { phases.brown  = phases.green;   active.brown  = true; }
-  if (!active.gray   && active.brown)   { phases.gray   = phases.brown;   active.gray   = true; }
+  // No forward-fill: only explicitly named phases are shown.
+  // (Forward-filling yellow→green→brown caused offboards with e.g. yellow+brown
+  // to show 4 colored boxes instead of 2, mismatching the 18xx.games display.)
   return { phases, active };
 }
 
 // ── Parse a single Ruby hex code string (for white/yellow/green) ──────────────
 // Returns: { city, oo, town, dualTown, paths, label, terrain, terrainCost, borders, icons }
 function parseHexCode(code) {
-  const result = { city: null, oo: false, town: false, dualTown: false, paths: [], label: '', terrain: '', terrainCost: 0, borders: [], icons: [] };
+  const result = { city: null, oo: false, town: false, dualTown: false, paths: [], label: '', terrain: '', terrainHasWater: false, terrainCost: 0, borders: [], icons: [] };
   let cityCount = 0, townCount = 0;
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
@@ -139,8 +138,10 @@ function parseHexCode(code) {
       const m = part.match(/terrain:([a-z|]+)/);
       if (m) {
         const types = m[1].split('|');
-        // Prefer non-water terrain for visual rendering (water = crossing cost, not ocean color)
+        // Prefer non-water terrain for visual rendering (water = crossing cost, not ocean color).
+        // Set terrainHasWater so the renderer can draw a supplemental water indicator.
         result.terrain = types.find(t => t !== 'water') || types[0];
+        if (types.includes('water')) result.terrainHasWater = true;
       }
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) result.terrainCost = parseInt(c);
@@ -151,6 +152,7 @@ function parseHexCode(code) {
       if (m) {
         const types = m[1].split('|');
         result.terrain = types.find(t => t !== 'water') || types[0];
+        if (types.includes('water')) result.terrainHasWater = true;
       }
     } else if (part.startsWith('border=')) {
       const edgeM = part.match(/edge:(\d+)/);
@@ -406,10 +408,48 @@ function importRubyMap(content) {
   const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 
+  // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
+  //
+  // ── Standard flat-top convention (most games) ────────────────────────────
+  //   Coord string:  letter = column (A=0, B=1 …), number = row identifier.
+  //   Ruby string rows are NOT the same as internal rows; the stagger means:
+  //     even cols use even string rows (2,4,6…):  internal row = (strRow-2)/2
+  //     odd  cols use odd  string rows (1,3,5…):  internal row = (strRow-1)/2
+  //   Example: "B3" → col=1 (B), strRow=3 → row=(3-1)/2=1 → internal (1,1).
+  //   If neither formula produces an integer, the game uses the opposite parity
+  //   convention (formula B) — we try both and take whichever is an integer.
+  //
+  // ── Transposed-axes convention (e.g. 1882 Saskatchewan) ─────────────────
+  //   Ruby file declares:  AXES = { x: :number, y: :letter }
+  //   This means:  coord letter = ROW identifier, coord number = COLUMN.
+  //   So "I1" = col 1-1=0, row derived from letter I (letterIdx=8).
+  //
+  //   Because letter now encodes the row, the stagger still applies but via the
+  //   COLUMN number (which is now the numeric part):
+  //     even cols (numPart-1 even): letterIdx must be even → row = letterIdx/2
+  //     odd  cols (numPart-1 odd):  letterIdx must be odd  → row = (letterIdx-1)/2
+  //   Example: "I1" → col=0 (1-1), letterIdx=8 → col%2==0 → row=8/2=4.
+  //            "L2" → col=1 (2-1), letterIdx=11 → col%2==1 → row=(11-1)/2=5.
+  //
+  //   After transposition, internal (row,col) values are correct, BUT the visual
+  //   stagger direction flips (see staggerParity below).
+  //
+  // ── staggerParity ────────────────────────────────────────────────────────
+  //   Standard:     even internal cols are the "tall" (offset) columns.
+  //   Transposed:   odd  internal cols are the "tall" columns.
+  //   We set  state.meta.staggerParity = transposedAxes ? 1 : 0  so that
+  //   getHexCenter, pixelToHex, and getNeighborHex all read this value and
+  //   apply  (col + sp) % 2 === 0  instead of  col % 2 === 0.
+  //   This corrects the visual layout without touching any other code.
   function coordToGrid(coord) {
     if (!/^[A-Z]\d{1,2}$/.test(coord)) return null;
     let col, row;
     if (transposedAxes) {
+      // Transposed: letter=row-indicator, number=col-indicator.
+      // col = numPart - 1  (1-based → 0-based)
+      // row = letterIdx/2 for even cols, (letterIdx-1)/2 for odd cols
+      //   (same stagger arithmetic as standard, but now applied to letterIdx
+      //    rather than to the numeric part)
       const numPart   = parseInt(coord.slice(1));
       const letterIdx = coord.charCodeAt(0) - 65;
       col = numPart - 1;
@@ -424,13 +464,13 @@ function importRubyMap(content) {
         col = (letterIdx % 2 === 0) ? (numPart - 2) / 2 : (numPart - 1) / 2;
       }
     } else {
-      // Flat-top: letter=col, number=row
-      // Two stagger conventions exist; try formula A then formula B
+      // Standard flat-top: letter=col, number=row-identifier.
+      // Try the most common parity first; fall back to the other if needed.
       col = coord.charCodeAt(0) - 65;
       const coordRow = parseInt(coord.slice(1));
       row = (col % 2 === 0) ? (coordRow - 2) / 2 : (coordRow - 1) / 2;
       if (!Number.isInteger(row)) {
-        // Formula B: opposite parity convention
+        // Some games use the opposite stagger parity convention (formula B)
         row = (col % 2 === 0) ? (coordRow - 1) / 2 : (coordRow - 2) / 2;
       }
     }
@@ -469,8 +509,9 @@ function importRubyMap(content) {
       // ── White / yellow / green ───────────────────
       const parsed = parseHexCode(code);
       const h = {
-        terrain:    parsed.terrain,
-        terrainCost: parsed.terrainCost,
+        terrain:         parsed.terrain,
+        terrainHasWater: parsed.terrainHasWater || false,
+        terrainCost:     parsed.terrainCost,
         tile: 0, rotation: 0,
         city: null, town: null,
         label: parsed.label,
@@ -521,12 +562,27 @@ function importRubyMap(content) {
     }
   }
 
-  // Kill all grid positions not in the .rb file.
-  // Use per-column row bounds to avoid adding phantom rows beyond each column's extent
-  // (e.g. in 1882 transposedAxes, odd internal cols are one row shorter than even cols).
+  // ── Fill unused grid positions with killed hexes ────────────────────────
+  //
+  // The renderer draws every (row,col) in the maxRow×maxCol bounding box, so
+  // we need a killed hex at every position that has no Ruby hex entry.
+  //
+  // Naïve approach: loop r=0..maxRow, c=0..maxCol and kill anything not set.
+  // Problem with transposed-axes games (1882):
+  //   In 1882 the even internal cols (ruby col numbers 2,4,6…) are the "tall"
+  //   ones — they span one more row than the odd cols.  E.g. the last odd-col
+  //   ruby hex is N6 → internal (6,5), but the global maxRow is 8 (set by USA
+  //   at O11 → internal (7,6), an even col).  The naïve loop would place a
+  //   killed hex at (7,5) — one row below Shaunavon — creating a phantom hex
+  //   that visually extends the map incorrectly.
+  //
+  // Fix: track maxRowPerCol[c] = the highest internal row actually occupied in
+  // column c, then skip any (r,c) where r >= maxRowPerCol[c].
+  // This correctly clips each column to its own extent regardless of which
+  // other columns are taller.
   for (let r = 0; r < maxRow; r++) {
     for (let c = 0; c < maxCol; c++) {
-      if (r >= (maxRowPerCol[c] || 0)) continue;
+      if (r >= (maxRowPerCol[c] || 0)) continue; // beyond this column's extent
       const k = hexId(r, c);
       if (!newHexes[k]) {
         newHexes[k] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, label: '', killed: true };
@@ -538,7 +594,7 @@ function importRubyMap(content) {
   const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
   const statics = Object.values(newHexes).filter(h => h.static).length;
   console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
-  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0 };
+  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, maxRowPerCol };
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -559,6 +615,7 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       state.meta.cols = result.cols;
       state.meta.orientation = result.orientation;
       state.meta.staggerParity = result.staggerParity;
+      state.meta.maxRowPerCol = result.maxRowPerCol;
       // Sync orientation select in the config panel
       syncOrientationSelect();
       // Reset pan so map is visible
