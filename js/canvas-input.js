@@ -71,6 +71,52 @@ function getNeighborHex(row, col, edge) {
 }
 
 // ── Lasso selection (plain left-button drag) ──────────────────────────────────
+// mousemove and mouseup are registered on document during a drag so they fire
+// even when the pointer leaves the canvas element mid-drag.
+function _lassoMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  _lasso.endX = e.clientX - rect.left;
+  _lasso.endY = e.clientY - rect.top;
+  render();
+}
+
+function _lassoUp(e) {
+  if (e.button !== 0) return;
+  document.removeEventListener('mousemove', _lassoMove);
+  document.removeEventListener('mouseup',   _lassoUp);
+
+  const wasDrag = Math.abs(_lasso.endX - _lasso.startX) > 3 ||
+                  Math.abs(_lasso.endY - _lasso.startY) > 3;
+  if (wasDrag) {
+    // Convert lasso pixel rect → world coords (inverse of renderer's transform)
+    const px1 = Math.min(_lasso.startX, _lasso.endX);
+    const py1 = Math.min(_lasso.startY, _lasso.endY);
+    const px2 = Math.max(_lasso.startX, _lasso.endX);
+    const py2 = Math.max(_lasso.startY, _lasso.endY);
+    const wx1 = (px1 - LABEL_PAD) / zoom - panX;
+    const wy1 = (py1 - LABEL_PAD) / zoom - panY;
+    const wx2 = (px2 - LABEL_PAD) / zoom - panX;
+    const wy2 = (py2 - LABEL_PAD) / zoom - panY;
+
+    selectedHexes.clear();
+    let lastId = null;
+    for (let r = 0; r < state.meta.rows; r++) {
+      for (let c = 0; c < state.meta.cols; c++) {
+        const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
+        if (center.x >= wx1 && center.x <= wx2 &&
+            center.y >= wy1 && center.y <= wy2) {
+          lastId = hexId(r, c);
+          selectedHexes.add(lastId);
+        }
+      }
+    }
+    if (lastId !== null) selectedHex = lastId;
+    _lassoJustCompleted = true;
+  }
+  _lasso = null;
+  render();
+}
+
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0 && !e.ctrlKey && !e.metaKey) {
     const rect = canvas.getBoundingClientRect();
@@ -80,47 +126,8 @@ canvas.addEventListener('mousedown', (e) => {
       endX:   e.clientX - rect.left,
       endY:   e.clientY - rect.top,
     };
-  }
-});
-
-canvas.addEventListener('mousemove', (e) => {
-  if (_lasso) {
-    const rect = canvas.getBoundingClientRect();
-    _lasso.endX = e.clientX - rect.left;
-    _lasso.endY = e.clientY - rect.top;
-    render();
-  }
-});
-
-canvas.addEventListener('mouseup', (e) => {
-  if (_lasso && e.button === 0) {
-    const wasDrag = Math.abs(_lasso.endX - _lasso.startX) > 5 ||
-                    Math.abs(_lasso.endY - _lasso.startY) > 5;
-    if (wasDrag) {
-      // Convert pixel rect to world coords
-      const px1 = Math.min(_lasso.startX, _lasso.endX);
-      const py1 = Math.min(_lasso.startY, _lasso.endY);
-      const px2 = Math.max(_lasso.startX, _lasso.endX);
-      const py2 = Math.max(_lasso.startY, _lasso.endY);
-      const wx1 = (px1 - LABEL_PAD) / zoom - panX;
-      const wy1 = (py1 - LABEL_PAD) / zoom - panY;
-      const wx2 = (px2 - LABEL_PAD) / zoom - panX;
-      const wy2 = (py2 - LABEL_PAD) / zoom - panY;
-
-      selectedHexes.clear();
-      for (let r = 0; r < state.meta.rows; r++) {
-        for (let c = 0; c < state.meta.cols; c++) {
-          const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
-          if (center.x >= wx1 && center.x <= wx2 &&
-              center.y >= wy1 && center.y <= wy2) {
-            selectedHexes.add(hexId(r, c));
-          }
-        }
-      }
-      _lassoJustCompleted = true;
-    }
-    _lasso = null;
-    render();
+    document.addEventListener('mousemove', _lassoMove);
+    document.addEventListener('mouseup',   _lassoUp);
   }
 });
 
