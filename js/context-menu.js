@@ -52,65 +52,192 @@ function _addSectionLabel(menu, text) {
   menu.appendChild(lbl);
 }
 
-// ── Terrain submenu builder ───────────────────────────────────────────────────
+// ── Draw a terrain icon onto a 2d canvas context centred at (0,0) ─────────────
+function _drawTerrainIcon(bCtx, key, s) {
+  switch (key) {
+    case 'mountain':
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s * 1.4);
+      bCtx.lineTo(-s * 1.2, s * 0.6);
+      bCtx.lineTo( s * 1.2, s * 0.6);
+      bCtx.closePath();
+      bCtx.fillStyle = '#777';
+      bCtx.fill();
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s * 1.4);
+      bCtx.lineTo(-s * 0.4, -s * 0.5);
+      bCtx.lineTo( s * 0.4, -s * 0.5);
+      bCtx.closePath();
+      bCtx.fillStyle = 'white';
+      bCtx.fill();
+      break;
+    case 'hill':
+      bCtx.beginPath();
+      bCtx.arc(0, s * 0.2, s * 0.9, Math.PI, 0);
+      bCtx.closePath();
+      bCtx.fillStyle = '#8B7355';
+      bCtx.fill();
+      break;
+    case 'water':
+    case 'river':
+    case 'lake':
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s);
+      bCtx.bezierCurveTo(s * 0.8, -s * 0.2, s * 0.8, s * 0.6, 0, s * 0.7);
+      bCtx.bezierCurveTo(-s * 0.8, s * 0.6, -s * 0.8, -s * 0.2, 0, -s);
+      bCtx.fillStyle = '#3366CC';
+      bCtx.fill();
+      break;
+    case 'swamp':
+    case 'marsh':
+      bCtx.strokeStyle = '#4A7A4A';
+      bCtx.lineWidth = 1.5;
+      bCtx.lineCap = 'round';
+      for (const ox of [-s * 0.6, 0, s * 0.6]) {
+        bCtx.beginPath(); bCtx.moveTo(ox, s * 0.5); bCtx.lineTo(ox, -s * 0.5); bCtx.stroke();
+        bCtx.beginPath(); bCtx.moveTo(ox, -s * 0.2); bCtx.lineTo(ox - s * 0.35, -s * 0.8); bCtx.stroke();
+        bCtx.beginPath(); bCtx.moveTo(ox, -s * 0.2); bCtx.lineTo(ox + s * 0.35, -s * 0.8); bCtx.stroke();
+      }
+      break;
+    case 'forest':
+      bCtx.fillStyle = '#2d7a2d';
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s * 1.2);
+      bCtx.lineTo(-s * 1.0, s * 0.5);
+      bCtx.lineTo( s * 1.0, s * 0.5);
+      bCtx.closePath();
+      bCtx.fill();
+      break;
+    case 'desert':
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s); bCtx.lineTo(s * 0.7, 0); bCtx.lineTo(0, s); bCtx.lineTo(-s * 0.7, 0);
+      bCtx.closePath();
+      bCtx.fillStyle = '#C8A040';
+      bCtx.fill();
+      break;
+    case 'pass':
+      bCtx.fillStyle = '#888';
+      bCtx.beginPath();
+      bCtx.moveTo(-s * 1.2, s * 0.6);
+      bCtx.lineTo(-s * 0.3, -s * 0.6);
+      bCtx.lineTo( s * 0.3, -s * 0.6);
+      bCtx.lineTo( s * 1.2, s * 0.6);
+      bCtx.closePath();
+      bCtx.fill();
+      break;
+    default:
+      bCtx.beginPath();
+      bCtx.moveTo(0, -s); bCtx.lineTo(s * 0.7, 0); bCtx.lineTo(0, s); bCtx.lineTo(-s * 0.7, 0);
+      bCtx.closePath();
+      bCtx.fillStyle = '#AA8844';
+      bCtx.fill();
+  }
+}
 
-function _buildTerrainSubmenu(menu, onApply) {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'context-menu-item has-submenu';
-  wrapper.innerHTML = '⛰ Add Terrain';
+// ── Draw a resource icon onto a 2d canvas context centred at (0,0) ────────────
+function _drawResourceIcon(bCtx, key, s) {
+  if (key === 'mine') {
+    bCtx.strokeStyle = '#8B6914';
+    bCtx.lineWidth = 1.5;
+    bCtx.lineCap = 'round';
+    bCtx.beginPath(); bCtx.moveTo(-s * 0.7, -s * 0.7); bCtx.lineTo(s * 0.7,  s * 0.7); bCtx.stroke();
+    bCtx.beginPath(); bCtx.moveTo( s * 0.7, -s * 0.7); bCtx.lineTo(-s * 0.7, s * 0.7); bCtx.stroke();
+    bCtx.beginPath(); bCtx.arc(-s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
+    bCtx.fillStyle = '#8B6914'; bCtx.fill();
+    bCtx.beginPath(); bCtx.arc( s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
+    bCtx.fillStyle = '#8B6914'; bCtx.fill();
+  } else if (key === 'port') {
+    bCtx.strokeStyle = '#1a3a7a';
+    bCtx.lineWidth = 1.2;
+    bCtx.lineCap = 'round';
+    bCtx.beginPath(); bCtx.moveTo(0, -s * 0.75); bCtx.lineTo(0, s * 0.75); bCtx.stroke();
+    bCtx.beginPath(); bCtx.moveTo(-s * 0.42, -s * 0.42); bCtx.lineTo(s * 0.42, -s * 0.42); bCtx.stroke();
+    bCtx.beginPath(); bCtx.arc(0, -s * 0.75, s * 0.16, 0, Math.PI * 2);
+    bCtx.fillStyle = '#1a3a7a'; bCtx.fill();
+    bCtx.beginPath(); bCtx.arc(0, s * 0.05, s * 0.65, 0.2, Math.PI - 0.2);
+    bCtx.strokeStyle = '#1a3a7a'; bCtx.stroke();
+    bCtx.beginPath(); bCtx.arc(-s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
+    bCtx.fillStyle = '#1a3a7a'; bCtx.fill();
+    bCtx.beginPath(); bCtx.arc( s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
+    bCtx.fillStyle = '#1a3a7a'; bCtx.fill();
+  } else if (key === 'factory') {
+    bCtx.fillStyle = '#666';
+    bCtx.fillRect(-s * 0.7, -s * 0.2, s * 1.4, s * 1.0);
+    bCtx.fillRect(-s * 0.45, -s * 0.9, s * 0.28, s * 0.7);
+    bCtx.fillRect( s * 0.17, -s * 0.75, s * 0.28, s * 0.55);
+    bCtx.fillStyle = '#aaddff';
+    bCtx.fillRect(-s * 0.2, s * 0.0, s * 0.4, s * 0.3);
+  } else {
+    bCtx.beginPath(); bCtx.arc(0, 0, s * 0.5, 0, Math.PI * 2);
+    bCtx.fillStyle = '#888'; bCtx.fill();
+  }
+}
 
-  const submenu = document.createElement('div');
-  submenu.className = 'context-menu-submenu';
+// ── Unified quick-icon grid (terrain + resource icons as canvas buttons) ──────
+// Replaces _buildTerrainSubmenu + _buildIconStrip with a single inline grid.
 
+function _buildQuickIconGrid(menu, hexData, onTerrainApply, onIconToggle) {
+  const BTN = 28;  // button size in px
+  const S   = 7;   // icon scale
+
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px;max-width:224px;';
+
+  // ── Terrain buttons ───────────────────────────────────────────────────────
   TERRAIN_TYPES.forEach(({ label, key, defaultCost }) => {
-    const sub = document.createElement('div');
-    sub.className = 'context-menu-item';
-    sub.textContent = label;
-    sub.onclick = (e) => {
+    const btn = document.createElement('canvas');
+    btn.width  = BTN;
+    btn.height = BTN;
+    btn.title  = label;
+    const isActive = hexData.terrain === key;
+    btn.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:block;`;
+
+    const bCtx = btn.getContext('2d');
+    bCtx.save();
+    bCtx.translate(BTN / 2, BTN / 2);
+    _drawTerrainIcon(bCtx, key, S);
+    bCtx.restore();
+
+    btn.onclick = (e) => {
       e.stopPropagation();
       removeContextMenu();
       const cost = prompt(`Terrain cost for ${label} (0 = no cost displayed):`, String(defaultCost));
       if (cost === null) return;
-      onApply(key, parseInt(cost, 10) || 0);
+      onTerrainApply(key, parseInt(cost, 10) || 0);
     };
-    submenu.appendChild(sub);
+    grid.appendChild(btn);
   });
 
-  wrapper.appendChild(submenu);
-  menu.appendChild(wrapper);
-}
+  // ── Separator between terrain and icons ───────────────────────────────────
+  const sep = document.createElement('div');
+  sep.style.cssText = 'width:100%;height:1px;background:#444;margin:2px 0;';
+  grid.appendChild(sep);
 
-// ── Resource icon strip builder ───────────────────────────────────────────────
-
-function _buildIconStrip(menu, currentIcons, onToggle) {
-  const iconDiv = document.createElement('div');
-  iconDiv.style.cssText = 'padding:4px 10px 6px;';
-
-  const strip = document.createElement('div');
-  strip.style.cssText = 'display:flex;gap:6px;align-items:center;';
-
+  // ── Resource icon buttons ─────────────────────────────────────────────────
+  const currentIcons = (hexData.icons || []).map(i => i.image);
   RESOURCE_ICONS.forEach(({ label, key }) => {
-    const btn = document.createElement('button');
-    const active = currentIcons.includes(key);
-    btn.title = label;
-    btn.style.cssText = `
-      padding:4px 8px;cursor:pointer;border-radius:4px;font-size:11px;
-      border:1px solid ${active ? '#ffd700' : '#555'};
-      background:${active ? 'rgba(255,215,0,0.18)' : '#2a2a2a'};
-      color:${active ? '#ffd700' : '#ccc'};
-      white-space:nowrap;
-    `;
-    btn.textContent = label;
+    const btn = document.createElement('canvas');
+    btn.width  = BTN;
+    btn.height = BTN;
+    btn.title  = label;
+    const isActive = currentIcons.includes(key);
+    btn.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:block;`;
+
+    const bCtx = btn.getContext('2d');
+    bCtx.save();
+    bCtx.translate(BTN / 2, BTN / 2);
+    _drawResourceIcon(bCtx, key, S);
+    bCtx.restore();
+
     btn.onclick = (e) => {
       e.stopPropagation();
       removeContextMenu();
-      onToggle(key, !active);
+      onIconToggle(key, !isActive);
     };
-    strip.appendChild(btn);
+    grid.appendChild(btn);
   });
 
-  iconDiv.appendChild(strip);
-  menu.appendChild(iconDiv);
+  menu.appendChild(grid);
 }
 
 // ── Single-hex context menu ───────────────────────────────────────────────────
@@ -154,30 +281,28 @@ function showContextMenu(x, y, hexId) {
 
   addSep();
 
-  // ── Terrain section ───────────────────────────────────────────────────────
-  _addSectionLabel(menu, 'Terrain');
-  _buildTerrainSubmenu(menu, (key, cost) => {
-    ensureHex(hexId);
-    state.hexes[hexId].terrain     = key;
-    state.hexes[hexId].terrainCost = cost;
-    render(); autosave();
-  });
-
-  // ── Icons section ─────────────────────────────────────────────────────────
-  _addSectionLabel(menu, 'Icons');
-  const currentIcons = (hex.icons || []).map(i => i.image);
-  _buildIconStrip(menu, currentIcons, (key, add) => {
-    ensureHex(hexId);
-    const icons = state.hexes[hexId].icons || [];
-    const idx = icons.findIndex(i => i.image === key);
-    if (add && idx < 0) {
-      icons.push({ image: key, sticky: true });
-    } else if (!add && idx >= 0) {
-      icons.splice(idx, 1);
+  // ── Terrain + Icons quick-grid ────────────────────────────────────────────
+  _addSectionLabel(menu, 'Terrain & Icons');
+  _buildQuickIconGrid(menu, hex,
+    (key, cost) => {
+      ensureHex(hexId);
+      state.hexes[hexId].terrain     = key;
+      state.hexes[hexId].terrainCost = cost;
+      render(); autosave();
+    },
+    (key, add) => {
+      ensureHex(hexId);
+      const icons = state.hexes[hexId].icons || [];
+      const idx = icons.findIndex(i => i.image === key);
+      if (add && idx < 0) {
+        icons.push({ image: key, sticky: true });
+      } else if (!add && idx >= 0) {
+        icons.splice(idx, 1);
+      }
+      state.hexes[hexId].icons = icons;
+      render(); autosave();
     }
-    state.hexes[hexId].icons = icons;
-    render(); autosave();
-  });
+  );
 
   addSep();
 
@@ -267,8 +392,8 @@ function showMultiContextMenu(x, y, hexIds) {
 
   addSep();
 
-  // ── Terrain section ───────────────────────────────────────────────────────
-  _addSectionLabel(menu, 'Terrain');
+  // ── Terrain + Icons quick-grid ────────────────────────────────────────────
+  _addSectionLabel(menu, 'Terrain & Icons');
 
   // Context-aware: if all selected hexes share the same terrain type, offer a quick cost update
   const allTerrains = hexIds.map(id => (state.hexes[id] || {}).terrain).filter(Boolean);
@@ -286,30 +411,28 @@ function showMultiContextMenu(x, y, hexIds) {
     _addSep(menu);
   }
 
-  _buildTerrainSubmenu(menu, (key, cost) => {
-    applyToAll(id => {
-      state.hexes[id].terrain     = key;
-      state.hexes[id].terrainCost = cost;
-    });
-  });
-
-  // ── Icons section ─────────────────────────────────────────────────────────
-  _addSectionLabel(menu, 'Icons');
-  // Use first selected hex's icons to set active state
+  // Use first selected hex's data for active-state highlighting
   const firstHex = state.hexes[hexIds[0]] || {};
-  const currentIcons = (firstHex.icons || []).map(i => i.image);
-  _buildIconStrip(menu, currentIcons, (key, add) => {
-    applyToAll(id => {
-      const icons = state.hexes[id].icons || [];
-      const idx = icons.findIndex(i => i.image === key);
-      if (add && idx < 0) {
-        icons.push({ image: key, sticky: true });
-      } else if (!add && idx >= 0) {
-        icons.splice(idx, 1);
-      }
-      state.hexes[id].icons = icons;
-    });
-  });
+  _buildQuickIconGrid(menu, firstHex,
+    (key, cost) => {
+      applyToAll(id => {
+        state.hexes[id].terrain     = key;
+        state.hexes[id].terrainCost = cost;
+      });
+    },
+    (key, add) => {
+      applyToAll(id => {
+        const icons = state.hexes[id].icons || [];
+        const idx = icons.findIndex(i => i.image === key);
+        if (add && idx < 0) {
+          icons.push({ image: key, sticky: true });
+        } else if (!add && idx >= 0) {
+          icons.splice(idx, 1);
+        }
+        state.hexes[id].icons = icons;
+      });
+    }
+  );
 
   addSep();
 
