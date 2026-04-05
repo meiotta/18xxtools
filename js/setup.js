@@ -14,6 +14,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('helpDrawer').style.display = 'none';
   });
 
+  // File menu toggle
+  const fileMenuBtn = document.getElementById('fileMenuBtn');
+  const fileMenu    = document.getElementById('fileMenu');
+  if (fileMenuBtn && fileMenu) {
+    fileMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileMenu.style.display = fileMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => {
+      fileMenu.style.display = 'none';
+    });
+  }
+
   // Loading splash — show for 2200ms with a 300ms fade-out at 1900ms
   const splash = document.getElementById('loadingSplash');
   if (splash) {
