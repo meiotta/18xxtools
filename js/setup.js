@@ -20,8 +20,10 @@ function hideSetup() {
 
 document.addEventListener('DOMContentLoaded', () => {
   // Help drawer
-  document.getElementById('helpBtn').addEventListener('click', () => {
-    document.getElementById('helpDrawer').style.display = 'block';
+  const helpBtn = document.getElementById('helpBtn');
+  if (helpBtn) helpBtn.addEventListener('click', () => {
+    const drawer = document.getElementById('helpDrawer');
+    if (drawer) drawer.style.display = 'block';
   });
   const helpClose = document.getElementById('helpDrawerClose');
   if (helpClose) helpClose.addEventListener('click', () => {
