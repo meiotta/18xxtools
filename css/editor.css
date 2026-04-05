@@ -141,6 +141,15 @@ canvas { display: block; }
 .context-menu-item.has-submenu:hover > .context-menu-submenu { display: block; }
 .context-menu-submenu .context-menu-item { padding: 8px 14px; border-bottom: 1px solid #3a3a3a; }
 
+/* ── Toolbar Dimension Selector ────────────────────────────────────────────── */
+.dims-label { color: #aaa; font-size: 12px; white-space: nowrap; }
+.dims-x { color: #aaa; font-size: 13px; }
+.dim-select { padding: 3px 5px; width: 62px; background: #2a2a2a; border: 1px solid #555; border-radius: 3px; color: #e0e0e0; cursor: pointer; }
+
+/* ── Resize Warning Dialog ─────────────────────────────────────────────────── */
+.resize-warn-box { background: #2a2a2a; border: 1px solid #555; border-radius: 6px; padding: 20px 24px; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); }
+.resize-warn-box p { color: #e0e0e0; font-size: 14px; line-height: 1.5; }
+
 /* ── Static Hex Builder Wizard ─────────────────────────────────────────────── */
 .shw-card { background: #2a2a2a; border: 1px solid #555; border-radius: 8px; width: 420px; max-width: 96vw; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.7); }
 

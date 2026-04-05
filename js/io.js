@@ -7,10 +7,6 @@
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
-document.getElementById('setupBtn').addEventListener('click', () => {
-  showSetup();
-});
-
 document.getElementById('saveBtn').addEventListener('click', () => {
   state.meta.title = document.getElementById('gameTitleEdit').value;
   const json = JSON.stringify(state, null, 2);
@@ -42,6 +38,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     renderHomeCompanySelect();
     buildPalette();
     syncOrientationSelect();
+    syncDimInputs();
     render();
     autosave();
   };
@@ -93,14 +90,11 @@ window.addEventListener('load', () => {
     try {
       const data = JSON.parse(saved);
       Object.assign(state, data);
-      const _f = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-      _f('gameTitle',  state.meta.title);
-      _f('baseGame',   state.meta.baseGame);
-      _f('gridRows',   state.meta.rows);
-      _f('gridCols',   state.meta.cols);
-      _f('bankSize',   state.meta.bank);
-      _f('playersMin', state.meta.playersMin);
-      _f('playersMax', state.meta.playersMax);
+      const el = document.getElementById('gameTitleEdit');
+      if (el) el.value = state.meta.title || '';
+      const bl = document.getElementById('baseGameLabel');
+      if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
+      syncDimInputs();
     } catch (err) {
       localStorage.removeItem('18xx-autosave');
     }
