@@ -123,7 +123,7 @@ function tileSort(a, b) {
 
 function sortedManifestIds() {
   return Object.keys(state.manifest)
-    .filter(id => TILE_DEFS[id] && state.manifest[id] > 0)
+    .filter(id => TILE_DEFS[id] && (state.manifest[id] === null || state.manifest[id] > 0))
     .sort(tileSort);
 }
 
@@ -273,33 +273,75 @@ function makeManifestCard(id) {
   svgWrap.innerHTML = makeTileSwatchSvg(id);
   card.appendChild(svgWrap);
 
-  // Count stepper
-  const count = state.manifest[id] || 1;
+  // Count stepper — null = unlimited (displayed as ∞)
+  const isUnlimited = state.manifest[id] === null;
+  const count = isUnlimited ? 1 : (state.manifest[id] || 1);
   const wrap = document.createElement('div');
   wrap.className = 'manifest-count';
 
   const dec = document.createElement('button');
   dec.textContent = '−';
-  dec.addEventListener('click', () => adjustCount(id, inp, -1));
+  dec.disabled = isUnlimited;
+  dec.addEventListener('click', () => adjustCount(id, inp, dec, inc, -1));
 
   const inp = document.createElement('input');
-  inp.type = 'number';
-  inp.min = '1';
-  inp.value = count;
+  inp.type = 'text';
+  inp.style.cssText = 'width:32px;text-align:center;font-size:12px;padding:0;height:22px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:3px;';
+  inp.value = isUnlimited ? '∞' : count;
+  inp.title = 'Enter a number or ∞ for unlimited';
   inp.addEventListener('change', () => {
-    const v = Math.max(1, parseInt(inp.value) || 1);
-    inp.value = v;
-    state.manifest[id] = v;
+    const raw = inp.value.trim();
+    if (raw === '∞' || raw === 'inf' || raw === '') {
+      inp.value = '∞';
+      state.manifest[id] = null;
+      dec.disabled = true;
+      inc.disabled = true;
+    } else {
+      const v = Math.max(1, parseInt(raw) || 1);
+      inp.value = v;
+      state.manifest[id] = v;
+      dec.disabled = false;
+      inc.disabled = false;
+    }
     autosave();
   });
 
   const inc = document.createElement('button');
   inc.textContent = '+';
-  inc.addEventListener('click', () => adjustCount(id, inp, +1));
+  inc.disabled = isUnlimited;
+  inc.addEventListener('click', () => adjustCount(id, inp, dec, inc, +1));
+
+  const unlimBtn = document.createElement('button');
+  unlimBtn.textContent = '∞';
+  unlimBtn.title = 'Toggle unlimited';
+  unlimBtn.style.cssText = 'width:22px;height:22px;font-size:11px;padding:0;line-height:1;cursor:pointer;border:1px solid #666;border-radius:3px;';
+  unlimBtn.style.background = isUnlimited ? '#555' : '#333';
+  unlimBtn.style.color = isUnlimited ? '#ffd700' : '#888';
+  unlimBtn.addEventListener('click', () => {
+    if (state.manifest[id] === null) {
+      // Turn off unlimited — restore to 1
+      state.manifest[id] = 1;
+      inp.value = 1;
+      dec.disabled = false;
+      inc.disabled = false;
+      unlimBtn.style.background = '#333';
+      unlimBtn.style.color = '#888';
+    } else {
+      // Turn on unlimited
+      state.manifest[id] = null;
+      inp.value = '∞';
+      dec.disabled = true;
+      inc.disabled = true;
+      unlimBtn.style.background = '#555';
+      unlimBtn.style.color = '#ffd700';
+    }
+    autosave();
+  });
 
   wrap.appendChild(dec);
   wrap.appendChild(inp);
   wrap.appendChild(inc);
+  wrap.appendChild(unlimBtn);
   card.appendChild(wrap);
 
   // Card as drop target: same tile → increment; different tile → add/increment
@@ -324,7 +366,8 @@ function makeManifestCard(id) {
 
 // ── Count logic ───────────────────────────────────────────────────────────────
 
-function adjustCount(id, inputEl, delta) {
+function adjustCount(id, inputEl, decBtn, incBtn, delta) {
+  if (state.manifest[id] === null) return; // unlimited — ignore
   const next = Math.max(1, (parseInt(inputEl.value) || 1) + delta);
   inputEl.value = next;
   state.manifest[id] = next;
@@ -332,12 +375,16 @@ function adjustCount(id, inputEl, delta) {
 }
 
 function addOrIncrement(id) {
+  if (state.manifest[id] === null) {
+    // Already unlimited — nothing to change
+    return;
+  }
   if (state.manifest[id] > 0) {
     // Existing tile: increment and update in-place (no rebuild needed)
     state.manifest[id]++;
     const card = document.querySelector(`.manifest-card[data-tile="${CSS.escape(id)}"]`);
     if (card) {
-      const inp = card.querySelector('input[type="number"]');
+      const inp = card.querySelector('input[type="text"]');
       if (inp) inp.value = state.manifest[id];
     } else {
       buildManifestView(); // shouldn't happen but safe fallback
