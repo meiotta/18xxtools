@@ -74,6 +74,8 @@ function getNeighborHex(row, col, edge) {
 // mousemove and mouseup are registered on document during a drag so they fire
 // even when the pointer leaves the canvas element mid-drag.
 function _lassoMove(e) {
+  // clientX/Y are viewport-relative; subtract canvas bounding rect to get
+  // canvas-relative pixel coords (same coordinate space the renderer uses).
   const rect = canvas.getBoundingClientRect();
   _lasso.endX = e.clientX - rect.left;
   _lasso.endY = e.clientY - rect.top;
@@ -88,23 +90,23 @@ function _lassoUp(e) {
   const wasDrag = Math.abs(_lasso.endX - _lasso.startX) > 3 ||
                   Math.abs(_lasso.endY - _lasso.startY) > 3;
   if (wasDrag) {
-    // Convert lasso pixel rect → world coords (inverse of renderer's transform)
+    // Lasso rect in canvas pixel coords (same space as renderer output).
     const px1 = Math.min(_lasso.startX, _lasso.endX);
     const py1 = Math.min(_lasso.startY, _lasso.endY);
     const px2 = Math.max(_lasso.startX, _lasso.endX);
     const py2 = Math.max(_lasso.startY, _lasso.endY);
-    const wx1 = (px1 - LABEL_PAD) / zoom - panX;
-    const wy1 = (py1 - LABEL_PAD) / zoom - panY;
-    const wx2 = (px2 - LABEL_PAD) / zoom - panX;
-    const wy2 = (py2 - LABEL_PAD) / zoom - panY;
 
+    // For each grid position, convert the hex center to canvas pixels using
+    // the SAME formula the renderer uses: cx = (world + pan) * zoom + LABEL_PAD.
+    // Comparing canvas pixels to canvas pixels avoids any inverse-transform error.
     selectedHexes.clear();
     let lastId = null;
     for (let r = 0; r < state.meta.rows; r++) {
       for (let c = 0; c < state.meta.cols; c++) {
         const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
-        if (center.x >= wx1 && center.x <= wx2 &&
-            center.y >= wy1 && center.y <= wy2) {
+        const cx = (center.x + panX) * zoom + LABEL_PAD;
+        const cy = (center.y + panY) * zoom + LABEL_PAD;
+        if (cx >= px1 && cx <= px2 && cy >= py1 && cy <= py2) {
           lastId = hexId(r, c);
           selectedHexes.add(lastId);
         }
