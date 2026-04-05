@@ -7,24 +7,7 @@
 
 // ── Toolbar ───────────────────────────────────────────────────────────────────
 
-// File menu open/close toggle.
-// We track open state with a boolean so we never rely on reading style.display
-// (which can be overridden by CSS and mis-compare as '').
-let _fileMenuOpen = false;
-const _fileMenuBtn = document.getElementById('fileMenuBtn');
-const _fileMenuEl  = document.getElementById('fileMenu');
-if (_fileMenuBtn && _fileMenuEl) {
-  _fileMenuBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    _fileMenuOpen = !_fileMenuOpen;
-    _fileMenuEl.style.display = _fileMenuOpen ? 'block' : 'none';
-  });
-  // Close on any click outside the wrapper
-  document.addEventListener('click', () => {
-    _fileMenuOpen = false;
-    _fileMenuEl.style.display = 'none';
-  });
-}
+// File menu toggle is wired in setup.js DOMContentLoaded (safe DOM access).
 
 document.getElementById('saveBtn').addEventListener('click', () => {
   state.meta.title = document.getElementById('gameTitleEdit').value;

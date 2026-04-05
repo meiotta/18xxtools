@@ -14,6 +14,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('helpDrawer').style.display = 'none';
   });
 
+  // File ▾ dropdown toggle
+  const fileMenuBtn = document.getElementById('fileMenuBtn');
+  const fileMenu    = document.getElementById('fileMenu');
+  if (fileMenuBtn && fileMenu) {
+    let _open = false;
+    fileMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _open = !_open;
+      fileMenu.style.display = _open ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => {
+      if (_open) { _open = false; fileMenu.style.display = 'none'; }
+    });
+  }
+
   // Loading splash — show for 2200ms with a 300ms fade-out at 1900ms
   const splash = document.getElementById('loadingSplash');
   if (splash) {
