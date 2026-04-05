@@ -120,7 +120,7 @@ function _lassoUp(e) {
 }
 
 canvas.addEventListener('mousedown', (e) => {
-  if (e.button === 0 && !e.ctrlKey && !e.metaKey) {
+  if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
     // preventDefault stops the browser from firing dragstart on a real drag,
     // which would swallow subsequent mousemove events and break lasso.
     e.preventDefault();
@@ -164,11 +164,7 @@ canvas.addEventListener('click', (e) => {
       if (!removing) {
         border = { edge: edgeNum, type };
         if (type === 'water') {
-          const costStr = prompt('Water crossing cost:', String(
-            (state.terrainCosts && state.terrainCosts.water) || 40
-          ));
-          if (costStr === null) return; // cancelled
-          border.cost = parseInt(costStr, 10) || 40;
+          border.cost = (state.terrainCosts && state.terrainCosts.water) || 40;
         }
       }
 
@@ -308,12 +304,6 @@ function applyTool(hexId) {
     // Record stamp for shift+click repeat
     _stampTile = activeTile;
     _stampRotation = 0;
-    // Prompt for city name if the tile has a city or OO station
-    const td = TILE_DEFS[String(activeTile)];
-    if (td && (td.city || td.oo)) {
-      const name = prompt('City name for this tile (leave blank to skip):', hex.cityName || '');
-      if (name !== null) hex.cityName = name.trim();
-    }
     // Deselect after drop — tile is a one-shot pickup
     activeTile = null;
     activeTool = null;

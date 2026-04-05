@@ -30,11 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('helpDrawer').style.display = 'none';
   });
 
-  // Loading splash — show briefly then hide
+  // Loading splash — show for 2200ms with a 300ms fade-out at 1900ms
   const splash = document.getElementById('loadingSplash');
   if (splash) {
     splash.style.display = 'flex';
-    setTimeout(() => { splash.style.display = 'none'; }, 850);
+    setTimeout(() => { splash.classList.add('splash-fadeout'); }, 1900);
+    setTimeout(() => { splash.style.display = 'none'; splash.classList.remove('splash-fadeout'); }, 2200);
   }
 
   // Skip setup screen — initialise with defaults and go straight to editor
