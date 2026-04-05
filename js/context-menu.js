@@ -201,9 +201,7 @@ function _buildQuickIconGrid(menu, hexData, onTerrainApply, onIconToggle) {
     btn.onclick = (e) => {
       e.stopPropagation();
       removeContextMenu();
-      const cost = prompt(`Terrain cost for ${label} (0 = no cost displayed):`, String(defaultCost));
-      if (cost === null) return;
-      onTerrainApply(key, parseInt(cost, 10) || 0);
+      onTerrainApply(key, defaultCost);
     };
     grid.appendChild(btn);
   });
@@ -257,10 +255,8 @@ function showContextMenu(x, y, hexId) {
 
   // ── City ──────────────────────────────────────────────────────────────────
   addItem('🏙 City — Quick Add', () => {
-    const name = prompt('City name (leave blank for unnamed):', hex.city?.name || hex.ooCityName || '');
-    if (name === null) return;
     ensureHex(hexId);
-    state.hexes[hexId].city = { name: name.trim(), slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
+    state.hexes[hexId].city = { name: hex.city?.name || hex.ooCityName || '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     state.hexes[hexId].town = null;
     state.hexes[hexId].oo   = false;
     state.hexes[hexId].dualTown = false;
@@ -269,10 +265,8 @@ function showContextMenu(x, y, hexId) {
 
   // ── Town ──────────────────────────────────────────────────────────────────
   addItem('🔴 Town — Quick Add', () => {
-    const name = prompt('Town name (leave blank for unnamed):', hex.town?.name || '');
-    if (name === null) return;
     ensureHex(hexId);
-    state.hexes[hexId].town = { name: name.trim() };
+    state.hexes[hexId].town = { name: hex.town?.name || '' };
     state.hexes[hexId].dualTown = false;
     state.hexes[hexId].city = null;
     state.hexes[hexId].oo   = false;
@@ -343,6 +337,10 @@ function showContextMenu(x, y, hexId) {
   });
 
   document.body.appendChild(menu);
+  // Clamp so menu never clips past viewport edge
+  const _mw = menu.offsetWidth, _mh = menu.offsetHeight;
+  if (x + _mw > window.innerWidth)  menu.style.left = (window.innerWidth  - _mw - 4) + 'px';
+  if (y + _mh > window.innerHeight) menu.style.top  = (window.innerHeight - _mh - 4) + 'px';
   setTimeout(() => { document.addEventListener('click', removeContextMenu, { once: true }); }, 0);
 }
 
@@ -372,10 +370,8 @@ function showMultiContextMenu(x, y, hexIds) {
 
   // ── City ──────────────────────────────────────────────────────────────────
   addItem('🏙 Add City (all)', () => {
-    const name = prompt('City name for all selected (blank = unnamed):');
-    if (name === null) return;
     applyToAll(id => {
-      state.hexes[id].city = { name: name.trim(), slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
+      state.hexes[id].city = { name: '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
       state.hexes[id].town = null;
       state.hexes[id].oo   = false;
     });
@@ -401,12 +397,10 @@ function showMultiContextMenu(x, y, hexIds) {
   if (uniqueTerrains.length === 1 && allTerrains.length === hexIds.length) {
     const sharedType = uniqueTerrains[0];
     const terrainDef = TERRAIN_TYPES.find(t => t.key === sharedType);
-    const currentCost = (state.hexes[hexIds[0]] || {}).terrainCost || 0;
     const typeLabel = terrainDef ? terrainDef.label : sharedType;
-    _addItem(menu, `💰 Update ${typeLabel} Cost (all ${n})`, () => {
-      const cost = prompt(`New terrain cost for all ${typeLabel} hexes:`, String(currentCost));
-      if (cost === null) return;
-      applyToAll(id => { state.hexes[id].terrainCost = parseInt(cost, 10) || 0; });
+    const defaultCost = terrainDef ? terrainDef.defaultCost : 0;
+    _addItem(menu, `💰 Reset ${typeLabel} Cost to default (all ${n})`, () => {
+      applyToAll(id => { state.hexes[id].terrainCost = defaultCost; });
     });
     _addSep(menu);
   }
@@ -449,5 +443,9 @@ function showMultiContextMenu(x, y, hexIds) {
   });
 
   document.body.appendChild(menu);
+  // Clamp so menu never clips past viewport edge
+  const _mmw = menu.offsetWidth, _mmh = menu.offsetHeight;
+  if (x + _mmw > window.innerWidth)  menu.style.left = (window.innerWidth  - _mmw - 4) + 'px';
+  if (y + _mmh > window.innerHeight) menu.style.top  = (window.innerHeight - _mmh - 4) + 'px';
   setTimeout(() => { document.addEventListener('click', removeContextMenu, { once: true }); }, 0);
 }

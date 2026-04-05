@@ -90,18 +90,18 @@ function autosave() {
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('18xx-autosave');
   if (saved) {
-    const data = JSON.parse(saved);
-    if (confirm('Restore autosaved session?')) {
+    try {
+      const data = JSON.parse(saved);
       Object.assign(state, data);
-      document.getElementById('gameTitle').value = state.meta.title;
-      document.getElementById('baseGame').value = state.meta.baseGame;
-      document.getElementById('gridRows').value = state.meta.rows;
-      document.getElementById('gridCols').value = state.meta.cols;
-      document.querySelector(`input[name="orientation"][value="${state.meta.orientation}"]`).checked = true;
-      document.getElementById('bankSize').value = state.meta.bank;
-      document.getElementById('playersMin').value = state.meta.playersMin;
-      document.getElementById('playersMax').value = state.meta.playersMax;
-    } else {
+      const _f = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+      _f('gameTitle',  state.meta.title);
+      _f('baseGame',   state.meta.baseGame);
+      _f('gridRows',   state.meta.rows);
+      _f('gridCols',   state.meta.cols);
+      _f('bankSize',   state.meta.bank);
+      _f('playersMin', state.meta.playersMin);
+      _f('playersMax', state.meta.playersMax);
+    } catch (err) {
       localStorage.removeItem('18xx-autosave');
     }
   }

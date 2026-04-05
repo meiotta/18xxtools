@@ -214,6 +214,12 @@ document.getElementById('edgeImpassableBtn').addEventListener('click', () => {
 });
 
 document.getElementById('edgeWaterBtn').addEventListener('click', () => {
+  if (activeTool === 'water-crossing') {
+    activeTool = null;
+    clearEdgeToolActive();
+    updateStatus('');
+    return;
+  }
   activeTool = 'water-crossing';
   document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
