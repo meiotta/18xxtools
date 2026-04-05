@@ -616,8 +616,9 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       state.meta.orientation = result.orientation;
       state.meta.staggerParity = result.staggerParity;
       state.meta.maxRowPerCol = result.maxRowPerCol;
-      // Sync orientation select in the config panel
+      // Sync orientation select and dimension inputs in the toolbar/config panel
       syncOrientationSelect();
+      syncDimInputs();
       // Reset pan so map is visible
       panX = 0; panY = 0; zoom = 1;
       render();
