@@ -589,9 +589,19 @@ function drawHex(row, col, hex = null) {
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = selectedHex === hexId(row, col) ? '#ffd700' : '#666';
-  ctx.lineWidth = selectedHex === hexId(row, col) ? 2 * zoom : 1;
+  const _thisId = hexId(row, col);
+  const _inMulti = selectedHexes && selectedHexes.has(_thisId);
+  if (_inMulti) {
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth   = 2 * zoom;
+    ctx.setLineDash([4 * zoom, 3 * zoom]);
+  } else {
+    ctx.strokeStyle = selectedHex === _thisId ? '#ffd700' : '#666';
+    ctx.lineWidth   = selectedHex === _thisId ? 2 * zoom : 1;
+    ctx.setLineDash([]);
+  }
   ctx.stroke();
+  ctx.setLineDash([]);
 
   // Render tile track if placed
   if (hex?.tile) {

@@ -121,6 +121,9 @@ function _lassoUp(e) {
 
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0 && !e.ctrlKey && !e.metaKey) {
+    // preventDefault stops the browser from firing dragstart on a real drag,
+    // which would swallow subsequent mousemove events and break lasso.
+    e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     _lasso = {
       startX: e.clientX - rect.left,
