@@ -219,6 +219,7 @@ canvas.addEventListener('click', (e) => {
 
     // Shift+click → add hex to multi-select
     if (e.shiftKey) {
+      if (selectedHex && !selectedHexes.has(selectedHex)) selectedHexes.add(selectedHex);
       selectedHexes.add(id);
       selectedHex = id;
       render();
