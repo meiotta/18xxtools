@@ -9,48 +9,6 @@
 </head>
 <body>
 
-<!-- SETUP SCREEN -->
-<div class="setup-screen" id="setupScreen" style="display:none;">
-  <div class="setup-card">
-    <h1>18xx Game Designer</h1>
-    <div class="setup-field">
-      <label>Game Title</label>
-      <input type="text" id="gameTitle" placeholder="My Game" value="">
-    </div>
-    <div class="setup-field">
-      <label>Base Game</label>
-      <select id="baseGame">
-        <option value="custom">Custom</option>
-        <option value="1830">1830 (Railways & Robber Barons)</option>
-        <option value="1846">1846 (Here Come the Railroads)</option>
-        <option value="1822">1822 (The Railways of Great Britain)</option>
-        <option value="1889">1889 (History of Three Empires)</option>
-      </select>
-    </div>
-    <div class="setup-field">
-      <label>Grid Size</label>
-      <div class="setup-grid">
-        <input type="number" id="gridRows" min="4" max="26" value="8">
-        <div style="text-align: center;">×</div>
-        <input type="number" id="gridCols" min="4" max="50" value="12">
-      </div>
-    </div>
-    <div class="setup-field">
-      <label>Bank Size ($)</label>
-      <input type="number" id="bankSize" min="1000" max="50000" step="100" value="12000">
-    </div>
-    <div class="setup-field">
-      <label>Players</label>
-      <div class="setup-grid">
-        <div><input type="number" id="playersMin" min="2" max="8" value="2"></div>
-        <div style="text-align: center;">to</div>
-        <div><input type="number" id="playersMax" min="2" max="8" value="6"></div>
-      </div>
-    </div>
-    <button class="setup-btn" id="startBtn">Start Designing →</button>
-  </div>
-</div>
-
 <!-- MAIN EDITOR -->
 <div class="editor" id="editor">
   <div class="toolbar">
@@ -58,7 +16,11 @@
     <input type="text" id="gameTitleEdit" placeholder="Game Title">
     <span id="baseGameLabel" style="color: #999; font-size: 13px;"></span>
     <div class="sep"></div>
-    <button id="setupBtn">↩ Setup</button>
+    <span class="dims-label">Dims:</span>
+    <select id="dimCols" class="dim-select" title="Columns"></select>
+    <span class="dims-x">&#215;</span>
+    <select id="dimRows" class="dim-select" title="Rows"></select>
+    <div class="sep"></div>
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
       <button id="fileMenuBtn" style="padding:5px 14px;">File ▾</button>
       <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:160px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:hidden;">
@@ -289,6 +251,17 @@
   </div>
 
   <div class="status-bar" id="statusBar">Ready</div>
+</div>
+
+<!-- Resize warning dialog -->
+<div id="resizeWarning" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:2000;align-items:center;justify-content:center;">
+  <div class="resize-warn-box">
+    <p>Resizing will remove hexes outside the new bounds. Continue?</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button id="resizeCancelBtn" class="shw-btn-cancel">Cancel</button>
+      <button id="resizeConfirmBtn" class="shw-btn-primary">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <!-- Loading splash -->

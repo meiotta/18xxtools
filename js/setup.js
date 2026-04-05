@@ -1,22 +1,6 @@
 // ─── SETUP ────────────────────────────────────────────────────────────────────
-// Setup screen logic: show/hide, presets, and the Start button.
+// Initialisation, dimension controls, and resize logic.
 // Load order: TENTH — after companies-panel.js (calls renderCompaniesTable etc.)
-
-function showSetup() {
-  document.getElementById('setupScreen').style.display = 'flex';
-  document.getElementById('editor').classList.remove('active');
-  state.phase = 'setup';
-}
-
-function hideSetup() {
-  document.getElementById('setupScreen').style.display = 'none';
-  document.getElementById('editor').classList.add('active');
-  state.phase = 'design';
-  requestAnimationFrame(() => {
-    resizeCanvas();
-    render();
-  });
-}
 
 document.addEventListener('DOMContentLoaded', () => {
   // Help drawer
@@ -38,7 +22,33 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { splash.style.display = 'none'; splash.classList.remove('splash-fadeout'); }, 2200);
   }
 
-  // Skip setup screen — initialise with defaults and go straight to editor
+  // Populate toolbar dim selects
+  const dimColsSel = document.getElementById('dimCols');
+  const dimRowsSel = document.getElementById('dimRows');
+  if (dimColsSel) {
+    for (let i = 2; i <= 80; i++) {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = i;
+      dimColsSel.appendChild(o);
+    }
+    dimColsSel.value = state.meta.cols;
+  }
+  if (dimRowsSel) {
+    for (let i = 2; i <= 50; i++) {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = i;
+      dimRowsSel.appendChild(o);
+    }
+    dimRowsSel.value = state.meta.rows;
+  }
+
+  // Sync config-tab inputs
+  const mapRows = document.getElementById('mapRows');
+  const mapCols = document.getElementById('mapCols');
+  if (mapRows) mapRows.value = state.meta.rows;
+  if (mapCols) mapCols.value = state.meta.cols;
+
+  // Initialise editor
   buildPalette();
   renderCompaniesTable();
   renderTrainsTable();
@@ -46,12 +56,128 @@ document.addEventListener('DOMContentLoaded', () => {
   renderTerrainCostsTable();
   renderHomeCompanySelect();
   syncOrientationSelect();
-  const ri = document.getElementById('mapRows');
-  const ci = document.getElementById('mapCols');
-  if (ri) ri.value = state.meta.rows;
-  if (ci) ci.value = state.meta.cols;
-  hideSetup();
+
+  // Enter editor immediately (no setup screen)
+  state.phase = 'design';
+  document.getElementById('editor').classList.add('active');
+  requestAnimationFrame(() => { resizeCanvas(); render(); });
+
+  // ── Toolbar dim selects — resize on change ───────────────────────────────
+  if (dimColsSel) dimColsSel.addEventListener('change', () => {
+    applyResize(parseInt(dimRowsSel.value), parseInt(dimColsSel.value));
+  });
+  if (dimRowsSel) dimRowsSel.addEventListener('change', () => {
+    applyResize(parseInt(dimRowsSel.value), parseInt(dimColsSel.value));
+  });
+
+  // ── Config tab: +/- buttons and Apply ───────────────────────────────────
+  const rowsDecBtn = document.getElementById('rowsDecBtn');
+  const rowsIncBtn = document.getElementById('rowsIncBtn');
+  const colsDecBtn = document.getElementById('colsDecBtn');
+  const colsIncBtn = document.getElementById('colsIncBtn');
+  const applyResizeBtn = document.getElementById('applyResizeBtn');
+
+  if (rowsDecBtn) rowsDecBtn.addEventListener('click', () => {
+    if (mapRows) mapRows.value = Math.max(2, parseInt(mapRows.value) - 1);
+  });
+  if (rowsIncBtn) rowsIncBtn.addEventListener('click', () => {
+    if (mapRows) mapRows.value = Math.min(50, parseInt(mapRows.value) + 1);
+  });
+  if (colsDecBtn) colsDecBtn.addEventListener('click', () => {
+    if (mapCols) mapCols.value = Math.max(2, parseInt(mapCols.value) - 1);
+  });
+  if (colsIncBtn) colsIncBtn.addEventListener('click', () => {
+    if (mapCols) mapCols.value = Math.min(80, parseInt(mapCols.value) + 1);
+  });
+  if (applyResizeBtn) applyResizeBtn.addEventListener('click', () => {
+    applyResize(parseInt(mapRows.value), parseInt(mapCols.value));
+  });
+
+  // ── Resize warning dialog buttons ────────────────────────────────────────
+  document.getElementById('resizeConfirmBtn').addEventListener('click', () => {
+    document.getElementById('resizeWarning').style.display = 'none';
+    commitResize(_pendingRows, _pendingCols);
+    _pendingRows = null; _pendingCols = null;
+  });
+  document.getElementById('resizeCancelBtn').addEventListener('click', () => {
+    document.getElementById('resizeWarning').style.display = 'none';
+    _pendingRows = null; _pendingCols = null;
+    syncDimInputs(); // revert inputs to current state
+  });
 });
+
+// ── Resize helpers ────────────────────────────────────────────────────────────
+
+let _pendingRows = null, _pendingCols = null;
+
+// Parse an 18xx coord string (e.g. 'B3') back to internal {row, col}.
+function parseHexId(id) {
+  const col = id.charCodeAt(0) - 65;
+  const num = parseInt(id.slice(1));
+  const row = (col % 2 === 0) ? (num - 2) / 2 : (num - 1) / 2;
+  return { row, col };
+}
+
+// True if a hex entry has any non-blank content.
+function hexHasContent(h) {
+  if (!h) return false;
+  return !!(h.tile || h.terrain || h.label || h.city || h.town ||
+            h.killed || h.staticType || h.oo || h.dualTown ||
+            (h.icons && h.icons.length) ||
+            (h.riverEdges && h.riverEdges.length) ||
+            (h.impassableEdges && h.impassableEdges.length));
+}
+
+// True if any filled hex falls outside newRows×newCols.
+function hexesExistOutsideBounds(newRows, newCols) {
+  return Object.entries(state.hexes).some(([id, h]) => {
+    if (!hexHasContent(h)) return false;
+    const { row, col } = parseHexId(id);
+    return row >= newRows || col >= newCols;
+  });
+}
+
+// Keep all dimension inputs in sync with state.
+function syncDimInputs() {
+  const dc = document.getElementById('dimCols');
+  const dr = document.getElementById('dimRows');
+  const mr = document.getElementById('mapRows');
+  const mc = document.getElementById('mapCols');
+  if (dc) dc.value = state.meta.cols;
+  if (dr) dr.value = state.meta.rows;
+  if (mr) mr.value = state.meta.rows;
+  if (mc) mc.value = state.meta.cols;
+}
+
+// Request a resize — shows warning dialog if hexes would be lost.
+function applyResize(newRows, newCols) {
+  newRows = Math.max(2, Math.min(50, newRows));
+  newCols = Math.max(2, Math.min(80, newCols));
+  if (newRows === state.meta.rows && newCols === state.meta.cols) return;
+
+  if (hexesExistOutsideBounds(newRows, newCols)) {
+    _pendingRows = newRows;
+    _pendingCols = newCols;
+    document.getElementById('resizeWarning').style.display = 'flex';
+    return;
+  }
+  commitResize(newRows, newCols);
+}
+
+// Apply the resize unconditionally, removing out-of-bounds hexes.
+function commitResize(newRows, newCols) {
+  for (const id of Object.keys(state.hexes)) {
+    const { row, col } = parseHexId(id);
+    if (row >= newRows || col >= newCols) delete state.hexes[id];
+  }
+  state.meta.rows = newRows;
+  state.meta.cols = newCols;
+  syncDimInputs();
+  render();
+  autosave();
+}
+
+// ── Preset loader ─────────────────────────────────────────────────────────────
 
 function loadPreset(game) {
   const presets = {
@@ -142,45 +268,6 @@ function loadPreset(game) {
   state.trains         = JSON.parse(JSON.stringify(p.trains));
   state.privates       = JSON.parse(JSON.stringify(p.privates));
 }
-
-// ── Setup screen event listeners ─────────────────────────────────────────────
-
-// When the base game select changes, load the preset and sync all fields
-document.getElementById('baseGame').addEventListener('change', (e) => {
-  loadPreset(e.target.value);
-  document.getElementById('gridRows').value   = state.meta.rows;
-  document.getElementById('gridCols').value   = state.meta.cols;
-  document.getElementById('bankSize').value   = state.meta.bank;
-  document.getElementById('playersMin').value = state.meta.playersMin;
-  document.getElementById('playersMax').value = state.meta.playersMax;
-});
-
-// Start button — read all setup fields into state, then enter the editor
-document.getElementById('startBtn').addEventListener('click', () => {
-  state.meta.title       = document.getElementById('gameTitle').value.trim();
-  state.meta.baseGame    = document.getElementById('baseGame').value;
-  state.meta.rows        = Math.max(1, parseInt(document.getElementById('gridRows').value)  || 8);
-  state.meta.cols        = Math.max(1, parseInt(document.getElementById('gridCols').value)  || 12);
-  state.meta.orientation = state.meta.orientation || 'flat';
-  state.meta.bank        = parseInt(document.getElementById('bankSize').value)   || 12000;
-  state.meta.playersMin  = parseInt(document.getElementById('playersMin').value) || 2;
-  state.meta.playersMax  = parseInt(document.getElementById('playersMax').value) || 6;
-
-  // Sync toolbar fields
-  document.getElementById('gameTitleEdit').value        = state.meta.title;
-  document.getElementById('baseGameLabel').textContent  = 'Base: ' + state.meta.baseGame;
-
-  // Build palette and panel tables with the new state
-  buildPalette();
-  renderCompaniesTable();
-  renderTrainsTable();
-  renderPrivatesTable();
-  renderTerrainCostsTable();
-  renderHomeCompanySelect();
-
-  syncOrientationSelect();
-  hideSetup();
-});
 
 // ── Orientation config control ────────────────────────────────────────────────
 
