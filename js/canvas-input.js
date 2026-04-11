@@ -347,6 +347,7 @@ function applyTool(hexId) {
   } else if (activeTool === 'city-1') {
     hex.city = { slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     hex.town = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'city-2') {
     hex.city = { slots: 2, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     hex.town = false;
@@ -449,10 +450,8 @@ canvas.addEventListener('drop', (e) => {
 
   if (WHITE_TILE_TOOLS.has(payload)) {
     // ── White-tile feature drop ──────────────────────────────────────────────
-    const prevTool = activeTool;
     activeTool = payload;
-    applyTool(id);
-    activeTool = prevTool; // applyTool calls _clearWhiteTileTool which nulls it anyway
+    applyTool(id); // _clearWhiteTileTool() inside applyTool already nulls activeTool
     selectedHex = id;
     if (typeof updateHexPanel === 'function') updateHexPanel(id);
     render(); autosave();

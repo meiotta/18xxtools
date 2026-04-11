@@ -738,7 +738,8 @@ function drawHex(row, col, hex = null) {
   }
 
   // City name for placed tiles (city:true or oo:true)
-  if (hex?.cityName && tileDef && (tileDef.city || tileDef.oo)) {
+  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city || !!hex?.oo;
+  if (hex?.cityName && hasCityOrOo) {
     const name = hex.cityName;
     ctx.font = `bold ${9 * zoom}px Arial`;
     ctx.textAlign = 'center';
@@ -803,7 +804,27 @@ function drawHex(row, col, hex = null) {
     const sc = size / 50;
     ctx.scale(sc, sc);
     const slots = hex.city.slots || 1;
-    if (slots >= 2) {
+    const isJoined = !!hex.city.joined;
+    if (slots >= 3) {
+      // Triple city: triangle formation in a rounded-rect frame
+      ctx.fillStyle = 'white';
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-28, -26, 56, 52, 3);
+      ctx.fill();
+      ctx.stroke();
+      const triPts = [{ x: 0, y: -14 }, { x: -14, y: 10 }, { x: 14, y: 10 }];
+      for (const p of triPts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    } else if (slots >= 2) {
       ctx.fillStyle = 'white';
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 2;
