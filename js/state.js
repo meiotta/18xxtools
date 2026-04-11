@@ -40,6 +40,7 @@
 const state = {
   meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
   hexes: {},
+  enabledPacks: null,
   companies: [],
   trains: [],
   privates: [],

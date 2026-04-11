@@ -19,6 +19,8 @@
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
       <button id="fileMenuBtn" style="padding:5px 14px;">File ▾</button>
       <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:160px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:hidden;">
+        <button id="newMapBtn"     class="file-menu-item">🗺 New Map</button>
+        <div style="height:1px;background:#3a3a3a;margin:2px 0;"></div>
         <button id="saveBtn"      class="file-menu-item">💾 Save JSON</button>
         <button id="loadBtn"      class="file-menu-item">📂 Load JSON</button>
         <div style="height:1px;background:#3a3a3a;margin:2px 0;"></div>
@@ -908,6 +910,7 @@
 </div>
 
 <script src="js/tile-geometry.js"></script>
+<script src="js/tile-packs.js"></script>
 <script src="js/constants.js"></script>
 <script src="js/state.js"></script>
 <script src="js/hex-geometry.js"></script>
