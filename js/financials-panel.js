@@ -3,6 +3,15 @@
 // Load order: TENTH — after companies-panel.js.
 
 function initFinancialsListeners() {
+  // Guard: ensure state.financials exists (defensive against bad autosave restore)
+  if (!state.financials) {
+    state.financials = {
+      bank: 12000, marketType: '2D', market: [], marketRows: 11, marketCols: 19,
+      rules: { dividend: 'right', withheld: 'left', soldOut: 'up', canPool: true },
+      logicRules: [], locks: {}
+    };
+  }
+
   const bankInput = document.getElementById('finBank');
   const typeSelect = document.getElementById('finMarketType');
   const rowInput = document.getElementById('finMarketRows');
