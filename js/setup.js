@@ -9,6 +9,117 @@ document.addEventListener('DOMContentLoaded', () => {
     const drawer = document.getElementById('helpDrawer');
     if (drawer) drawer.style.display = 'block';
   });
+
+  // ── Left Nav Rail — section switching ──────────────────────────────────────
+  const canvasContainer   = document.getElementById('canvasContainer');
+  const marketView        = document.getElementById('marketView');
+  const corpView          = document.getElementById('corpView');
+  const trainsView        = document.getElementById('trainsView');
+  const tileManifestView  = document.getElementById('tileManifestView');
+  const rightPanel        = document.getElementById('rightPanel');
+  const navContent        = document.getElementById('navContent');
+
+  function showMainView(which) {
+    canvasContainer.style.display  = which === 'canvas' ? 'block' : 'none';
+    marketView.style.display       = which === 'market' ? 'flex'  : 'none';
+    if (corpView)   corpView.style.display   = which === 'corps'  ? 'flex'  : 'none';
+    if (trainsView) trainsView.style.display = which === 'trains' ? 'flex'  : 'none';
+    tileManifestView.style.display = 'none'; // manifest has its own toggle
+    // Right panel and nav-content only meaningful in map mode
+    if (rightPanel) rightPanel.style.display = which === 'canvas' ? '' : 'none';
+    // Hide the 200px nav-content strip when not in map mode — give full width to center
+    if (navContent) navContent.style.display = which === 'canvas' ? '' : 'none';
+  }
+
+  document.querySelectorAll('.nav-rail-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sec = btn.dataset.lsec;
+
+      // Update nav active state
+      document.querySelectorAll('.nav-rail-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Show/hide lsections (only relevant for map mode now, but kept for structure)
+      document.querySelectorAll('.lsection').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById('lsec-' + sec);
+      if (target) target.classList.add('active');
+
+      // Switch main center view
+      if (sec === 'market') {
+        showMainView('market');
+        if (typeof renderMarketEditor === 'function') renderMarketEditor();
+        // Update summary label
+        const summary = document.getElementById('lsec-market-summary');
+        if (summary && typeof state !== 'undefined') {
+          const t = state.market?.type || '2D';
+          const r = state.market?.rows || 11;
+          const c = state.market?.cols || 19;
+          summary.textContent = t === '1D' ? `1D Linear · ${state.market?.count || 10} cells`
+                              : t === 'zigzag' ? `1.5D Zigzag · ${r}×${c}`
+                              : `2D Grid · ${r}×${c}`;
+        }
+      } else if (sec === 'companies') {
+        showMainView('corps');
+      } else if (sec === 'trains') {
+        showMainView('trains');
+      } else {
+        showMainView('canvas');
+      }
+    });
+  });
+
+  // ── Corps view tab switching (Privates / Minors / Majors) ───────────────────
+  document.querySelectorAll('.corp-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.corpTab;
+
+      // Update active tab button
+      document.querySelectorAll('.corp-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Show/hide table sections
+      const sections = { privates: 'corpPrivatesSection', minors: 'corpMinorsSection', majors: 'corpMajorsSection' };
+      Object.entries(sections).forEach(([key, id]) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = key === tab ? '' : 'none';
+      });
+
+      // Show/hide the matching add button
+      document.querySelectorAll('.corp-add-btn').forEach(b => {
+        b.style.display = (b.dataset.addFor === tab) ? '' : 'none';
+      });
+    });
+  });
+
+  // ── Right-panel Tab Switching (hex + config only) ──────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.dataset.tab;
+
+      // Update Tab Headers
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Update Tab Content
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      const activeTab = document.getElementById(tabId + 'Tab');
+      if (activeTab) activeTab.classList.add('active');
+    });
+  });
+
+  // ── Theme Toggle ────────────────────────────────────────────────────────────
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      const html = document.documentElement;
+      const isDark = html.getAttribute('data-theme') !== 'light';
+      html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+      // isDark=true → just switched to light → show 🌙 (click to go dark)
+      // isDark=false → just switched to dark → show ☀️ (click to go light)
+      themeToggleBtn.textContent = isDark ? '🌙' : '☀️';
+    });
+  }
+
   const helpClose = document.getElementById('helpDrawerClose');
   if (helpClose) helpClose.addEventListener('click', () => {
     document.getElementById('helpDrawer').style.display = 'none';
@@ -26,6 +137,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.addEventListener('click', () => {
       if (_open) { _open = false; fileMenu.style.display = 'none'; }
+    });
+  }
+
+  // Map section → Clear Map
+  const mapClearBtn       = document.getElementById('mapClearBtn');
+  const clearMapWarning   = document.getElementById('clearMapWarning');
+  const clearMapConfirmBtn = document.getElementById('clearMapConfirmBtn');
+  const clearMapCancelBtn  = document.getElementById('clearMapCancelBtn');
+
+  if (mapClearBtn && clearMapWarning) {
+    mapClearBtn.addEventListener('click', () => {
+      clearMapWarning.style.display = 'flex';
+    });
+    clearMapCancelBtn.addEventListener('click', () => {
+      clearMapWarning.style.display = 'none';
+    });
+    clearMapConfirmBtn.addEventListener('click', () => {
+      clearMapWarning.style.display = 'none';
+
+      // Wipe all hex data — empty object means every position is default (alive, blank)
+      state.hexes = {};
+
+      // Clear per-column row limits (imported map shape) since we're starting fresh
+      state.meta.maxRowPerCol = null;
+
+      // Reset selection state
+      selectedHex = null;
+      selectedHexes = new Set();
+
+      render();
+      autosave();
     });
   }
 
@@ -71,6 +213,13 @@ document.addEventListener('DOMContentLoaded', () => {
   renderTerrainCostsTable();
   renderHomeCompanySelect();
   syncOrientationSelect();
+  if (typeof initFinancialsListeners === 'function') initFinancialsListeners();
+  if (typeof initMarketWizard === 'function') initMarketWizard();
+  if (typeof initMarketPainter === 'function') initMarketPainter();
+  if (typeof initLogicRulesListeners === 'function') {
+    initLogicRulesListeners();
+    renderLogicRules();
+  }
 
   // Enter editor immediately (no setup screen)
   state.phase = 'design';
@@ -119,6 +268,39 @@ document.addEventListener('DOMContentLoaded', () => {
     _pendingRows = null; _pendingCols = null;
     syncDimInputs(); // revert inputs to current state
   });
+
+  // ── Market split — resizable drag handle ─────────────────────────────────
+  const marketHandle = document.getElementById('marketResizeHandle');
+  const marketLeft   = document.getElementById('marketLeftPane');
+  const marketView_  = document.getElementById('marketView');
+
+  if (marketHandle && marketLeft && marketView_) {
+    let _dragging = false, _startX = 0, _startW = 0;
+
+    marketHandle.addEventListener('mousedown', e => {
+      _dragging = true;
+      _startX   = e.clientX;
+      _startW   = marketLeft.offsetWidth;
+      document.body.style.cursor  = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!_dragging) return;
+      const dx      = e.clientX - _startX;
+      const total   = marketView_.offsetWidth;
+      const newW    = Math.max(280, Math.min(total - 220, _startW + dx));
+      marketLeft.style.width = newW + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!_dragging) return;
+      _dragging = false;
+      document.body.style.cursor     = '';
+      document.body.style.userSelect = '';
+    });
+  }
 });
 
 // ── Resize helpers ────────────────────────────────────────────────────────────
@@ -293,9 +475,10 @@ function syncOrientationSelect() {
   if (sel) sel.value = state.meta.orientation || 'flat';
 }
 
-// Re-render map whenever orientation is changed in the config panel.
+// Re-render map + palette whenever orientation is changed in the config panel.
 document.getElementById('configOrientation').addEventListener('change', (e) => {
   state.meta.orientation = e.target.value;
+  if (typeof buildPalette === 'function') buildPalette(); // re-render tile swatches for new orientation
   render();
   autosave();
 });
