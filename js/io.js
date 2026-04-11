@@ -34,10 +34,13 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     document.getElementById('gameTitleEdit').value = state.meta.title;
     document.getElementById('baseGameLabel').textContent = 'Base: ' + state.meta.baseGame;
     renderCompaniesTable();
+    if (typeof renderMinorsTable === 'function') renderMinorsTable();
     renderPrivatesTable();
     renderTrainsTable();
     renderTerrainCostsTable();
     renderHomeCompanySelect();
+    if (typeof initFinancialsListeners === 'function') initFinancialsListeners();
+    if (typeof renderLogicRules === 'function') renderLogicRules();
     buildPalette();
     syncOrientationSelect();
     syncDimInputs();
@@ -63,8 +66,8 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
 
   folder.file('map.json',       JSON.stringify({ rows: state.meta.rows, cols: state.meta.cols, orientation: state.meta.orientation, hexes: mapHexes }, null, 2));
   folder.file('tiles.json',     JSON.stringify({ tiles: state.trains }, null, 2));
-  folder.file('game.json',      JSON.stringify({ meta: state.meta, terrainCosts: state.terrainCosts }, null, 2));
-  folder.file('companies.json', JSON.stringify({ companies: state.companies, privates: state.privates }, null, 2));
+  folder.file('game.json',      JSON.stringify({ meta: state.meta, terrainCosts: state.terrainCosts, financials: state.financials }, null, 2));
+  folder.file('companies.json', JSON.stringify({ companies: state.companies, minors: state.minors, privates: state.privates, financials: state.financials }, null, 2));
 
   const readme = `# ${state.meta.title || 'Game'}\n\nBase: ${state.meta.baseGame}\nGrid: ${state.meta.rows}×${state.meta.cols}\nBank: $${state.meta.bank}\nPlayers: ${state.meta.playersMin}-${state.meta.playersMax}`;
   folder.file('README.md', readme);
@@ -97,6 +100,12 @@ window.addEventListener('load', () => {
       const bl = document.getElementById('baseGameLabel');
       if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
       syncDimInputs();
+      if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
+      // Re-render panels that were initialized before state was restored
+      if (typeof syncFinancialsUI   === 'function') syncFinancialsUI();
+      if (typeof renderMarketEditor === 'function') renderMarketEditor();
+      if (typeof renderLogicRules   === 'function') renderLogicRules();
+      if (typeof buildPalette       === 'function') buildPalette();
     } catch (err) {
       localStorage.removeItem('18xx-autosave');
     }

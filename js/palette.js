@@ -100,10 +100,16 @@ function makeTileSwatchSvg(tileId) {
     inner += `<text x="-46" y="1" font-size="11" fill="#111" font-weight="bold" dominant-baseline="middle">${td.tileLabel}</text>`;
   }
 
-  // Tile number — bolder and larger so it reads at swatch size
-  inner += `<text x="-41" y="-36" font-size="10" font-weight="bold" fill="${labelColor}">#${tileId}</text>`;
+  // Tile number — stays in top-left corner, unrotated
+  const numLabel = `<text x="-41" y="-36" font-size="10" font-weight="bold" fill="${labelColor}">#${tileId}</text>`;
 
-  return `<svg viewBox="-50 -50 100 100" width="72" height="72">${inner}</svg>`;
+  // Rotate entire hex + track for pointy-top orientation (30° = flat→pointy)
+  const isPointy = (state.meta && state.meta.orientation === 'pointy');
+  const hexGroup = isPointy
+    ? `<g transform="rotate(30)">${inner}</g>`
+    : inner;
+
+  return `<svg viewBox="-50 -50 100 100" width="72" height="72">${hexGroup}${numLabel}</svg>`;
 }
 
 // ── Palette builder ──────────────────────────────────────────────────────────
@@ -194,6 +200,75 @@ document.getElementById('eraseBtn').addEventListener('click', () => {
   updateStatus('Tool: Erase');
 });
 
+// ── Terrain brush buttons ─────────────────────────────────────────────────────
+
+// clearAllToolHighlights defined below (also clears terrain brushes)
+function clearAllToolHighlights() {
+  document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
+  document.querySelectorAll('.tile-item').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.white-tile-btn').forEach(b => b.classList.remove('wt-active'));
+  document.querySelectorAll('.terrain-brush-btn').forEach(b => b.classList.remove('tb-active'));
+  document.querySelectorAll('.edge-tool-btn').forEach(b => { b.style.outline = ''; b.style.background = ''; });
+}
+
+document.querySelectorAll('.terrain-brush-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const terrain = btn.dataset.terrain; // '' = clear terrain
+    // Toggle off if already active
+    if (activeTool === 'terrain' && activeTerrainType === terrain) {
+      activeTool = null;
+      activeTerrainType = null;
+      btn.classList.remove('tb-active');
+      updateStatus('');
+      return;
+    }
+    clearAllToolHighlights();
+    if (terrain === '') {
+      // "Clear terrain" — uses a special erase-terrain mode
+      activeTool = 'terrain-clear';
+      activeTerrainType = '';
+      btn.classList.add('tb-active');
+      updateStatus('Tool: Clear terrain — click a hex to remove its terrain');
+    } else {
+      activeTool = 'terrain';
+      activeTerrainType = terrain;
+      btn.classList.add('tb-active');
+      const costStr = { mountain:'$80', hill:'$40', water:'$40', swamp:'$20', forest:'$20', desert:'$40', pass:'$120', offmap:'' }[terrain] || '';
+      updateStatus(`Tool: ${terrain.charAt(0).toUpperCase()+terrain.slice(1)} terrain${costStr ? ' '+costStr : ''}`);
+    }
+  });
+});
+
+// ── White tile buttons ────────────────────────────────────────────────────────
+
+const WHITE_TILE_LABELS = {
+  'white-blank':   'Blank hex',
+  'town':          'Tool: Single Dit',
+  'dual-town':     'Tool: Double Dit',
+  'city-1':        'Tool: Single City',
+  'city-joined':   'Tool: Double City (joined)',
+  'city-oo':       'Tool: OO City',
+  'city-3':        'Tool: 3-Slot City',
+};
+
+document.querySelectorAll('.white-tile-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tool = btn.dataset.wtool;
+    if (activeTool === tool) {
+      // Toggle off
+      activeTool = null;
+      btn.classList.remove('wt-active');
+      updateStatus('');
+      return;
+    }
+    clearAllToolHighlights();
+    activeTool = tool;
+    btn.classList.add('wt-active');
+    updateStatus(WHITE_TILE_LABELS[tool] || `Tool: ${tool}`);
+  });
+});
+
 // ── Edge tool buttons ────────────────────────────────────────────────────────
 
 function clearEdgeToolActive() {
@@ -205,9 +280,7 @@ function clearEdgeToolActive() {
 
 document.getElementById('edgeImpassableBtn').addEventListener('click', () => {
   activeTool = 'impassable';
-  document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
-  clearEdgeToolActive();
+  clearAllToolHighlights();
   document.getElementById('edgeImpassableBtn').style.outline = '2px solid #ffd700';
   document.getElementById('edgeImpassableBtn').style.background = 'rgba(255,215,0,0.15)';
   updateStatus('Tool: Impassable Edge — click an edge on the map');
@@ -221,9 +294,7 @@ document.getElementById('edgeWaterBtn').addEventListener('click', () => {
     return;
   }
   activeTool = 'water-crossing';
-  document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
-  clearEdgeToolActive();
+  clearAllToolHighlights();
   document.getElementById('edgeWaterBtn').style.outline = '2px solid #ffd700';
   document.getElementById('edgeWaterBtn').style.background = 'rgba(255,215,0,0.15)';
   updateStatus('Tool: Water Crossing — click an edge on the map');

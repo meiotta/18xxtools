@@ -137,6 +137,23 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('click', (e) => {
+  // Placement Mode Intercept
+  if (isPlacementMode && pendingMinorIndex !== null) {
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const wx = (px - LABEL_PAD) / zoom - panX;
+    const wy = (py - LABEL_PAD) / zoom - panY;
+    const hex = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+    const id = hexId(hex.row, hex.col);
+
+    state.minors[pendingMinorIndex].homeHex = id;
+    renderMinorsTable();
+    autosave();
+    exitPlacementMode();
+    return;
+  }
+
   // Suppress click that fires immediately after a completed lasso drag
   if (_lassoJustCompleted) { _lassoJustCompleted = false; return; }
   const rect = canvas.getBoundingClientRect();
@@ -285,9 +302,12 @@ function applyTool(hexId) {
   // Guard: only create/modify hex state when a tool will actually make a change.
   const willChange =
     (activeTool === 'terrain' && activeTerrainType) ||
+    activeTool === 'terrain-clear' ||
     (activeTool === 'tile'    && activeTile) ||
     activeTool === 'city-1' || activeTool === 'city-2' || activeTool === 'city-3' ||
-    activeTool === 'town' ||
+    activeTool === 'town'    || activeTool === 'dual-town' ||
+    activeTool === 'city-oo' || activeTool === 'city-joined' ||
+    activeTool === 'white-blank' ||
     (activeTool === 'label' && activeLabel) ||
     activeTool === 'erase' ||
     activeTool === 'river-edge';
@@ -299,6 +319,9 @@ function applyTool(hexId) {
   if (activeTool === 'terrain' && activeTerrainType) {
     hex.terrain = activeTerrainType;
     hex.terrainCost = terrainCost(activeTerrainType);
+  } else if (activeTool === 'terrain-clear') {
+    hex.terrain = '';
+    hex.terrainCost = 0;
   } else if (activeTool === 'tile' && activeTile) {
     hex.tile = activeTile;
     hex.rotation = 0;
@@ -322,7 +345,31 @@ function applyTool(hexId) {
     hex.town = false;
   } else if (activeTool === 'town') {
     hex.town = true;
+    hex.dualTown = false;
     hex.city = null;
+    hex.oo = false;
+  } else if (activeTool === 'dual-town') {
+    hex.town = true;
+    hex.dualTown = true;
+    hex.city = null;
+    hex.oo = false;
+  } else if (activeTool === 'city-oo') {
+    hex.oo = true;
+    hex.city = null;
+    hex.town = false;
+    hex.dualTown = false;
+  } else if (activeTool === 'city-joined') {
+    hex.city = { slots: 2, joined: true, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
+    hex.town = false;
+    hex.dualTown = false;
+    hex.oo = false;
+  } else if (activeTool === 'white-blank') {
+    // Clear features but preserve terrain
+    hex.town = false;
+    hex.dualTown = false;
+    hex.city = null;
+    hex.oo = false;
+    hex.tile = 0;
   } else if (activeTool === 'label' && activeLabel) {
     hex.label = activeLabel;
   } else if (activeTool === 'erase') {
@@ -337,6 +384,50 @@ function applyTool(hexId) {
   }
   autosave();
 }
+
+// ── Canvas drag-and-drop tile placement ──────────────────────────────────────
+// Allows dragging a tile swatch from the palette and dropping it on the map.
+
+canvas.addEventListener('dragover', (e) => {
+  // Allow drop only when a tile swatch is being dragged (text/plain)
+  if (e.dataTransfer.types.includes('text/plain')) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+});
+
+canvas.addEventListener('drop', (e) => {
+  const tileId = e.dataTransfer.getData('text/plain');
+  if (!tileId || !TILE_DEFS[String(tileId)]) return;
+  e.preventDefault();
+
+  // Convert drop position to world coordinates (same as click handlers)
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const wx = (px - LABEL_PAD) / zoom - panX;
+  const wy = (py - LABEL_PAD) / zoom - panY;
+  const hex = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const id = hexId(hex.row, hex.col);
+
+  if (!id) return;
+  ensureHex(id);
+
+  // Place the tile
+  const parsedId = /^\d+$/.test(tileId) ? parseInt(tileId) : tileId;
+  state.hexes[id].tile = parsedId;
+  state.hexes[id].rotation = 0;
+
+  // Update selection + status
+  selectedHex = id;
+  if (typeof updateHexPanel === 'function') updateHexPanel(id);
+  _stampTile = parsedId;
+  _stampRotation = 0;
+
+  render();
+  autosave();
+  updateStatus(`Placed tile #${tileId} on ${id}`);
+});
 
 // Ensure a hex entry exists at the given coordinate ID.
 // Creates a default blank hex if none exists yet, so callers can safely mutate.
