@@ -187,3 +187,54 @@ The editor uses a custom dark-theme design system, not Google Material Design. H
 7. **Home-token validation** — The editor warns if a company's `homeHex` has no city/OO. Should this be a hard UI block or just a badge warning on the hex?
 
 — Claude
+
+
+## Changes I just made (2026-04-11)
+
+### Tile Pack System — js/tile-packs.js (NEW FILE)
+
+All ~500 tiles from `config/tile.rb` are now classified into named packs in `js/tile-packs.js`. The pack structure mirrors `packwriter.txt`:
+
+1. **Basic Tile Pack** — Yellow 1-9/55-58/69/235; Green crossings 16-31, OO 52/59/8858-8865, K-tiles 236-238, CF 619/622, junctions 80-83, towns 87-88/141-144/203-204, X-tiles 14/15, path combos 624-626, Y-label cities; Brown OO 64-68/1064-1068, crossings 39-47/70/627-629, big city 38/63/125/611, junctions 544-546, towns 145-148/767-769/911, X-label 217-219, Y-label; Gray crossings 452-455/114, junction 60, all-exits cities, 2-city 6-exit 1167/167
+2. **Junctions & Nontraditional Cities** — User's yellows 201/202/401/447/621/630-633; Green complex routing 457-464
+3. **Limited Exit & Token Cities** — Green 613-615, Brown 610/616-618 (all `city=revenue:0`)
+4. **These are dumb...** — XX-label 210-215, towns rev>10, icon= tiles, mixed city+town with loc=
+5. **Unclassified (Review Needed)** — Game-specific named cities (ATL, NY, Chi, P, L, H, Boston, etc.)
+6. **Unsupported** — All narrow/dual track tiles (stored for reference, excluded from UI)
+
+Each entry: `{ dsl: '<tobymao DSL string>', color: 'yellow|green|brown|gray' }`. Use `TILE_GEO.parseDSL(entry.dsl, entry.color)` to render.
+
+Helper functions: `getAllRenderableTiles(enabledPacks)`, `getTilePack(tileId)`.
+Default enabled: Basic + Junctions + Limited. Dumb + Unclassified off by default.
+
+### Load order: index.html
+
+`tile-packs.js` added between `tile-geometry.js` and `constants.js`.
+
+### Autosave fix — js/io.js
+
+Silent autosave restore removed. On startup, if a save exists with content, a non-blocking green banner appears at bottom: "📋 Autosaved work found: [title]" with Restore / Discard buttons. No more ghost state hijacking new sessions.
+
+### New Map button — index.html + io.js
+
+"🗺 New Map" added as first item in File menu. Prompts confirmation, resets entire state to factory defaults, clears canvas.
+
+### state.js
+
+`enabledPacks: null` added to state object. Null = use DEFAULT_ENABLED_PACKS from tile-packs.js.
+
+### Pack toggle UI — js/tile-manifest.js
+
+- Pack toggle pills bar added at top of manifest view (5 packs, short labels: Basic / Junctions / Token Cities / Dumb Tiles / Unclassified)
+- `_getTileDef(id)` — checks TILE_DEFS first, falls back to `TILE_GEO.parseDSL` for pack-only tiles
+- Manifest card rendering and drop handlers updated to use `_getTileDef` instead of bare TILE_DEFS lookup
+
+### Note on tile DSL rendering in manifest
+
+Tiles that exist only in TILE_PACKS (not in TILE_DEFS) will render via `parseDSL`. The swatch quality for these depends on `parseDSL` + `normalizeTileDef` being complete — if you see blank swatches for less-common tiles, it means the tile's DSL has features parseDSL doesn't handle yet (e.g. multi-label, complex loc=). These are mostly in the Unclassified and Dumb packs.
+
+## Open question added (2026-04-11)
+
+8. **Tile DSL rendering completeness** — `parseDSL` handles the common cases but some Unclassified/Dumb tiles use `loc=center`, `loc=N.5`, multiple `label=` entries, or `icon=` which are silently ignored. Should these just render generically (gray blob), or should we flag them as "no preview available" in the manifest? My vote is gray blob + tooltip showing the raw DSL.
+
+— Claude
