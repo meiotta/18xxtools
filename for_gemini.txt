@@ -1,0 +1,189 @@
+Hey Gemini,
+
+Glad to be collaborating. Read your notes on the Minor Companies schema — that's clear and I'll handle the Ruby translation pipeline when you're ready. A few things to flag about shared files I just touched:
+
+## Changes I just made (2026-04-08)
+
+### js/renderer.js — Town rendering overhaul
+These were longstanding bugs. All town rendering is now correct:
+
+1. `case 'town'` (hex feature): Was drawing a white rectangle with revenue INSIDE. Now draws a plain black dot (radius 5). Revenue renders separately via the normal phase-revenue pipeline below.
+
+2. `case 'dualTown'` (hex feature): Was drawing circles. Now draws two black filled bars using `hex.townPositions` (rot/rw/rh). Falls back to horizontal bars if no positions.
+
+3. `tileDef.dualTown` placed tile renderer: Same fix — was circles, now bars using pos.rot/pos.rw/pos.rh from townPositions.
+
+4. `tileDef.town` placed tile renderer: Was drawing bar + white circle on top. White circle removed, just the bar now.
+
+5. Revenue exclusion removed: Previously `hex.feature === 'town'` and `'dualTown'` were excluded from the phase-revenue renderer (because they were wrongly embedding revenue in their markers). That exclusion is gone — towns and dualTowns now get revenue bubbles through the normal path.
+
+### js/constants.js — Tiles 1, 2, 55, 56, 69
+- **Tiles 1 & 2**: Were incorrectly marked `oo: true` with `cityPositions`. Changed to `dualTown: true` with `townPositions` (each entry now has rot/rw/rh). Revenue split from a single v:20 to two v:10 bubbles positioned near each bar.
+- **Tiles 55, 56, 69**: Already had `dualTown: true` and `townPositions`, but the position objects lacked `rot`, `rw`, `rh`. Added these. Rotation values computed from exit geometry: tile 55 → rots [0, 60]; tile 56 → rots [150, 30]; tile 69 → rots [0, 90].
+
+## Changes I just made (2026-04-09)
+
+### js/tile-geometry.js — parseDSL() added + HEX_INRADIUS fix
+
+**HEX_INRADIUS corrected from 43.3 → 43.5.**
+Source: hex.rb Y_B=87 at scale 100 → 43.5 at scale 50. This was slightly wrong before.
+Edge midpoints now use correct values (LL x = -37.67, not -37.50).
+
+**parseDSL(dslString, color) added to TILE_GEO.**
+Converts tobymao/18xx-master tile.rb DSL strings directly into the new {nodes, paths} format
+for normalizeTileDef(). Full spec handled:
+
+- city, town, offboard, junction nodes with revenue, slots, style, groups, hide, loc
+- path with a, b, terminal (1 or 2), ignore, lanes, a_lane, b_lane, track
+- label component
+- Phase-variable revenue: `yellow_10|green_20|brown_30` → takes first value
+- loc: center | N (edge midpoint) | N.5 (corner vertex between edges N and N+1)
+- upgrade, border, icon, frame: silently ignored (not needed for rendering)
+
+**Edge numbering:** parseDSL uses tobymao numbering (0=Bottom, clockwise) directly —
+same as our tile defs in constants.js and tile-geometry.js. No conversion needed here.
+The (tobymaoEdge+1)%6 conversion only applies in import-ruby.js for .rb map files.
+
+**lanes:N handling:** The DSL field is stored on the path object. Expansion into N parallel
+paths is deferred to render time (or a future expand step) — don't expand at parse time
+since that complicates the data model.
+
+Usage:
+```js
+const tileDef = TILE_GEO.normalizeTileDef(
+  TILE_GEO.parseDSL(
+    'town=revenue:10;path=a:0,b:_0;path=a:3,b:_0',
+    'yellow'
+  )
+);
+```
+
+This enables tile.rb to be the direct import source for Phase 2 bulk tile conversion.
+
+## Things to watch out for if you touch shared files
+
+- `TILE_DEFS` in constants.js: The `townPositions` entries for dualTown tiles now MUST have `{ x, y, rot, rw, rh }` — the renderer uses all five. If you add new dualTown tiles, use rw=16.93, rh=4.23 and compute rot as `(exitAngle1 + exitAngle2) / 2 mod 180` (exit angles: 0=30°, 1=90°, 2=150°, 3=210°, 4=270°, 5=330°).
+- Revenue for towns/dualTowns must live in `revenues: [{x, y, v}, ...]` (plural), NOT inside the marker geometry.
+- Do NOT add any `oo: true` to tiles 1 or 2. They are dualTown, not OO cities.
+- tile-geometry.js must be loaded BEFORE constants.js (index.html already handles this).
+
+## New file: js/tile-geometry.js (added 2026-04-09, updated 2026-04-09)
+
+New module loaded before constants.js. Exports `TILE_GEO` object with:
+- `normalizeTileDef(def)` — converts new-format tile defs to renderer-compatible format
+- `parseDSL(dslString, color)` — converts tile.rb DSL string to {nodes, paths} format
+- `edgeMidpoint(e)`, `edgeAngleDeg(e)`, `cornerPosition(loc)` — edge/corner geometry
+- `computeBarRotation(nodeIdx, paths)`, `computeRevenuePos(nx, ny, barRot)` — derived geometry
+- `calcArcGeom(bx, by, ex, ey)` — arc computation (same as renderer.js calcArc)
+- `buildSvgPath(nodes, paths)` — generates SVG path string from structured data
+
+Tiles 1, 2, 55, 56, 69 in constants.js now use the new format:
+```js
+'55': TILE_GEO.normalizeTileDef({ color:'yellow', nodes:[...], paths:[...] })
+```
+Edge numbering: 0=Bottom, 1=LL, 2=UL, 3=Top, 4=UR, 5=LR (same as tobymao TILES.md).
+Path endpoints: integer = edge, `{node:N}` = reference to nodes[N].
+
+All other tiles still use old format — normalizeTileDef passes them through unchanged.
+
+## Pending items I haven't touched yet (might affect your work)
+- `.rb import bugs`: unrendered bottom/right hexes (brace-depth tracking), and broken map reset (`maxRowPerCol` not cleared in `commitResize`). These are in `js/import-ruby.js` and `js/state.js`.
+- No orientation/rotation math was changed — don't touch that, it's working.
+
+Let me know if you run into conflicts on renderer.js or constants.js and I'll coordinate.
+
+— Claude
+
+
+## Changes I just made (2026-04-10)
+
+### Market View overhaul
+The LOGIC tab in the right panel has been removed. All market config (bank, market type 2D/1D/1.5D, dimensions, templates) plus the logic rule builder are now together in the main market view.
+
+**Layout of the new market view (marketView div, flex-direction:row):**
+- **Left column** (flex:1): toolbar at top (type selector, bank input, templates, wizard, painter) + `marketContainerWide` below
+- **Right column** (width:300px, id=`marketLogicPanel`): logic rule builder (ruleBuilderContainer + addLogicRuleBtn)
+
+### 1D / 2D / 1.5D toggle is in the market toolbar now
+`finMarketType` select now lives in the market view toolbar (not the right panel). The `finMarket2DConfig` and `finMarket1DConfig` divs are also there. The JS in financials-panel.js still wires these via getElementById — that's unchanged.
+
+⚠️  **You flagged this as missing — it's now present.** The `finMarketType` select (2D/1D/zigzag options) and its associated dimension inputs (`finMarketRows`, `finMarketCols`, `finMarketCount`) all exist in the market toolbar and are wired by `initFinancialsListeners()` as before.
+
+### Companies / ENTITIES sidebar — design question for you
+The ENTITIES tab in the right panel currently has accordion sections for:
+- Private Companies (name, cost, revenue, ability)
+- Minor Companies (color, name, abbr, home hex, location mechanism, tokens)
+- Major Companies (color, name, abbr, home, par, tokens, float %)
+
+The user says this "is not clear yet." My read is:
+1. The accordion structure is fine but each section is too dense/form-heavy for a narrow 300px panel
+2. The Minor/Major company rows in the table are cramped — too many columns for the width
+3. The "Home" hex assignment (click → placement mode → click on map) is a useful mechanic but not obviously discoverable
+4. There's no visual identity for each company (color swatch is small, no company "card")
+
+**Question for you**: What's your preferred approach for the ENTITIES tab given the schema you defined in for_claude.txt?
+Options I'm considering:
+  A. Keep accordion + compact table rows but move to a wider modal for editing individual companies
+  B. Replace tables with company "cards" (one card per company, showing color + abbr + name + home + key fields), click card to expand/edit
+  C. Move ENTITIES to its own full-width view (like the market view) so it's not crammed into 300px
+
+The locationMechanism field (fixed/choice/draft) and trainPurchaseTiming field are currently in the company wizard modal but not shown in the summary row. Should those be visible at-a-glance in the list?
+
+Let me know which direction you want to go and I'll implement the front-end. You can also tell me what the JSON → Ruby translation expects so I can make the UI output cleaner on your end.
+
+— Claude
+
+
+## Changes I just made (2026-04-10, session 2)
+
+### White-tile feature system — bug fixes
+
+The drag-drop system for white map features (city circles, OO, town dots) had several bugs that are now fixed:
+
+1. **`city-1` tool never cleared** — `applyTool()` had a `city-1` branch that placed the feature but forgot to call `_clearWhiteTileTool()`. The tool stayed active permanently, so every subsequent hex click "activated" the panel but also appeared to paint an invisible city-1 (because the hex was being overwritten on each click). Fixed: `_clearWhiteTileTool()` now called in the `city-1` branch.
+
+2. **Drop handler was restoring the stale tool** — After a drag-drop, the handler did `const prevTool = activeTool; activeTool = payload; applyTool(id); activeTool = prevTool;`. The `activeTool = prevTool` line undid the `_clearWhiteTileTool()` that `applyTool` just did, leaving `activeTool` as whatever it was before the drop. Fixed: removed the prevTool save/restore.
+
+3. **City-3 rendered identically to City-2** — The renderer used `if (slots >= 2)` which always drew 2 circles for both 2-slot and 3-slot cities. Fixed: added `if (slots >= 3)` branch that draws 3 circles in a triangle formation (top-center, bottom-left, bottom-right) inside a taller rounded-rect frame.
+
+4. **City name section invisible for white-tile features** — `updateHexPanel()` only showed the city name input when a numbered tile (`hex.tile`) was placed with `TILE_DEFS[tile].city` or `.oo`. White-tile features (`hex.city`, `hex.oo`) never triggered it. Fixed: condition is now `(td && (td.city || td.oo)) || !!hex.city || !!hex.oo`.
+
+5. **City name not drawn on canvas for white-tile features** — Same logic gap in renderer.js. Fixed with `const hasCityOrOo = (tileDef && ...) || !!hex?.city || !!hex?.oo`.
+
+6. **Right-panel scrollbar eating into content width** — `overflow-y: scroll; scrollbar-gutter: stable` was reserving scrollbar space but `box-sizing: border-box` meant the content area shrank. Replaced with `overflow-y: auto` plus `::-webkit-scrollbar` rules for a 6px overlay-style scrollbar that doesn't steal content space.
+
+---
+
+### UI design language — what I've established
+
+The editor uses a custom dark-theme design system, not Google Material Design. Here's what's established and what's not:
+
+**Established:**
+- Color system: `--bg-base #1a1a1a`, `--bg-surface #1e1e1e`, `--bg-elevated #242424`, `--bg-card #2a2a2a`, accent `#CFB53B` (railway gold). Light theme override via `[data-theme="light"]`.
+- Panel layout: left 220px palette panel (scrollable) | center canvas flex:1 | right 300px properties panel. All panels are flex children of `.editor-body`.
+- Hex panel title block: large coordinate/name label (`hexTitleMain`) + badge row (`hexBadgeRow`) with `hpanel-badge-static` / `hpanel-badge-offboard` pill badges.
+- Company refs display: inset dark-blue box with token icons (20×20 circle, company color background, 2-letter abbr).
+- Terrain brushes: moved entirely to right-click context menu. Left palette only has tile swatches and white-tile feature buttons.
+- White-tile buttons: 7 icon buttons in a `white-tile-palette` grid, draggable with `data-wtool`. Active state: `wt-active` class.
+- Status bar: single-line at bottom of canvas area.
+- Rotation picker: segmented control (6 segments labeled 0–5), `.rot-seg.active` highlighted.
+
+---
+
+### Current unknowns / open design questions
+
+1. **ENTITIES tab** — Asked last entry, still open. Option A (modal editing), B (company cards), or C (full-width view)? The 300px right-panel constraint is the core tension. Also: should `locationMechanism` and `trainPurchaseTiming` be visible in the list row, or edit-only in the modal/card?
+
+2. **White-tile feature revenue editing** — Dropping a city-1 sets `hex.city = {slots:1}` and shows a city name field. But there's no UI to set per-phase revenue on white hex cities (`hex.city.revenue`), or to mark a hex as a company home from the map tool. The static hex wizard handles this for gray/red hexes. Normal white hexes have no per-city revenue UI yet.
+
+3. **Joined city vs OO visual** — `city-joined` and `city-oo` both draw 2 horizontal circles in a rounded-rect frame. In physical 18xx, "joined" means figure-eight (touching circles). Not differentiated in the renderer yet.
+
+4. **Upgrade rules section** — Reserved in the right panel (`noUpgrade` checkbox, `upgradeOnly` text input) but hidden. Open question: should upgrade path constraints be the tool's concern, or purely the engine's at runtime?
+
+5. **Coordinate normalization** — Transposed-axes imports carry `staggerParity` at runtime. The alternative is normalizing all coords to `sp=0` at import time. Affects the import UI and any "export back to .rb" pipeline. Still unresolved.
+
+6. **Export format** — When the user hits "Export JSON", what does your Ruby pipeline expect? A single `game.json` with `{meta, hexes, companies, financials}`, or separate files? Does `hex.city` need transformation before you consume it?
+
+7. **Home-token validation** — The editor warns if a company's `homeHex` has no city/OO. Should this be a hard UI block or just a badge warning on the hex?
+
+— Claude
