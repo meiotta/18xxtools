@@ -6,6 +6,16 @@
 let _stampTile = null;
 let _stampRotation = 0;
 
+// Clear the active white-tile tool and its button highlight after a one-shot apply
+function _clearWhiteTileTool() {
+  activeTool = null;
+  document.querySelectorAll('.white-tile-btn').forEach(b => b.classList.remove('wt-active'));
+  updateStatus('');
+}
+
+// Hex under cursor during a drag — used by renderer for drop-target highlight
+let dragOverHex = null;
+
 // Shift+drag lasso selection
 let _lasso = null;               // {startX, startY, endX, endY} in canvas pixel coords
 let _lassoJustCompleted = false; // suppress the click that fires after mouseup
@@ -340,29 +350,35 @@ function applyTool(hexId) {
   } else if (activeTool === 'city-2') {
     hex.city = { slots: 2, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     hex.town = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'city-3') {
     hex.city = { slots: 3, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     hex.town = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'town') {
     hex.town = true;
     hex.dualTown = false;
     hex.city = null;
     hex.oo = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'dual-town') {
     hex.town = true;
     hex.dualTown = true;
     hex.city = null;
     hex.oo = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'city-oo') {
     hex.oo = true;
     hex.city = null;
     hex.town = false;
     hex.dualTown = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'city-joined') {
     hex.city = { slots: 2, joined: true, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
     hex.town = false;
     hex.dualTown = false;
     hex.oo = false;
+    _clearWhiteTileTool();
   } else if (activeTool === 'white-blank') {
     // Clear features but preserve terrain
     hex.town = false;
@@ -370,6 +386,7 @@ function applyTool(hexId) {
     hex.city = null;
     hex.oo = false;
     hex.tile = 0;
+    _clearWhiteTileTool();
   } else if (activeTool === 'label' && activeLabel) {
     hex.label = activeLabel;
   } else if (activeTool === 'erase') {
@@ -389,44 +406,69 @@ function applyTool(hexId) {
 // Allows dragging a tile swatch from the palette and dropping it on the map.
 
 canvas.addEventListener('dragover', (e) => {
-  // Allow drop only when a tile swatch is being dragged (text/plain)
-  if (e.dataTransfer.types.includes('text/plain')) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+  if (!e.dataTransfer.types.includes('text/plain')) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+
+  // Track which hex the drag is over and re-render for highlight feedback
+  const rect = canvas.getBoundingClientRect();
+  const wx = ((e.clientX - rect.left) - LABEL_PAD) / zoom - panX;
+  const wy = ((e.clientY - rect.top)  - LABEL_PAD) / zoom - panY;
+  const hc = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const newId = hexId(hc.row, hc.col);
+  if (newId !== dragOverHex) {
+    dragOverHex = newId;
+    render();
   }
 });
 
+canvas.addEventListener('dragleave', (e) => {
+  if (dragOverHex !== null) { dragOverHex = null; render(); }
+});
+
+// White-tile tool names that can be dragged and dropped
+const WHITE_TILE_TOOLS = new Set(['town','dual-town','city-1','city-2','city-3','city-joined','city-oo','white-blank']);
+
 canvas.addEventListener('drop', (e) => {
-  const tileId = e.dataTransfer.getData('text/plain');
-  if (!tileId || !TILE_DEFS[String(tileId)]) return;
+  const payload = e.dataTransfer.getData('text/plain');
+  if (!payload) return;
   e.preventDefault();
 
-  // Convert drop position to world coordinates (same as click handlers)
+  // Convert drop position to world coordinates
   const rect = canvas.getBoundingClientRect();
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
   const wx = (px - LABEL_PAD) / zoom - panX;
   const wy = (py - LABEL_PAD) / zoom - panY;
-  const hex = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
-  const id = hexId(hex.row, hex.col);
-
+  const hexCoord = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const id = hexId(hexCoord.row, hexCoord.col);
   if (!id) return;
   ensureHex(id);
 
-  // Place the tile
-  const parsedId = /^\d+$/.test(tileId) ? parseInt(tileId) : tileId;
-  state.hexes[id].tile = parsedId;
-  state.hexes[id].rotation = 0;
+  dragOverHex = null; // clear highlight before re-render
 
-  // Update selection + status
-  selectedHex = id;
-  if (typeof updateHexPanel === 'function') updateHexPanel(id);
-  _stampTile = parsedId;
-  _stampRotation = 0;
-
-  render();
-  autosave();
-  updateStatus(`Placed tile #${tileId} on ${id}`);
+  if (WHITE_TILE_TOOLS.has(payload)) {
+    // ── White-tile feature drop ──────────────────────────────────────────────
+    const prevTool = activeTool;
+    activeTool = payload;
+    applyTool(id);
+    activeTool = prevTool; // applyTool calls _clearWhiteTileTool which nulls it anyway
+    selectedHex = id;
+    if (typeof updateHexPanel === 'function') updateHexPanel(id);
+    render(); autosave();
+    updateStatus(`Placed ${payload} on ${id}`);
+  } else if (TILE_DEFS[String(payload)]) {
+    // ── Numbered tile drop ───────────────────────────────────────────────────
+    const parsedId = /^\d+$/.test(payload) ? parseInt(payload) : payload;
+    state.hexes[id].tile = parsedId;
+    state.hexes[id].rotation = 0;
+    selectedHex = id;
+    if (typeof updateHexPanel === 'function') updateHexPanel(id);
+    _stampTile = parsedId;
+    _stampRotation = 0;
+    render(); autosave();
+    updateStatus(`Placed tile #${payload} on ${id}`);
+  }
 });
 
 // Ensure a hex entry exists at the given coordinate ID.

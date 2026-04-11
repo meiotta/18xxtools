@@ -20,8 +20,13 @@ function updateHexPanel(hexId) {
 
   // ── Coordinate display ─────────────────────────────────────────────────────
   document.getElementById('hexCoord').value = hexId;
-  const coordDisplay = document.getElementById('hexCoordDisplay');
-  if (coordDisplay) coordDisplay.textContent = hexId || '—';
+
+  // Title block: "F9" or "F9 — Chesterfield" if a city name exists
+  const titleEl = document.getElementById('hexTitleMain');
+  if (titleEl) {
+    const cityName = (hex.cityName || '').trim();
+    titleEl.textContent = cityName ? `${hexId} — ${cityName}` : (hexId || '—');
+  }
 
   if (isKilled) return; // coord shown above; skip populating editable fields
 
@@ -131,14 +136,51 @@ function _updateCompanyRefs(hexId) {
   refsList.innerHTML = '';
   items.forEach(item => {
     const row = document.createElement('div');
-    row.className = 'hpanel-ref-row';
-    row.innerHTML = `
-      <span class="hpanel-ref-swatch" style="background:${item.color || '#888'};"></span>
-      <span class="hpanel-ref-label">${item.label}</span>
-      <span class="hpanel-ref-type">${item.type}</span>`;
+    row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12px;';
+
+    // Token: outer circle with company colour, inner white dot (standard 18xx token look)
+    const token = document.createElement('span');
+    token.style.cssText = `
+      display:inline-flex;align-items:center;justify-content:center;
+      width:20px;height:20px;border-radius:50%;flex-shrink:0;
+      background:${item.color || '#888'};border:1.5px solid rgba(255,255,255,0.25);
+      font-size:8px;font-weight:700;color:#fff;letter-spacing:0;
+      text-shadow:0 0 2px rgba(0,0,0,0.7);`;
+    token.textContent = (item.label || '').slice(0, 2).toUpperCase();
+    row.appendChild(token);
+
+    const lbl = document.createElement('span');
+    lbl.style.cssText = 'flex:1;color:#ccc;';
+    lbl.textContent = item.label;
+    row.appendChild(lbl);
+
+    const typ = document.createElement('span');
+    typ.style.cssText = 'font-size:10px;color:#777;flex-shrink:0;';
+    typ.textContent = item.type;
+    row.appendChild(typ);
+
     refsList.appendChild(row);
   });
 }
+
+// ── City Name auto-apply on Enter/blur ────────────────────────────────────────
+function _applyCityName() {
+  if (!selectedHex) return;
+  ensureHex(selectedHex);
+  const val = document.getElementById('tileCityName').value.trim();
+  state.hexes[selectedHex].cityName = val || undefined;
+  // Update the title block immediately
+  const titleEl = document.getElementById('hexTitleMain');
+  if (titleEl) titleEl.textContent = val ? `${selectedHex} — ${val}` : selectedHex;
+  render();
+  autosave();
+}
+
+const _cityNameInput = document.getElementById('tileCityName');
+_cityNameInput.addEventListener('blur', _applyCityName);
+_cityNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); _applyCityName(); _cityNameInput.blur(); }
+});
 
 // ── Field change listeners ─────────────────────────────────────────────────────
 

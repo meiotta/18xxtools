@@ -183,27 +183,39 @@ function _buildQuickIconGrid(menu, hexData, onTerrainApply, onIconToggle) {
   const grid = document.createElement('div');
   grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px;max-width:224px;';
 
-  // ── Terrain buttons ───────────────────────────────────────────────────────
+  // ── Terrain buttons (icon + cost label) ──────────────────────────────────
   TERRAIN_TYPES.forEach(({ label, key, defaultCost }) => {
+    const actualCost = (state.terrainCosts && state.terrainCosts[key] !== undefined)
+      ? state.terrainCosts[key] : defaultCost;
+    const isActive = hexData.terrain === key;
+
+    const wrap = document.createElement('div');
+    wrap.title = `${label} — $${actualCost}`;
+    wrap.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:flex;flex-direction:column;align-items:center;padding:2px 0 1px;gap:0;`;
+
     const btn = document.createElement('canvas');
     btn.width  = BTN;
     btn.height = BTN;
-    btn.title  = label;
-    const isActive = hexData.terrain === key;
-    btn.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:block;`;
+    btn.style.cssText = 'display:block;';
 
     const bCtx = btn.getContext('2d');
     bCtx.save();
     bCtx.translate(BTN / 2, BTN / 2);
     _drawTerrainIcon(bCtx, key, S);
     bCtx.restore();
+    wrap.appendChild(btn);
 
-    btn.onclick = (e) => {
+    const costLbl = document.createElement('span');
+    costLbl.textContent = `$${actualCost}`;
+    costLbl.style.cssText = 'font-size:9px;color:#aaa;line-height:1;pointer-events:none;';
+    wrap.appendChild(costLbl);
+
+    wrap.onclick = (e) => {
       e.stopPropagation();
       removeContextMenu();
-      onTerrainApply(key, defaultCost);
+      onTerrainApply(key, actualCost);
     };
-    grid.appendChild(btn);
+    grid.appendChild(wrap);
   });
 
   // ── Separator between terrain and icons ───────────────────────────────────
@@ -253,24 +265,11 @@ function showContextMenu(x, y, hexId) {
   function addItem(label, onClick) { return _addItem(menu, label, onClick); }
   function addSep()                { _addSep(menu); }
 
-  // ── City ──────────────────────────────────────────────────────────────────
-  addItem('🏙 City — Quick Add', () => {
-    ensureHex(hexId);
-    state.hexes[hexId].city = { name: hex.city?.name || hex.ooCityName || '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-    state.hexes[hexId].town = null;
-    state.hexes[hexId].oo   = false;
-    state.hexes[hexId].dualTown = false;
-    render(); autosave();
-  });
-
-  // ── Town ──────────────────────────────────────────────────────────────────
-  addItem('🔴 Town — Quick Add', () => {
-    ensureHex(hexId);
-    state.hexes[hexId].town = { name: hex.town?.name || '' };
-    state.hexes[hexId].dualTown = false;
-    state.hexes[hexId].city = null;
-    state.hexes[hexId].oo   = false;
-    render(); autosave();
+  // ── Minor Company ─────────────────────────────────────────────────────────
+  const minorLabel = state.minors.length === 0 ? '🏢 Start Minor Wizard here...' : '🏢 Add Another Minor here...';
+  addItem(minorLabel, () => {
+    showCompanyWizard('minor');
+    document.getElementById('cwHome').value = hexId;
   });
 
   addSep();
@@ -442,10 +441,9 @@ function showMultiContextMenu(x, y, hexIds) {
     });
   });
 
+  // Finalize multi menu
   document.body.appendChild(menu);
-  // Clamp so menu never clips past viewport edge
-  const _mmw = menu.offsetWidth, _mmh = menu.offsetHeight;
-  if (x + _mmw > window.innerWidth)  menu.style.left = (window.innerWidth  - _mmw - 4) + 'px';
-  if (y + _mmh > window.innerHeight) menu.style.top  = (window.innerHeight - _mmh - 4) + 'px';
-  setTimeout(() => { document.addEventListener('click', removeContextMenu, { once: true }); }, 0);
+  requestAnimationFrame(() => {
+    document.addEventListener('click', removeContextMenu, { once: true });
+  });
 }

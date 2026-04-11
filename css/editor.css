@@ -204,7 +204,7 @@ input[type="color"] { padding: 2px; width: 40px; height: 40px; }
 canvas { display: block; }
 
 /* MD Side Sheet (right panel) */
-.right-panel { width: 300px; background: #1e1e1e; border-left: none; overflow-y: auto; box-shadow: -2px 0 6px rgba(0,0,0,0.3); z-index: 5; }
+.right-panel { width: 300px; min-width: 300px; background: #1e1e1e; border-left: none; overflow-y: scroll; overflow-x: hidden; box-shadow: -2px 0 6px rgba(0,0,0,0.3); z-index: 5; box-sizing: border-box; scrollbar-gutter: stable; }
 
 .status-bar { background: #1a1a1a; border-top: 1px solid #2c2c2c; padding: 5px 16px; font-size: 11px; color: #666; }
 
@@ -1420,6 +1420,23 @@ canvas { display: block; }
   color: #CFB53B;
   letter-spacing: 0.5px;
   min-width: 32px;
+}
+/* New title block replacing hpanel-coord-row */
+.hpanel-title-block {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+.hpanel-title-main {
+  font-size: 17px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #CFB53B;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
 }
 .hpanel-badge-row {
   display: flex;

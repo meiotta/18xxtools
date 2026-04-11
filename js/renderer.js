@@ -127,7 +127,12 @@ function drawStaticHex(row, col, hex) {
   const isPlainRed = hex.bg === 'red' && (!hex.feature || hex.feature === 'none');
   const thisId = hexId(row, col);
   const inMulti = selectedHexes && selectedHexes.has(thisId);
-  if (inMulti) {
+  const isDragTarget = (typeof dragOverHex !== 'undefined') && dragOverHex === thisId;
+  if (isDragTarget) {
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3 * zoom;
+    ctx.setLineDash([5 * zoom, 3 * zoom]);
+  } else if (inMulti) {
     ctx.strokeStyle = '#00ccff';
     ctx.lineWidth = 2 * zoom;
     ctx.setLineDash([4 * zoom, 3 * zoom]);
@@ -304,40 +309,31 @@ function drawStaticHex(row, col, hex) {
   const slots = hex.slots || 1;
   switch (hex.feature) {
     case 'town': {
-      // Gray pre-printed town: revenue box on the track rather than a black dot.
-      // The track arc passes through center; this white rectangle sits on top of it,
-      // showing the revenue value (like 18xx.games gray town rendering).
-      const revVal = (hex.phaseRevenue && Object.values(hex.phaseRevenue).find(v => v > 0)) || 0;
-      const boxW = revVal > 0 ? 30 : 18;
-      const boxH = 16;
-      ctx.fillStyle = 'white';
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1.5;
+      // Town: black dot. Revenue is rendered separately — NEVER inside this marker.
       ctx.beginPath();
-      ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 2);
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
       ctx.fill();
-      ctx.stroke();
-      if (revVal > 0) {
-        ctx.fillStyle = '#000';
-        ctx.font = `bold 10px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(revVal), 0, 0);
-      }
       break;
     }
 
-    case 'dualTown':
-      for (const [px, py] of [[-14, 0], [14, 0]]) {
-        ctx.beginPath();
-        ctx.arc(px, py, 10, 0, Math.PI * 2);
+    case 'dualTown': {
+      // Two town bars — one per town node. Revenue rendered separately, never inside bars.
+      const dtPositions = (hex.townPositions && hex.townPositions.length >= 2)
+        ? hex.townPositions
+        : [{ x: -14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }, { x: 14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }];
+      for (const pos of dtPositions) {
+        const rw = pos.rw || 16.93;
+        const rh = pos.rh || 4.23;
+        ctx.save();
+        ctx.translate(pos.x, pos.y);
+        ctx.rotate((pos.rot || 0) * Math.PI / 180);
         ctx.fillStyle = '#000';
-        ctx.fill();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 4;
-        ctx.stroke();
+        ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
+        ctx.restore();
       }
       break;
+    }
 
     case 'oo':
     case 'c':
@@ -482,9 +478,8 @@ function drawStaticHex(row, col, hex) {
     }
   }
 
-  // 5. Revenue display (OO/C/M handled above per-city; skip for those and for
-  //    town/dualTown which embed revenue in their center marker instead)
-  if (!MULTI_DEFAULTS[hex.feature] && hex.feature !== 'town' && hex.feature !== 'dualTown') {
+  // 5. Revenue display (OO/C/M handled above per-city; skip for those)
+  if (!MULTI_DEFAULTS[hex.feature]) {
     const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
     const activePhases = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
     if (hex.phaseRevenue && activePhases.length > 0) {
@@ -591,7 +586,12 @@ function drawHex(row, col, hex = null) {
 
   const _thisId = hexId(row, col);
   const _inMulti = selectedHexes && selectedHexes.has(_thisId);
-  if (_inMulti) {
+  const _isDragTarget = (typeof dragOverHex !== 'undefined') && dragOverHex === _thisId;
+  if (_isDragTarget) {
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth   = 3 * zoom;
+    ctx.setLineDash([5 * zoom, 3 * zoom]);
+  } else if (_inMulti) {
     ctx.strokeStyle = '#00ccff';
     ctx.lineWidth   = 2 * zoom;
     ctx.setLineDash([4 * zoom, 3 * zoom]);
@@ -641,15 +641,17 @@ function drawHex(row, col, hex = null) {
         ctx.lineWidth = 2;
         ctx.stroke();
       } else if (tileDef.dualTown && tileDef.townPositions) {
-        // Dual-town (dit×2) placed tile — draw two town circles at specific positions
+        // Dual-town placed tile — draw two black bars, one per town node.
+        // Revenue is in separate bubble; NEVER inside these bars.
         for (const pos of tileDef.townPositions) {
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 10.25, 0, Math.PI * 2);
+          const rw = pos.rw || 16.93;
+          const rh = pos.rh || 4.23;
+          ctx.save();
+          ctx.translate(pos.x, pos.y);
+          ctx.rotate((pos.rot || 0) * Math.PI / 180);
           ctx.fillStyle = '#000';
-          ctx.fill();
-          ctx.strokeStyle = 'white';
-          ctx.lineWidth = 4;
-          ctx.stroke();
+          ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
+          ctx.restore();
         }
       } else if (tileDef.oo) {
         if (tileDef.cityPositions) {
@@ -684,18 +686,11 @@ function drawHex(row, col, hex = null) {
           }
         }
       } else if (tileDef.town) {
-        // Small black bar at center
+        // Small black bar at center — no circle, no revenue inside
         ctx.fillStyle = '#000';
         ctx.beginPath();
         ctx.roundRect(-8, -4, 16, 8, 1);
         ctx.fill();
-        ctx.beginPath();
-        ctx.arc(0, 0, 6, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 1;
-        ctx.stroke();
       } else if (tileDef.townAt) {
         // Positioned town bar (e.g. tile 3/58 — junction off-center)
         const { x, y, rot, rw, rh } = tileDef.townAt;

@@ -95,21 +95,8 @@
             <span style="flex:1;text-align:center;">Water Crossing</span>
           </div>
         </div>
-        <!-- TERRAIN BRUSH -->
-        <div class="palette-section" id="terrainBrushSection">
-          <div class="palette-header">Terrain</div>
-          <div class="terrain-brush-grid">
-            <button class="terrain-brush-btn" data-terrain="mountain" title="Mountain — $80">⛰<span>Mtn</span></button>
-            <button class="terrain-brush-btn" data-terrain="hill"     title="Hill — $40">🏔<span>Hill</span></button>
-            <button class="terrain-brush-btn" data-terrain="water"    title="Water — $40">🌊<span>Water</span></button>
-            <button class="terrain-brush-btn" data-terrain="swamp"    title="Swamp — $20">🌿<span>Swamp</span></button>
-            <button class="terrain-brush-btn" data-terrain="forest"   title="Forest — $20">🌲<span>Forest</span></button>
-            <button class="terrain-brush-btn" data-terrain="desert"   title="Desert — $40">🏜<span>Desert</span></button>
-            <button class="terrain-brush-btn" data-terrain="pass"     title="Pass — $120">🗻<span>Pass</span></button>
-            <button class="terrain-brush-btn" data-terrain="offmap"   title="Off-Map">🚫<span>Off-Map</span></button>
-            <button class="terrain-brush-btn terrain-brush-clear" data-terrain="" title="Clear terrain">✕<span>Clear</span></button>
-          </div>
-        </div>
+        <!-- TERRAIN BRUSH (hidden — terrain is right-click only) -->
+        <div class="palette-section" id="terrainBrushSection" style="display:none"></div>
 
         <!-- WHITE TILES (base hex features) -->
         <div class="palette-section" id="whiteTilesSection">
@@ -558,12 +545,13 @@
         <!-- Main hex editing controls — disabled when killed -->
         <div id="hexEditControls">
 
-          <!-- ── Coordinate + type badges ─────────────────── -->
-          <div class="hpanel-coord-row">
-            <div class="hpanel-coord" id="hexCoordDisplay">—</div>
+          <!-- ── Coordinate / name header ──────────────────── -->
+          <div class="hpanel-title-block">
+            <div class="hpanel-title-main" id="hexTitleMain">—</div>
             <div id="hexBadgeRow" class="hpanel-badge-row"></div>
           </div>
           <!-- Keep hidden input for JS compatibility -->
+          <input type="text" id="hexCoordDisplay" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
           <input type="text" id="hexCoord" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
 
           <!-- ── Label ────────────────────────────────────── -->
@@ -618,22 +606,17 @@
           <!-- cityEditorSection kept as empty hook for JS compat -->
           <div id="cityEditorSection" style="display:none;"></div>
 
-          <!-- ── Company references (read-only) ──────────────── -->
-          <div id="hexCompanyRefs" class="hpanel-section" style="display:none;">
-            <div class="hpanel-section-title">Referenced by</div>
-            <div id="hexCompanyRefsList" class="hpanel-refs-list"></div>
+          <!-- ── Company references (read-only, populated from company setup) ── -->
+          <div id="hexCompanyRefs" style="display:none; background:#1a1a2e; border:1px solid #2a2a4a; border-radius:5px; padding:8px 10px; margin-bottom:10px;">
+            <div id="hexCompanyRefsList"></div>
           </div>
 
-          <!-- ── Upgrade Rules ─────────────────────────────── -->
-          <div class="hpanel-section">
+          <!-- ── Upgrade Rules (reserved — content added when needed) ──────── -->
+          <div class="hpanel-section" id="upgradeRulesSection">
             <div class="hpanel-section-title">Upgrade Rules</div>
-            <label class="hpanel-check-row">
-              <input type="checkbox" id="hexNoUpgrade"> Terminal — cannot be upgraded
-            </label>
-            <div class="field" style="margin-top:5px;">
-              <label style="font-size:11px;color:#999;">Restricted to tiles (optional)</label>
-              <input type="text" id="hexUpgradeOnly" placeholder="e.g. 18, 19, 20" autocomplete="off">
-            </div>
+            <!-- placeholder: upgrade rule controls will be added here -->
+            <input type="checkbox" id="hexNoUpgrade" style="display:none;">
+            <input type="text"     id="hexUpgradeOnly" style="display:none;" autocomplete="off">
           </div>
 
           <!-- ── Apply ────────────────────────────────────── -->

@@ -253,6 +253,13 @@ const WHITE_TILE_LABELS = {
 };
 
 document.querySelectorAll('.white-tile-btn').forEach(btn => {
+  // Make draggable so users can drag directly onto the canvas
+  btn.draggable = true;
+  btn.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', btn.dataset.wtool);
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+
   btn.addEventListener('click', () => {
     const tool = btn.dataset.wtool;
     if (activeTool === tool) {
