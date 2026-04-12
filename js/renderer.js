@@ -755,11 +755,12 @@ function drawHex(row, col, hex = null) {
           ctx.restore();
         }
       } else if (tileDef.oo) {
-        // OO tile: two city circles side by side. White background rect connects them,
-        // then bordered circles on top.
+        // Standard OO city: ONE city node with 2 slots. White background rect
+        // connects the two slot circles. cityPositions are at cx ± SLOT_RADIUS
+        // from the city center (computed by normalizeTileDef for slots>=2).
         const SR = 12.5; // SLOT_RADIUS at scale 50
         const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
-        // White background rect spanning all circles
+        // White background rect spanning both slot circles
         const xs = positions.map(p => p.x);
         const ys = positions.map(p => p.y);
         const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
@@ -767,8 +768,22 @@ function drawHex(row, col, hex = null) {
         const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
         ctx.fillStyle = 'white';
         ctx.fillRect(bx, by, bw, bh);
-        // City slot circles with stroke (same style as single-city circle)
         for (const pos of positions) {
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
+          ctx.fill();
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      } else if (tileDef.cities && tileDef.cities.length) {
+        // Multi-city tile: 2+ SEPARATE 1-slot city nodes (e.g. tiles 457-464).
+        // Mirrors tobymao's @tile.cities iteration — each city renders independently
+        // at its topology-computed position. No connecting rect; tracks route to
+        // each city center (positions were pre-computed before normalizeTileDef).
+        const SR = 12.5;
+        for (const pos of tileDef.cities) {
           ctx.beginPath();
           ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
           ctx.fillStyle = 'white';
@@ -870,7 +885,7 @@ function drawHex(row, col, hex = null) {
   }
 
   // City name for placed tiles (city:true or oo:true) AND for feature-schema city/oo hexes
-  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city
+  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities)) || !!hex?.city
     || hex?.feature === 'city' || hex?.feature === 'oo';
   if (hex?.cityName && hasCityOrOo) {
     const name = hex.cityName;

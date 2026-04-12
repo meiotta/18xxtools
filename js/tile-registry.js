@@ -39,6 +39,7 @@ const TileRegistry = (() => {
     if (!entry) return null;
 
     let tileDef;
+    let _rawCityCount = 0; // track separate 1-slot city nodes for architecture decision
     if (typeof entry.dsl === 'string') {
       if (entry.dsl === '') {
         tileDef = { color: entry.color || 'white', svgPath: '' };
@@ -47,6 +48,34 @@ const TileRegistry = (() => {
         if (!raw) {
           tileDef = { color: entry.color || 'yellow', svgPath: '' };
         } else {
+          // ── Canonical multi-city position computation ─────────────────────
+          // For tiles with 2+ separate 1-slot city nodes (all at center, no
+          // explicit loc:), compute each city's position from path topology
+          // before normalizeTileDef — so buildSvgPath routes to the same
+          // positions as the city circles. Formula from tobymao track_node_path.rb:
+          //   stop_x = -sin(ct_edge * π/3) * full_distance
+          //   stop_y =  cos(ct_edge * π/3) * full_distance
+          // where full_distance = 50 in tobymao's scale-87 space.
+          // At our scale-43.5: full_distance = 50 * (43.5 / 87) = 25.
+          if (raw.nodes && raw.paths) {
+            const separateCityIdxs = raw.nodes.reduce((a, n, i) => {
+              if (n.type === 'city' && n.x === 0 && n.y === 0 &&
+                  !(n.slots && n.slots > 1)) a.push(i);
+              return a;
+            }, []);
+            if (separateCityIdxs.length >= 2) {
+              _rawCityCount = separateCityIdxs.length;
+              const preferred = TILE_GEO.computeCityTownEdges(raw.nodes, raw.paths);
+              const CITY_DIST = 25; // 50 * (43.5 / 87)
+              for (const i of separateCityIdxs) {
+                const pe = preferred[i];
+                if (pe === null || pe === undefined) continue;
+                const a = pe * Math.PI / 3;
+                raw.nodes[i].x = parseFloat((-Math.sin(a) * CITY_DIST).toFixed(2));
+                raw.nodes[i].y = parseFloat(( Math.cos(a) * CITY_DIST).toFixed(2));
+              }
+            }
+          }
           tileDef = TILE_GEO.normalizeTileDef(raw);
           if (raw.nodes && raw.nodes.length > 0) tileDef.nodes = raw.nodes;
           if (raw.paths && raw.paths.length > 0) tileDef.paths = raw.paths;
@@ -61,15 +90,17 @@ const TileRegistry = (() => {
     // Normalize 'gray' → 'grey' for consistent TILE_HEX_COLORS lookup.
     if (tileDef.color === 'gray') tileDef.color = 'grey';
 
-    // Fix OO city positions when both DSL nodes land at (0,0).
-    if (tileDef.oo && tileDef.cityPositions &&
-        tileDef.cityPositions.length >= 2 &&
-        tileDef.cityPositions.every(p => p.x === 0 && p.y === 0)) {
-      const n = tileDef.cityPositions.length;
-      tileDef.cityPositions = tileDef.cityPositions.map((_, i) => ({
-        x: (i - (n - 1) / 2) * 13 * 2,
-        y: 0
-      }));
+    // ── Multi-city architectural restructuring ────────────────────────────
+    // Tobymao iterates @tile.cities independently — each city renders at its
+    // own position with its own slot count. Tiles with 2+ separate 1-slot
+    // city nodes use tileDef.cities (not tileDef.oo) so the renderer can
+    // draw each circle independently, without a connecting rect.
+    // tileDef.oo is reserved exclusively for a single city with 2+ slots
+    // (the standard OO "double bubble" with the white background rect).
+    if (_rawCityCount >= 2 && tileDef.oo && tileDef.cityPositions) {
+      tileDef.cities = tileDef.cityPositions;
+      delete tileDef.oo;
+      delete tileDef.cityPositions;
     }
 
     // Ruby town.rect? = exits.size == 2 (bar). 0 exits or 3+ exits = dot.
@@ -89,7 +120,6 @@ const TileRegistry = (() => {
     }
 
     // Spread overlapping town dots (e.g. dual-town with no exits: both land at 0,0).
-    // Same pattern as OO city spread above.
     if (tileDef.townPositions && tileDef.townPositions.length >= 2) {
       const first = tileDef.townPositions[0];
       const allSame = tileDef.townPositions.every(

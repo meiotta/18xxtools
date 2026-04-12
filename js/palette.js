@@ -60,6 +60,18 @@ function makeTileSwatchSvg(tileId) {
     }
     // OO label removed — the two city circles already identify the tile type
 
+  } else if (td.cities && td.cities.length) {
+    // Multi-city tile (e.g. 457-464): separate 1-slot city nodes, each at its
+    // topology-computed position. Render each independently — no connecting rect.
+    for (const pos of td.cities) {
+      inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white" stroke="#333" stroke-width="1.5"/>`;
+    }
+    if (td.revenue && td.revenue.v !== 0) {
+      const rv = td.revenue;
+      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
+      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
+    }
+
   } else if (td.city) {
     const slots = td.slots || 1;
     if (slots >= 3) {
