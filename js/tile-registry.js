@@ -72,6 +72,22 @@ const TileRegistry = (() => {
       }));
     }
 
+    // Ruby town.rect? = exits.size == 2 (bar). 0 exits or 3+ exits = dot.
+    // tile-geometry.js uses isBar = pathCount < 3, which incorrectly makes
+    // 0-exit unconnected towns into bars. Fix: convert 0-exit bar entries to dots.
+    if (tileDef.townPositions && Array.isArray(tileDef.townPositions)) {
+      tileDef.townPositions = tileDef.townPositions.map(p =>
+        (!p.dot && p.rw > 0 && !tileDef.svgPath)
+          ? { x: p.x, y: p.y, dot: true }
+          : p
+      );
+    }
+    if (tileDef.townAt && !tileDef.svgPath) {
+      // Single unconnected town — should be a center dot, not a positioned bar
+      tileDef.town = true;
+      delete tileDef.townAt;
+    }
+
     return tileDef;
   }
 

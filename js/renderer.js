@@ -319,9 +319,13 @@ function drawStaticHex(row, col, hex) {
 
     case 'dualTown': {
       // Two town nodes — bar or dot per node. Revenue rendered separately, never inside markers.
+      // Unconnected towns (no exits) are dots per Ruby town.rect? = exits.size==2.
+      const _hasDtExits = hex.exits && hex.exits.length > 0;
       const dtPositions = (hex.townPositions && hex.townPositions.length >= 2)
         ? hex.townPositions
-        : [{ x: -14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }, { x: 14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }];
+        : _hasDtExits
+          ? [{ x: -14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }, { x: 14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }]
+          : [{ x: -14, y: 0, dot: true }, { x: 14, y: 0, dot: true }];
       for (const pos of dtPositions) {
         ctx.save();
         ctx.translate(pos.x, pos.y);
@@ -774,9 +778,11 @@ function drawHex(row, col, hex = null) {
           ctx.stroke();
         }
       } else if (tileDef.town) {
-        // Small black bar at center — no circle, no revenue inside
+        // Unconnected town → dot (Ruby town.rect? = exits.size==2; 0 exits = dot)
         ctx.fillStyle = '#000';
-        ctx.fillRect(-8, -4, 16, 8);
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
       } else if (tileDef.townAt) {
         // Positioned town bar (e.g. tile 3/58 — junction off-center)
         const { x, y, rot, rw, rh } = tileDef.townAt;
