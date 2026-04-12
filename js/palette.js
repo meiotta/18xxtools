@@ -89,10 +89,9 @@ function makeTileSwatchSvg(tileId) {
       }
     } else {
       // Standard inline OO (legacy static tiles with no cityPositions set)
-      // Matches source exactly: white 25×25 box then two white circles, no strokes
-      inner += `<rect x="${-SLOT_RADIUS}" y="${-SLOT_RADIUS}" width="${2*SLOT_RADIUS}" height="${2*SLOT_RADIUS}" fill="white"/>`;
-      inner += `<circle cx="${-SLOT_RADIUS}" cy="0" r="${SLOT_RADIUS}" fill="white"/>`;
-      inner += `<circle cx="${SLOT_RADIUS}" cy="0" r="${SLOT_RADIUS}" fill="white"/>`;
+      for (const ox of [-13, 13]) {
+        inner += `<circle cx="${ox}" cy="0" r="11" fill="white" stroke="#333" stroke-width="1.5"/>`;
+      }
     }
     // Revenue
     if (td.revenue) {
@@ -103,8 +102,21 @@ function makeTileSwatchSvg(tileId) {
     // OO label removed — the two city circles already identify the tile type
 
   } else if (td.city) {
-    // Single city
-    inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
+    const slots = td.slots || 1;
+    if (slots >= 3) {
+      // Triangle formation — three circles, no bounding box
+      for (const [cx2, cy2] of [[0, -16], [-16, 10], [16, 10]]) {
+        inner += `<circle cx="${cx2}" cy="${cy2}" r="10" fill="white" stroke="#333" stroke-width="1.5"/>`;
+      }
+    } else if (slots >= 2) {
+      // Two circles side by side — no bounding box
+      for (const ox of [-13, 13]) {
+        inner += `<circle cx="${ox}" cy="0" r="11" fill="white" stroke="#333" stroke-width="1.5"/>`;
+      }
+    } else {
+      // Single city circle
+      inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
+    }
     if (td.revenue) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
@@ -135,9 +147,8 @@ function makeTileSwatchSvg(tileId) {
     }
 
   } else if (td.town) {
-    // Single town at center
-    inner += `<rect x="-8" y="-4" width="16" height="8" fill="#000" rx="1"/>`;
-    inner += `<circle cx="0" cy="0" r="6" fill="white" stroke="#555" stroke-width="1"/>`;
+    // Single town dit — small black dot
+    inner += `<circle cx="0" cy="0" r="5" fill="black"/>`;
     if (td.revenue) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;

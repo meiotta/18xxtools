@@ -12,6 +12,7 @@
 
 const BASE_TILE_SETS = {
   manifest: {
+    "white-blank":1,"white-town":1,"white-dual-town":1,"white-city-1":1,"white-city-2":1,"white-oo":1,"white-city-3":1,
     "1":1,"2":1,"3":6,"4":6,"5":6,"6":8,"7":1,"56":1,"57":6,"58":6,"69":1,
     "X1":1,"X2":2,"X3":1,"X4":1,"X21":1,
     "14":6,"15":6,"80":6,"81":6,"82":8,"83":8,

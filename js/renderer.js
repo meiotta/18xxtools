@@ -583,7 +583,9 @@ function drawHex(row, col, hex = null) {
   const tileDef = hex?.tile ? TILE_DEFS[String(hex.tile)] : null;
   // Normalise 'gray' → 'grey' to match TILE_HEX_COLORS key (tile-packs.js uses American spelling)
   const _tileColor = tileDef ? (tileDef.color === 'gray' ? 'grey' : tileDef.color) : null;
-  const color = _tileColor ? (TILE_HEX_COLORS[_tileColor] || TILE_HEX_COLORS['grey']) : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']);
+  const color = _tileColor
+    ? (TILE_HEX_COLORS[_tileColor] || TERRAIN_COLORS[''])
+    : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']);
 
   const corners = hexCorners(cx, cy, size, state.meta.orientation);
   ctx.fillStyle = color;
@@ -868,6 +870,71 @@ function drawHex(row, col, hex = null) {
         }
       }
     }
+  }
+
+  // White feature tiles (white-city-1, white-town, etc.) — no svgPath, draw markers directly
+  if (hex?.tile && tileDef && !tileDef.svgPath) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    const _wsc = size / 50;
+    ctx.scale(_wsc, _wsc);
+    if (tileDef.oo) {
+      for (const ox of [-13, 13]) {
+        ctx.beginPath();
+        ctx.arc(ox, 0, 11, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    } else if (tileDef.city) {
+      const slots = tileDef.slots || 1;
+      if (slots >= 3) {
+        const triPts = [{ x: 0, y: -16 }, { x: -16, y: 10 }, { x: 16, y: 10 }];
+        for (const p of triPts) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
+          ctx.fill();
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      } else if (slots >= 2) {
+        for (const ox of [-13, 13]) {
+          ctx.beginPath();
+          ctx.arc(ox, 0, 11, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
+          ctx.fill();
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    } else if (tileDef.dualTown) {
+      for (const ox of [-12, 12]) {
+        ctx.save();
+        ctx.translate(ox, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-8, -2.5, 16, 5);
+        ctx.restore();
+      }
+    } else if (tileDef.town) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // City name for placed tiles (city:true or oo:true) AND for white-tile city/oo features
