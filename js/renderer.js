@@ -938,7 +938,8 @@ function drawHex(row, col, hex = null) {
   }
 
   // City name for placed tiles (city:true or oo:true) AND for white-tile city/oo features
-  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city || !!hex?.oo;
+  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city || !!hex?.oo
+    || hex?.feature === 'city' || hex?.feature === 'oo';
   if (hex?.cityName && hasCityOrOo) {
     const name = hex.cityName;
     ctx.font = `bold ${9 * zoom}px Arial`;
@@ -956,7 +957,7 @@ function drawHex(row, col, hex = null) {
   }
 
   // OO white hex: two city circles, no bounding box (no tile placed)
-  if (hex?.oo && !hex?.tile) {
+  if ((hex?.oo || hex?.feature === 'oo') && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
@@ -989,13 +990,13 @@ function drawHex(row, col, hex = null) {
   }
 
   // City circle(s) for hexes that have a city marker but no placed tile
-  if (hex?.city && !hex?.tile) {
+  if ((hex?.city || hex?.feature === 'city') && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    const slots = hex.city.slots || 1;
-    const isJoined = !!hex.city.joined;
+    const slots = hex.feature === 'city' ? (hex.slots || 1) : (hex.city?.slots || 1);
+    const isJoined = hex.feature === 'city' ? !!hex.joined : !!(hex.city?.joined);
     if (slots >= 3) {
       // Triple city: three circles in triangle formation — no bounding box
       const triPts = [{ x: 0, y: -16 }, { x: -16, y: 10 }, { x: 16, y: 10 }];
@@ -1032,12 +1033,12 @@ function drawHex(row, col, hex = null) {
   }
 
   // Town marker for hexes with a town but no placed tile
-  if (hex?.town && !hex?.tile) {
+  if ((hex?.town || hex?.feature === 'town' || hex?.feature === 'dualTown') && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    if (hex.dualTown) {
+    if (hex.dualTown || hex.feature === 'dualTown') {
       // Two small black bars side by side
       for (const ox of [-12, 12]) {
         ctx.save();
@@ -1059,7 +1060,8 @@ function drawHex(row, col, hex = null) {
   // Location name for unplaced city/town hexes (below the feature)
   {
     const locName = (hex?.city && !hex?.tile) ? (hex.city.name || '') :
-                    (hex?.town && !hex?.tile)  ? (hex.town.name  || '') : '';
+                    (hex?.town && !hex?.tile)  ? (hex.town.name  || '') :
+                    (hex?.feature && !hex?.tile) ? (hex.featureName || '') : '';
     if (locName) {
       const ny = cy + size * 0.35;
       ctx.font = `bold ${Math.max(7, Math.round(8 * zoom))}px Arial`;

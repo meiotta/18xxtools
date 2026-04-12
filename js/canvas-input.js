@@ -345,48 +345,37 @@ function applyTool(hexId) {
     document.querySelectorAll('.tile-item').forEach(s => s.classList.remove('active'));
     updateStatus('');
   } else if (activeTool === 'city-1') {
-    hex.city = { slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-    hex.town = false;
+    hex.feature = 'city'; hex.slots = 1;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'city-2') {
-    hex.city = { slots: 2, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-    hex.town = false;
+    hex.feature = 'city'; hex.slots = 2;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'city-3') {
-    hex.city = { slots: 3, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-    hex.town = false;
+    hex.feature = 'city'; hex.slots = 3;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'town') {
-    hex.town = true;
-    hex.dualTown = false;
-    hex.city = null;
-    hex.oo = false;
+    hex.feature = 'town'; hex.slots = 1;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'dual-town') {
-    hex.town = true;
-    hex.dualTown = true;
-    hex.city = null;
-    hex.oo = false;
+    hex.feature = 'dualTown'; hex.slots = 1;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'city-oo') {
-    hex.oo = true;
-    hex.city = null;
-    hex.town = false;
-    hex.dualTown = false;
+    hex.feature = 'oo'; hex.slots = 1;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'city-joined') {
-    hex.city = { slots: 2, joined: true, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-    hex.town = false;
-    hex.dualTown = false;
-    hex.oo = false;
+    hex.feature = 'city'; hex.slots = 2; hex.joined = true;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'white-blank') {
-    // Clear features but preserve terrain
-    hex.town = false;
-    hex.dualTown = false;
-    hex.city = null;
-    hex.oo = false;
-    hex.tile = 0;
+    // Clear all features and tile, preserve terrain
+    hex.feature = null; hex.slots = 0;
+    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'label' && activeLabel) {
     hex.label = activeLabel;
