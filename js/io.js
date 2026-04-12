@@ -37,9 +37,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
     renderPrivatesTable();
     renderTrainsTable();
-    if (typeof renderPhasesTable === 'function') renderPhasesTable();
     renderTerrainCostsTable();
-    if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
     renderHomeCompanySelect();
     if (typeof initFinancialsListeners === 'function') initFinancialsListeners();
     if (typeof renderLogicRules === 'function') renderLogicRules();
@@ -102,9 +100,6 @@ function _applyAutosave(data) {
   if (typeof syncFinancialsUI      === 'function') syncFinancialsUI();
   if (typeof renderMarketEditor    === 'function') renderMarketEditor();
   if (typeof renderLogicRules      === 'function') renderLogicRules();
-  if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
-  if (typeof renderTrainsTable     === 'function') renderTrainsTable();
-  if (typeof renderPhasesTable     === 'function') renderPhasesTable();
   if (typeof buildPalette          === 'function') buildPalette();
   render();
 }
@@ -136,7 +131,7 @@ function _showAutosaveBanner(data) {
   });
 }
 
-document.getElementById('newMapBtn')?.addEventListener('click', () => {
+document.getElementById('newMapBtn').addEventListener('click', () => {
   if (!confirm('Start a new map? Unsaved changes will be lost.')) return;
   const fresh = {
     meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, coordParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },

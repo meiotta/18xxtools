@@ -99,6 +99,42 @@ const BASE_TILE_SETS = {
   }
 };
 
+// ── Tile def lookup (TILE_DEFS first, TILE_PACKS fallback) ───────────────────
+
+function _getTileDef(id) {
+  if (TILE_DEFS[id]) return TILE_DEFS[id];
+  // Search TILE_PACKS for the id across all packs and colors
+  if (typeof TILE_PACKS !== 'undefined') {
+    for (const pack of Object.values(TILE_PACKS)) {
+      for (const colorGroup of Object.values(pack)) {
+        if (colorGroup && colorGroup[id]) {
+          const entry = colorGroup[id];
+          return TILE_GEO.parseDSL(entry.dsl, entry.color);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function _makeSwatchSvg(id) {
+  if (TILE_DEFS[id]) return makeTileSwatchSvg(id);
+  const td = _getTileDef(id);
+  if (!td) return '';
+  // Render using the same logic as makeTileSwatchSvg but with parsed def
+  const hexColor = (typeof TILE_HEX_COLORS !== 'undefined' && TILE_HEX_COLORS[td.color]) || '#c8a87a';
+  const trackStroke = '#222';
+  let inner = `<polygon points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
+  if (td.svgPath) {
+    const segments = td.svgPath.split(/(?=M )/).map(s => s.trim()).filter(Boolean);
+    for (const seg of segments) {
+      inner += `<path d="${seg}" stroke="${trackStroke}" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+  }
+  inner += `<text x="-42" y="-32" font-size="10" fill="#555" font-weight="bold">${id}</text>`;
+  return `<svg viewBox="-60 -55 120 110" width="72" height="66" style="display:block;">${inner}</svg>`;
+}
+
 // ── Sort ──────────────────────────────────────────────────────────────────────
 
 const COLOR_ORDER = { yellow: 0, green: 1, brown: 2, grey: 3 };
@@ -123,7 +159,7 @@ function tileSort(a, b) {
 
 function sortedManifestIds() {
   return Object.keys(state.manifest)
-    .filter(id => TILE_DEFS[id] && (state.manifest[id] === null || state.manifest[id] > 0))
+    .filter(id => _getTileDef(id) && (state.manifest[id] === null || state.manifest[id] > 0))
     .sort(tileSort);
 }
 
@@ -184,8 +220,64 @@ document.getElementById('manifestTileSet').addEventListener('change', e => {
 
 // ── Grid builder ──────────────────────────────────────────────────────────────
 
+// ── Pack short labels ─────────────────────────────────────────────────────────
+
+const PACK_LABELS = {
+  'Basic Tile Pack': 'Basic',
+  'Junctions & Nontraditional Cities': 'Junctions',
+  'Limited Exit & Token Cities': 'Token Cities',
+  'These are dumb and you are dumb but they don\'t break anything, I think': 'Dumb Tiles',
+  'Unclassified (Review Needed)': 'Unclassified',
+};
+
 function buildManifestView() {
   const grid = document.getElementById('manifestGrid');
+
+  // ── Pack toggle pills ──────────────────────────────────────────────────────
+  let packsBar = document.getElementById('manifestPacksBar');
+  if (!packsBar) {
+    packsBar = document.createElement('div');
+    packsBar.id = 'manifestPacksBar';
+    packsBar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid #3a3a3a;background:#222;align-items:center;';
+    const label = document.createElement('span');
+    label.textContent = 'Packs:';
+    label.style.cssText = 'color:#888;font-size:12px;margin-right:2px;';
+    packsBar.appendChild(label);
+    grid.parentElement.insertBefore(packsBar, grid);
+  }
+  packsBar.innerHTML = '';
+  const label = document.createElement('span');
+  label.textContent = 'Packs:';
+  label.style.cssText = 'color:#888;font-size:12px;margin-right:2px;';
+  packsBar.appendChild(label);
+
+  const enabledPacks = state.enabledPacks || DEFAULT_ENABLED_PACKS;
+  for (const packName of TILE_PACK_ORDER) {
+    if (packName === 'Unsupported') continue;
+    const shortName = PACK_LABELS[packName] || packName;
+    const isOn = !!enabledPacks[packName];
+    const pill = document.createElement('label');
+    pill.style.cssText = [
+      'display:inline-flex', 'align-items:center', 'gap:4px',
+      'padding:3px 9px', 'border-radius:12px', 'cursor:pointer',
+      'font-size:12px', 'user-select:none', 'border:1px solid',
+      isOn ? 'background:#2a4a2a;border-color:#4a7c4a;color:#aee8ae;' : 'background:#2a2a2a;border-color:#555;color:#888;'
+    ].join(';');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isOn;
+    cb.style.cssText = 'margin:0;cursor:pointer;';
+    cb.addEventListener('change', () => {
+      if (!state.enabledPacks) state.enabledPacks = Object.assign({}, DEFAULT_ENABLED_PACKS);
+      state.enabledPacks[packName] = cb.checked;
+      autosave();
+      buildManifestView();
+    });
+    pill.appendChild(cb);
+    pill.appendChild(document.createTextNode(shortName));
+    packsBar.appendChild(pill);
+  }
+
   grid.innerHTML = '';
 
   // Inject shared styles once
@@ -250,7 +342,7 @@ function buildManifestView() {
     e.preventDefault();
     grid.classList.remove('accepting');
     const id = e.dataTransfer.getData('text/plain');
-    if (id && TILE_DEFS[id]) addOrIncrement(id);
+    if (id && _getTileDef(id)) addOrIncrement(id);
   });
 }
 
@@ -271,7 +363,7 @@ function makeManifestCard(id) {
 
   // SVG swatch — tile number is already rendered inside the SVG top-left
   const svgWrap = document.createElement('div');
-  svgWrap.innerHTML = makeTileSwatchSvg(id);
+  svgWrap.innerHTML = _makeSwatchSvg(id);
   card.appendChild(svgWrap);
 
   // Count stepper — null = unlimited (displayed as ∞)
@@ -347,7 +439,7 @@ function makeManifestCard(id) {
     e.stopPropagation();
     card.classList.remove('drag-over');
     const droppedId = e.dataTransfer.getData('text/plain');
-    if (droppedId && TILE_DEFS[droppedId]) addOrIncrement(droppedId);
+    if (droppedId && _getTileDef(droppedId)) addOrIncrement(droppedId);
   });
 
   return card;

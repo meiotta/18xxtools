@@ -451,8 +451,7 @@ canvas.addEventListener('drop', (e) => {
   if (WHITE_TILE_TOOLS.has(payload)) {
     // ── White-tile feature drop ──────────────────────────────────────────────
     activeTool = payload;
-    applyTool(id);
-    // _clearWhiteTileTool() inside applyTool already nulls activeTool — do not restore prevTool
+    applyTool(id); // _clearWhiteTileTool() inside applyTool already nulls activeTool
     selectedHex = id;
     if (typeof updateHexPanel === 'function') updateHexPanel(id);
     render(); autosave();
