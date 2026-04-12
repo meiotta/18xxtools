@@ -703,7 +703,7 @@ function drawHex(row, col, hex = null) {
 
   // Render tile track if placed
   if (hex?.tile) {
-    if (tileDef && tileDef.svgPath) {
+    if (tileDef) {
       const rotation = (hex.rotation || 0) * 60; // degrees
 
       // Outer save: clip to hex shape so track doesn't bleed outside
@@ -722,12 +722,14 @@ function drawHex(row, col, hex = null) {
       const scale = size / 50;
       ctx.scale(scale, scale);
 
-      ctx.strokeStyle = '#222';
-      ctx.lineWidth = 8;
-      ctx.lineCap = 'round';
-
-      const p = new Path2D(tileDef.svgPath);
-      ctx.stroke(p);
+      // Only stroke track if there are actual paths (white station tiles have none)
+      if (tileDef.svgPath) {
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        const p = new Path2D(tileDef.svgPath);
+        ctx.stroke(p);
+      }
 
       // City/OO/town indicators (drawn in scaled SVG space)
       if (tileDef.city) {
@@ -1127,67 +1129,4 @@ function render() {
     ctx.fillStyle = 'rgba(0,204,255,0.07)';
     ctx.fillRect(lx, ly, lw, lh);
     ctx.strokeStyle = '#00ccff';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 3]);
-    ctx.strokeRect(lx, ly, lw, lh);
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-}
-
-// ─── RESIZE CANVAS ────────────────────────────────────────────────────────────
-// Matches the canvas pixel dimensions to its CSS container and re-renders.
-// Called once at startup and on every window resize event.
-
-function resizeCanvas() {
-  canvas.width  = container.clientWidth  || 800;
-  canvas.height = container.clientHeight || 600;
-  render();
-}
-
-// ── Wizard preview adapter ───────────────────────────────────────────────────
-// Called by static-hex-builder.js to render a wizard hex using the canonical
-// canvas renderer rather than duplicating logic in SVG.
-function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
-  previewSize = previewSize || 170;
-  previewCanvas.width  = previewSize;
-  previewCanvas.height = previewSize;
-  const ctx2 = previewCanvas.getContext('2d');
-  ctx2.clearRect(0, 0, previewSize, previewSize);
-
-  const hs = previewSize * 0.45;
-  const orientation = 'flat';
-  const center = getHexCenter(0, 0, hs, orientation);
-
-  // Save and override globals that drawStaticHex reads
-  const savedCtx         = window.ctx;
-  const savedZoom        = window.zoom;
-  const savedPanX        = window.panX;
-  const savedPanY        = window.panY;
-  const savedHexSize     = window.HEX_SIZE;
-  const savedLabelPad    = window.LABEL_PAD;
-  const savedSelectedHex = window.selectedHex;
-  const savedOrientation = state.meta.orientation;
-
-  window.ctx              = ctx2;
-  window.zoom             = 1;
-  window.LABEL_PAD        = 0;
-  window.HEX_SIZE         = hs;
-  window.panX             = previewSize / 2 - center.x;
-  window.panY             = previewSize / 2 - center.y;
-  window.selectedHex      = null;   // never show selection border in preview
-  state.meta.orientation  = orientation;
-
-  try {
-    drawStaticHex(0, 0, hexData);
-  } finally {
-    window.ctx             = savedCtx;
-    window.zoom            = savedZoom;
-    window.panX            = savedPanX;
-    window.panY            = savedPanY;
-    window.HEX_SIZE        = savedHexSize;
-    window.LABEL_PAD       = savedLabelPad;
-    window.selectedHex     = savedSelectedHex;
-    state.meta.orientation = savedOrientation;
-  }
-}
+    ctx.line
