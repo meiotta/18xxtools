@@ -100,55 +100,6 @@
         <!-- TERRAIN BRUSH (hidden — terrain is right-click only) -->
         <div class="palette-section" id="terrainBrushSection" style="display:none"></div>
 
-        <!-- WHITE TILES (base hex features) -->
-        <div class="palette-section" id="whiteTilesSection">
-          <div class="palette-header">White Tiles</div>
-          <div class="white-tile-grid">
-
-            <button class="white-tile-btn" data-wtool="white-blank" title="Blank — no feature">
-              <svg viewBox="-30 -30 60 60" class="wt-svg">
-                <polygon points="0,-26 22.5,-13 22.5,13 0,26 -22.5,13 -22.5,-13" fill="none" stroke="#666" stroke-width="1.5"/>
-              </svg>
-              <span>Blank</span>
-            </button>
-
-            <button class="white-tile-btn" data-wtool="town" title="Single Dit — one town dot">
-              <svg viewBox="-30 -30 60 60" class="wt-svg">
-                <polygon points="0,-26 22.5,-13 22.5,13 0,26 -22.5,13 -22.5,-13" fill="none" stroke="#666" stroke-width="1.5"/>
-                <circle cx="0" cy="0" r="7" fill="#222" stroke="#ccc" stroke-width="2.5"/>
-              </svg>
-              <span>Dit</span>
-            </button>
-
-            <button class="white-tile-btn" data-wtool="dual-town" title="Double Dit — two town dots">
-              <svg viewBox="-30 -30 60 60" class="wt-svg">
-                <polygon points="0,-26 22.5,-13 22.5,13 0,26 -22.5,13 -22.5,-13" fill="none" stroke="#666" stroke-width="1.5"/>
-                <circle cx="-10" cy="0" r="6" fill="#222" stroke="#ccc" stroke-width="2"/>
-                <circle cx="10"  cy="0" r="6" fill="#222" stroke="#ccc" stroke-width="2"/>
-              </svg>
-              <span>2× Dit</span>
-            </button>
-
-            <button class="white-tile-btn" data-wtool="city-1" title="Single City — one token slot">
-              <svg viewBox="-30 -30 60 60" class="wt-svg">
-                <polygon points="0,-26 22.5,-13 22.5,13 0,26 -22.5,13 -22.5,-13" fill="none" stroke="#666" stroke-width="1.5"/>
-                <circle cx="0" cy="0" r="12" fill="#fff" stroke="#333" stroke-width="2"/>
-              </svg>
-              <span>City</span>
-            </button>
-
-            <button class="white-tile-btn" data-wtool="city-oo" title="OO City — two separate token slots">
-              <svg viewBox="-30 -30 60 60" class="wt-svg">
-                <polygon points="0,-26 22.5,-13 22.5,13 0,26 -22.5,13 -22.5,-13" fill="none" stroke="#666" stroke-width="1.5"/>
-                <circle cx="-11" cy="0" r="9" fill="#fff" stroke="#333" stroke-width="2"/>
-                <circle cx="11"  cy="0" r="9" fill="#fff" stroke="#333" stroke-width="2"/>
-              </svg>
-              <span>OO</span>
-            </button>
-
-          </div>
-        </div>
-
         <!-- STARTER TILES -->
         <div class="palette-section tile-swatches-section" id="starterTilesGrid">
         <!-- Tile swatches generated dynamically by palette.js -->

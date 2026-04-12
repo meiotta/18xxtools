@@ -10,7 +10,6 @@
 
 // Canonical display order for pack UI
 const TILE_PACK_ORDER = [
-  'White Features',
   'Basic Tile Pack',
   'Junctions & Nontraditional Cities',
   'Limited Exit & Token Cities',
@@ -250,6 +249,14 @@ const TILE_PACKS = {
       '807': { dsl: 'town=revenue:10;path=a:0,b:_0;path=a:1,b:_0;path=a:3,b:_0', color: 'gray' },
       '808': { dsl: 'town=revenue:10;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0', color: 'gray' },
       '912': { dsl: 'town=revenue:10;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;path=a:4,b:_0;path=a:5,b:_0', color: 'gray' },
+    },
+
+    white: {
+      'white-blank':     { dsl: '', color: 'white' },
+      'white-town':      { dsl: 'town=revenue:0', color: 'white' },
+      'white-dual-town': { dsl: 'town=revenue:0;town=revenue:0', color: 'white' },
+      'white-city':      { dsl: 'city=revenue:0', color: 'white' },
+      'white-oo':        { dsl: 'city=revenue:0;city=revenue:0', color: 'white' },
     },
   },
 
@@ -545,19 +552,6 @@ const TILE_PACKS = {
     },
   },
 
-  // ── White Features ──────────────────────────────────────────────────────────
-  // White-hex feature tiles used as map starting positions (no track).
-  // These are always enabled and appear in the palette/manifest.
-  'White Features': {
-    white: {
-      'white-blank':     { dsl: '', color: 'white' },
-      'white-town':      { dsl: 'town=revenue:0', color: 'white' },
-      'white-dual-town': { dsl: 'town=revenue:0;town=revenue:0', color: 'white' },
-      'white-city':      { dsl: 'city=revenue:0', color: 'white' },
-      'white-oo':        { dsl: 'city=revenue:0;city=revenue:0', color: 'white' },
-    },
-  },
-
   // ── X Series ───────────────────────────────────────────────────────────────
   // Supplemental tiles used in specific 18xx games (manifest-only; never placed
   // by default but appear in the tile manifest for reference).
@@ -605,7 +599,7 @@ function getAllRenderableTiles(enabledPacks) {
     if (enabledPacks && !enabledPacks[packName]) continue;
     const pack = TILE_PACKS[packName];
     if (!pack) continue;
-    for (const color of ['yellow', 'green', 'brown', 'gray']) {
+    for (const color of ['white', 'yellow', 'green', 'brown', 'gray']) {
       if (!pack[color]) continue;
       for (const [id, entry] of Object.entries(pack[color])) {
         if (!result[id]) result[id] = entry;
@@ -629,7 +623,6 @@ function getTilePack(tileId) {
 
 // ── Default enabled packs (Unsupported always excluded) ───────────────────────
 const DEFAULT_ENABLED_PACKS = {
-  'White Features': true,
   'Basic Tile Pack': true,
   'Junctions & Nontraditional Cities': true,
   'Limited Exit & Token Cities': true,

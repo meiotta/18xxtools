@@ -159,8 +159,8 @@ function buildPalette() {
   const container = document.getElementById('starterTilesGrid');
   container.innerHTML = '';
 
-  const colorOrder = ['yellow', 'green', 'brown', 'grey'];
-  const colorLabels = { yellow: 'Yellow Tiles', green: 'Green Tiles', brown: 'Brown Tiles', grey: 'Grey Tiles' };
+  const colorOrder = ['white', 'yellow', 'green', 'brown', 'grey'];
+  const colorLabels = { white: 'White Tiles', yellow: 'Yellow Tiles', green: 'Green Tiles', brown: 'Brown Tiles', grey: 'Grey Tiles' };
 
   // Group tile IDs by color, sorted: numeric IDs first (ascending), then X-IDs (ascending by number)
   const groups = {};
@@ -172,7 +172,7 @@ function buildPalette() {
     for (const pn of TILE_PACK_ORDER) {
       const pack = TILE_PACKS[pn];
       if (!pack) continue;
-      for (const col of ['yellow', 'green', 'brown', 'grey', 'gray']) {
+      for (const col of ['white', 'yellow', 'green', 'brown', 'grey', 'gray']) {
         if (!pack[col]) continue;
         for (const tid of Object.keys(pack[col])) tilePackMap[tid] = pn;
       }
@@ -281,7 +281,6 @@ function clearAllToolHighlights() {
   document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
   document.querySelectorAll('.tile-item').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.white-tile-btn').forEach(b => b.classList.remove('wt-active'));
   document.querySelectorAll('.terrain-brush-btn').forEach(b => b.classList.remove('tb-active'));
   document.querySelectorAll('.edge-tool-btn').forEach(b => { b.style.outline = ''; b.style.background = ''; });
 }
@@ -316,39 +315,7 @@ document.querySelectorAll('.terrain-brush-btn').forEach(btn => {
 
 // ── White tile buttons ────────────────────────────────────────────────────────
 
-const WHITE_TILE_LABELS = {
-  'white-blank':   'Blank hex',
-  'town':          'Tool: Single Dit',
-  'dual-town':     'Tool: Double Dit',
-  'city-1':        'Tool: Single City',
-  'city-joined':   'Tool: Double City (joined)',
-  'city-oo':       'Tool: OO City',
-  'city-3':        'Tool: 3-Slot City',
-};
-
-document.querySelectorAll('.white-tile-btn').forEach(btn => {
-  // Make draggable so users can drag directly onto the canvas
-  btn.draggable = true;
-  btn.addEventListener('dragstart', (e) => {
-    e.dataTransfer.setData('text/plain', btn.dataset.wtool);
-    e.dataTransfer.effectAllowed = 'copy';
-  });
-
-  btn.addEventListener('click', () => {
-    const tool = btn.dataset.wtool;
-    if (activeTool === tool) {
-      // Toggle off
-      activeTool = null;
-      btn.classList.remove('wt-active');
-      updateStatus('');
-      return;
-    }
-    clearAllToolHighlights();
-    activeTool = tool;
-    btn.classList.add('wt-active');
-    updateStatus(WHITE_TILE_LABELS[tool] || `Tool: ${tool}`);
-  });
-});
+// White tile buttons removed — white tiles are now regular tile-pack swatches.
 
 // ── Edge tool buttons ────────────────────────────────────────────────────────
 

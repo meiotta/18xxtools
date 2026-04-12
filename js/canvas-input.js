@@ -7,11 +7,6 @@ let _stampTile = null;
 let _stampRotation = 0;
 
 // Clear the active white-tile tool and its button highlight after a one-shot apply
-function _clearWhiteTileTool() {
-  activeTool = null;
-  document.querySelectorAll('.white-tile-btn').forEach(b => b.classList.remove('wt-active'));
-  updateStatus('');
-}
 
 // Hex under cursor during a drag — used by renderer for drop-target highlight
 let dragOverHex = null;
@@ -314,10 +309,6 @@ function applyTool(hexId) {
     (activeTool === 'terrain' && activeTerrainType) ||
     activeTool === 'terrain-clear' ||
     (activeTool === 'tile'    && activeTile) ||
-    activeTool === 'city-1' ||
-    activeTool === 'town'    || activeTool === 'dual-town' ||
-    activeTool === 'city-oo' ||
-    activeTool === 'white-blank' ||
     (activeTool === 'label' && activeLabel) ||
     activeTool === 'erase' ||
     activeTool === 'river-edge';
@@ -344,27 +335,6 @@ function applyTool(hexId) {
     document.querySelectorAll('.tile-swatch').forEach(s => s.classList.remove('selected'));
     document.querySelectorAll('.tile-item').forEach(s => s.classList.remove('active'));
     updateStatus('');
-  } else if (activeTool === 'city-1') {
-    hex.feature = 'city'; hex.slots = 1;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'town') {
-    hex.feature = 'town'; hex.slots = 1;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'dual-town') {
-    hex.feature = 'dualTown'; hex.slots = 1;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'city-oo') {
-    hex.feature = 'oo'; hex.slots = 1;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'white-blank') {
-    // Clear all features and tile, preserve terrain
-    hex.feature = null; hex.slots = 0;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
   } else if (activeTool === 'label' && activeLabel) {
     hex.label = activeLabel;
   } else if (activeTool === 'erase') {
