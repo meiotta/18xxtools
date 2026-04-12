@@ -812,6 +812,7 @@ function drawHex(row, col, hex = null) {
       const _revRotRad = rotation * Math.PI / 180;
       const _revCosR = Math.cos(_revRotRad), _revSinR = Math.sin(_revRotRad);
       for (const rev of revList) {
+        if (rev.v === 0) continue; // no bubble for zero-revenue white tiles
         const sc = size / 50;
         // Rotate (rev.x, rev.y) by tile rotation so bubble tracks the node position
         const rx = cx + (rev.x * _revCosR - rev.y * _revSinR) * sc;

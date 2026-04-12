@@ -374,8 +374,7 @@ canvas.addEventListener('dragleave', (e) => {
   if (dragOverHex !== null) { dragOverHex = null; render(); }
 });
 
-// White-tile tool names that can be dragged and dropped
-const WHITE_TILE_TOOLS = new Set(['town','dual-town','city-1','city-oo','white-blank']);
+// (White tiles now go through the standard tile drop path below)
 
 canvas.addEventListener('drop', (e) => {
   const payload = e.dataTransfer.getData('text/plain');
@@ -395,15 +394,7 @@ canvas.addEventListener('drop', (e) => {
 
   dragOverHex = null; // clear highlight before re-render
 
-  if (WHITE_TILE_TOOLS.has(payload)) {
-    // ── White-tile feature drop ──────────────────────────────────────────────
-    activeTool = payload;
-    applyTool(id); // _clearWhiteTileTool() inside applyTool already nulls activeTool
-    selectedHex = id;
-    if (typeof updateHexPanel === 'function') updateHexPanel(id);
-    render(); autosave();
-    updateStatus(`Placed ${payload} on ${id}`);
-  } else if (TileRegistry.getTileDef(payload)) {
+  if (TileRegistry.getTileDef(payload)) {
     // ── Numbered tile drop ───────────────────────────────────────────────────
     const parsedId = /^\d+$/.test(payload) ? parseInt(payload) : payload;
     state.hexes[id].tile = parsedId;

@@ -256,7 +256,6 @@ const TILE_PACKS = {
       'white-town':      { dsl: 'town=revenue:0', color: 'white' },
       'white-dual-town': { dsl: 'town=revenue:0;town=revenue:0', color: 'white' },
       'white-city':      { dsl: 'city=revenue:0', color: 'white' },
-      'white-oo':        { dsl: 'city=revenue:0;city=revenue:0', color: 'white' },
     },
   },
 

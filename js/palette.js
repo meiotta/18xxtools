@@ -53,7 +53,7 @@ function makeTileSwatchSvg(tileId) {
       }
     }
     // Revenue
-    if (td.revenue) {
+    if (td.revenue && td.revenue.v !== 0) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
@@ -76,7 +76,7 @@ function makeTileSwatchSvg(tileId) {
       // Single city circle
       inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
     }
-    if (td.revenue) {
+    if (td.revenue && td.revenue.v !== 0) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
@@ -102,6 +102,7 @@ function makeTileSwatchSvg(tileId) {
     }
     if (td.revenues) {
       for (const rv of td.revenues) {
+        if (rv.v === 0) continue;
         inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7" fill="white" stroke="#777" stroke-width="1"/>`;
         inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
       }
@@ -110,7 +111,7 @@ function makeTileSwatchSvg(tileId) {
   } else if (td.town) {
     // Single town dit — small black dot
     inner += `<circle cx="0" cy="0" r="5" fill="black"/>`;
-    if (td.revenue) {
+    if (td.revenue && td.revenue.v !== 0) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
@@ -120,7 +121,7 @@ function makeTileSwatchSvg(tileId) {
     // Off-center town bar
     const t = td.townAt;
     inner += `<g transform="translate(${t.x},${t.y}) rotate(${t.rot})"><rect x="${-t.rw / 2}" y="${-t.rh / 2}" width="${t.rw}" height="${t.rh}" fill="#000"/></g>`;
-    if (td.revenue) {
+    if (td.revenue && td.revenue.v !== 0) {
       const rv = td.revenue;
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
