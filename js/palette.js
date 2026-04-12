@@ -51,7 +51,8 @@ function makeTileSwatchSvg(tileId) {
   const BAR_RW = TILE_GEO.BAR_RW;           // 16
   const BAR_RH = TILE_GEO.BAR_RH;           // 4
 
-  const hexColor = TILE_HEX_COLORS[td.color] || '#c8a87a';
+  const normColor = td.color === 'gray' ? 'grey' : td.color;
+  const hexColor = TILE_HEX_COLORS[normColor] || '#c8a87a';
   const trackStroke = '#222';
   const labelColor  = td.color === 'brown' ? '#111' : '#555';
 

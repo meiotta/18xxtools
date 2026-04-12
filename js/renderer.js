@@ -318,18 +318,25 @@ function drawStaticHex(row, col, hex) {
     }
 
     case 'dualTown': {
-      // Two town bars — one per town node. Revenue rendered separately, never inside bars.
+      // Two town nodes — bar or dot per node. Revenue rendered separately, never inside markers.
       const dtPositions = (hex.townPositions && hex.townPositions.length >= 2)
         ? hex.townPositions
         : [{ x: -14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }, { x: 14, y: 0, rot: 0, rw: 16.93, rh: 4.23 }];
       for (const pos of dtPositions) {
-        const rw = pos.rw || 16.93;
-        const rh = pos.rh || 4.23;
         ctx.save();
         ctx.translate(pos.x, pos.y);
-        ctx.rotate((pos.rot || 0) * Math.PI / 180);
         ctx.fillStyle = '#000';
-        ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
+        if (pos.dot) {
+          // 3+-exit junction town → dot
+          ctx.beginPath();
+          ctx.arc(0, 0, 5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const rw = pos.rw || 16.93;
+          const rh = pos.rh || 4.23;
+          ctx.rotate((pos.rot || 0) * Math.PI / 180);
+          ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
+        }
         ctx.restore();
       }
       break;
@@ -848,7 +855,7 @@ function drawHex(row, col, hex = null) {
           const r = 7.5 * sc;
           ctx.beginPath();
           ctx.arc(rx, ry, r, 0, Math.PI * 2);
-          ctx.fillStyle = color; // phase color matches tile background (yellow/green/brown/grey)
+          ctx.fillStyle = 'white';
           ctx.fill();
           ctx.strokeStyle = '#777';
           ctx.lineWidth = 1;
@@ -881,22 +888,13 @@ function drawHex(row, col, hex = null) {
     ctx.fillText(name, cx, by + bh / 2);
   }
 
-  // OO white hex: two horizontal city circles in a frame (no tile placed)
+  // OO white hex: two city circles, no bounding box (no tile placed)
   if (hex?.oo && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    // Rectangular frame
-    ctx.fillStyle = 'white';
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-27, -15, 54, 30, 3);
-    ctx.fill();
-    ctx.stroke();
-    // Two horizontal city circles
-    for (const ox of [-14, 14]) {
+    for (const ox of [-13, 13]) {
       ctx.beginPath();
       ctx.arc(ox, 0, 11, 0, Math.PI * 2);
       ctx.fillStyle = 'white';
@@ -932,15 +930,8 @@ function drawHex(row, col, hex = null) {
     const slots = hex.city.slots || 1;
     const isJoined = !!hex.city.joined;
     if (slots >= 3) {
-      // Triple city: triangle formation in a rounded-rect frame
-      ctx.fillStyle = 'white';
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(-28, -26, 56, 52, 3);
-      ctx.fill();
-      ctx.stroke();
-      const triPts = [{ x: 0, y: -14 }, { x: -14, y: 10 }, { x: 14, y: 10 }];
+      // Triple city: three circles in triangle formation — no bounding box
+      const triPts = [{ x: 0, y: -16 }, { x: -16, y: 10 }, { x: 16, y: 10 }];
       for (const p of triPts) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
@@ -951,18 +942,7 @@ function drawHex(row, col, hex = null) {
         ctx.stroke();
       }
     } else if (slots >= 2) {
-      ctx.fillStyle = 'white';
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      if (isJoined) {
-        // Joined / OO-style: two circles sharing a line in a rectangular frame
-        ctx.roundRect(-26, -15, 52, 30, 3);
-      } else {
-        ctx.roundRect(-26, -15, 52, 30, 3);
-      }
-      ctx.fill();
-      ctx.stroke();
+      // 2-slot city: two circles side by side — no bounding box
       for (const ox of [-13, 13]) {
         ctx.beginPath();
         ctx.arc(ox, 0, 11, 0, Math.PI * 2);
@@ -984,19 +964,28 @@ function drawHex(row, col, hex = null) {
     ctx.restore();
   }
 
-  // Town dot for hexes that have a town marker but no placed tile
+  // Town marker for hexes with a town but no placed tile
   if (hex?.town && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    ctx.beginPath();
-    ctx.arc(0, 0, 10, 0, Math.PI * 2);
-    ctx.fillStyle = '#000';
-    ctx.fill();
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 4;
-    ctx.stroke();
+    if (hex.dualTown) {
+      // Two small black bars side by side
+      for (const ox of [-12, 12]) {
+        ctx.save();
+        ctx.translate(ox, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-8, -2.5, 16, 5);
+        ctx.restore();
+      }
+    } else {
+      // Single town dit — small black dot
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+    }
     ctx.restore();
   }
 
