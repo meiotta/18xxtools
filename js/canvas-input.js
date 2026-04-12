@@ -433,7 +433,7 @@ canvas.addEventListener('drop', (e) => {
     if (typeof updateHexPanel === 'function') updateHexPanel(id);
     render(); autosave();
     updateStatus(`Placed ${payload} on ${id}`);
-  } else if (TILE_DEFS[String(payload)]) {
+  } else if (TileRegistry.getTileDef(payload)) {
     // ── Numbered tile drop ───────────────────────────────────────────────────
     const parsedId = /^\d+$/.test(payload) ? parseInt(payload) : payload;
     state.hexes[id].tile = parsedId;

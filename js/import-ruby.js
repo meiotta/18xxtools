@@ -62,7 +62,8 @@ function edgeSetsEqual(a, b) {
 const TILE_EDGE_CACHE = {};
 function getTileEdges(tileNum) {
   if (!TILE_EDGE_CACHE[tileNum]) {
-    TILE_EDGE_CACHE[tileNum] = svgPathToEdgeSet(TILE_DEFS[String(tileNum)].svgPath);
+    const _td = TileRegistry.getTileDef(tileNum);
+    TILE_EDGE_CACHE[tileNum] = _td ? svgPathToEdgeSet(_td.svgPath) : new Set();
   }
   return TILE_EDGE_CACHE[tileNum];
 }
@@ -71,7 +72,7 @@ function getTileEdges(tileNum) {
 // hasCityOrOO: true if the Ruby hex code has city= or slots:2
 function matchTileDef(targetEdges, color, hasCityOrOO) {
   if (targetEdges.size === 0) return null;
-  for (const [tileNum, tileDef] of Object.entries(TILE_DEFS)) {
+  for (const [tileNum, tileDef] of Object.entries(TileRegistry.getAllTileDefs())) {
     if (tileDef.color !== color) continue;
     const tileHasCityOrOO = !!(tileDef.city || tileDef.oo);
     if (hasCityOrOO !== tileHasCityOrOO) continue;

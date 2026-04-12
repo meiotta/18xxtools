@@ -100,40 +100,14 @@ const BASE_TILE_SETS = {
   }
 };
 
-// ── Tile def lookup (TILE_DEFS first, TILE_PACKS fallback) ───────────────────
+// ── Tile def lookup ───────────────────────────────────────────────────────────
 
 function _getTileDef(id) {
-  if (TILE_DEFS[id]) return TILE_DEFS[id];
-  // Search TILE_PACKS for the id across all packs and colors
-  if (typeof TILE_PACKS !== 'undefined') {
-    for (const pack of Object.values(TILE_PACKS)) {
-      for (const colorGroup of Object.values(pack)) {
-        if (colorGroup && colorGroup[id]) {
-          const entry = colorGroup[id];
-          return TILE_GEO.parseDSL(entry.dsl, entry.color);
-        }
-      }
-    }
-  }
-  return null;
+  return TileRegistry.getTileDef(id);
 }
 
 function _makeSwatchSvg(id) {
-  if (TILE_DEFS[id]) return makeTileSwatchSvg(id);
-  const td = _getTileDef(id);
-  if (!td) return '';
-  // Render using the same logic as makeTileSwatchSvg but with parsed def
-  const hexColor = (typeof TILE_HEX_COLORS !== 'undefined' && TILE_HEX_COLORS[td.color]) || '#c8a87a';
-  const trackStroke = '#222';
-  let inner = `<polygon points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
-  if (td.svgPath) {
-    const segments = td.svgPath.split(/(?=M )/).map(s => s.trim()).filter(Boolean);
-    for (const seg of segments) {
-      inner += `<path d="${seg}" stroke="${trackStroke}" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    }
-  }
-  inner += `<text x="-42" y="-32" font-size="10" fill="#555" font-weight="bold">${id}</text>`;
-  return `<svg viewBox="-60 -55 120 110" width="72" height="66" style="display:block;">${inner}</svg>`;
+  return makeTileSwatchSvg(id);
 }
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
@@ -141,7 +115,7 @@ function _makeSwatchSvg(id) {
 const COLOR_ORDER = { yellow: 0, green: 1, brown: 2, grey: 3 };
 
 function tileSort(a, b) {
-  const tdA = TILE_DEFS[a], tdB = TILE_DEFS[b];
+  const tdA = TileRegistry.getTileDef(a), tdB = TileRegistry.getTileDef(b);
   const ca = COLOR_ORDER[tdA?.color] ?? 99;
   const cb = COLOR_ORDER[tdB?.color] ?? 99;
   if (ca !== cb) return ca - cb;

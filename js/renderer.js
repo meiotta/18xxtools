@@ -580,7 +580,7 @@ function drawHex(row, col, hex = null) {
   const size = HEX_SIZE * zoom;
 
   const terrain = hex?.terrain || '';
-  const tileDef = hex?.tile ? TILE_DEFS[String(hex.tile)] : null;
+  const tileDef = hex?.tile ? TileRegistry.getTileDef(hex.tile) : null;
   // Normalise 'gray' → 'grey' to match TILE_HEX_COLORS key (tile-packs.js uses American spelling)
   const _tileColor = tileDef ? (tileDef.color === 'gray' ? 'grey' : tileDef.color) : null;
   const color = _tileColor

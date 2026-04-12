@@ -10,9 +10,11 @@
 
 // Canonical display order for pack UI
 const TILE_PACK_ORDER = [
+  'White Features',
   'Basic Tile Pack',
   'Junctions & Nontraditional Cities',
   'Limited Exit & Token Cities',
+  'X Series',
   'These are dumb and you are dumb but they don\'t break anything, I think',
   'Unclassified (Review Needed)',
   'Unsupported',
@@ -543,6 +545,56 @@ const TILE_PACKS = {
     },
   },
 
+  // ── White Features ──────────────────────────────────────────────────────────
+  // White-hex feature tiles used as map starting positions (no track).
+  // These are always enabled and appear in the palette/manifest.
+  'White Features': {
+    white: {
+      'white-blank':     { dsl: '', color: 'white' },
+      'white-town':      { dsl: 'town=revenue:0', color: 'white' },
+      'white-dual-town': { dsl: 'town=revenue:0;town=revenue:0', color: 'white' },
+      'white-city':      { dsl: 'city=revenue:0', color: 'white' },
+      'white-oo':        { dsl: 'city=revenue:0;city=revenue:0', color: 'white' },
+    },
+  },
+
+  // ── X Series ───────────────────────────────────────────────────────────────
+  // Supplemental tiles used in specific 18xx games (manifest-only; never placed
+  // by default but appear in the tile manifest for reference).
+  'X Series': {
+    yellow: {
+      'X20': { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 L -21.65 12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 L 0 -25 M 37.67 -21.75 L 21.65 -12.5 M 37.67 21.75 L 21.65 12.5', color: 'yellow', oo: true, cityPositions: [{x:-10, y:0}, {x:10, y:0}], revenue: { x: 33.37, y: 0, v: 30 } },
+    },
+    green: {
+      'X1':  { svgPath: 'M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'green', city: true, revenue: { x: 20.91, y: 0, v: 30 } },
+      'X2':  { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0', color: 'green', city: true, revenue: { x: 20.91, y: 0, v: 30 } },
+      'X3':  { svgPath: 'M 0 43.5 A 83.25 83.25 0 0 0 -21.65 -12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 A 83.25 83.25 0 0 0 21.65 12.5 M 37.67 21.75 L 21.65 12.5', color: 'green', oo: true, cityPositions: [{x: -21.65, y: -12.5}, {x: 21.65, y: 12.5}], revenue: { x: 33.37, y: 0, v: 40 } },
+      'X4':  { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 A 33.015 33.015 0 0 1 0 25 M -37.67 -21.75 A 33.015 33.015 0 0 0 0 -25 M 0 -43.5 L 0 -25', color: 'green', oo: true, cityPositions: [{x: 0, y: 25}, {x: 0, y: -25}], revenue: { x: 33.37, y: 0, v: 40 } },
+      'X5':  { svgPath: 'M 0 -43.5 L 0 -25 M 37.67 21.75 A 83.245 83.245 0 0 1 0 -25 M 0 43.5 L 0 25 M 37.67 -21.75 A 83.245 83.245 0 0 0 0 25', color: 'green', oo: true, cityPositions: [{x: 0, y: -25}, {x: 0, y: 25}], revenue: { x: 33.37, y: 0, v: 40 } },
+      'X21': { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 L -21.65 12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 L 0 -25 M 37.67 -21.75 L 21.65 -12.5 M 37.67 21.75 L 21.65 12.5', color: 'green', oo: true, cityPositions: [{x:-10, y:0}, {x:10, y:0}], revenue: { x: 33.37, y: 0, v: 40 } },
+    },
+    brown: {
+      'X6':  { svgPath: 'M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'brown' },
+      'X7':  { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 37.67 21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'brown', oo: true, revenue: { x: 33.37, y: 0, v: 50 } },
+      'X8':  { svgPath: 'M -37.67 21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'brown' },
+      'X9':  { svgPath: 'M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 21.75 L 0 0', color: 'brown' },
+      'X10': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M 37.67 21.75 L 0 0', color: 'brown' },
+      'X22': { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 L -21.65 12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 L 0 -25 M 37.67 -21.75 L 21.65 -12.5 M 37.67 21.75 L 21.65 12.5', color: 'brown', oo: true, cityPositions: [{x:-10, y:0}, {x:10, y:0}], revenue: { x: 33.37, y: 0, v: 50 } },
+    },
+    grey: {
+      'X11': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0', color: 'grey' },
+      'X12': { svgPath: 'M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'grey' },
+      'X13': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0 M 37.67 21.75 L 0 0', color: 'grey' },
+      'X14': { svgPath: 'M -37.67 21.75 L 0 0 M 37.67 -21.75 L 0 0', color: 'grey' },
+      'X15': { svgPath: 'M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 21.75 L 0 0', color: 'grey' },
+      'X16': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M 37.67 21.75 L 0 0', color: 'grey' },
+      'X17': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0 M 37.67 21.75 L 0 0', color: 'grey' },
+      'X18': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0', color: 'grey' },
+      'X19': { svgPath: 'M 0 43.5 L 0 0 M -37.67 21.75 L 0 0 M -37.67 -21.75 L 0 0 M 0 -43.5 L 0 0 M 37.67 -21.75 L 0 0 M 37.67 21.75 L 0 0', color: 'grey' },
+      'X23': { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 L -21.65 12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 L 0 -25 M 37.67 -21.75 L 21.65 -12.5 M 37.67 21.75 L 21.65 12.5', color: 'grey', oo: true, cityPositions: [{x:-10, y:0}, {x:10, y:0}], revenue: { x: 33.37, y: 0, v: 60 } },
+    },
+  },
+
 };
 
 // ── Helper: get all tiles across all renderable packs (excludes Unsupported) ──
@@ -577,9 +629,11 @@ function getTilePack(tileId) {
 
 // ── Default enabled packs (Unsupported always excluded) ───────────────────────
 const DEFAULT_ENABLED_PACKS = {
+  'White Features': true,
   'Basic Tile Pack': true,
   'Junctions & Nontraditional Cities': true,
   'Limited Exit & Token Cities': true,
+  'X Series': true,
   'These are dumb and you are dumb but they don\'t break anything, I think': false,
   'Unclassified (Review Needed)': false,
   'Unsupported': false,

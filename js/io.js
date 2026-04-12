@@ -30,6 +30,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = (evt) => {
     const data = JSON.parse(evt.target.result);
+    TileRegistry.setEmbeddedTiles(data.customTiles || {});
     Object.assign(state, data);
     document.getElementById('gameTitleEdit').value = state.meta.title;
     document.getElementById('baseGameLabel').textContent = 'Base: ' + state.meta.baseGame;

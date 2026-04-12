@@ -6,45 +6,11 @@
 // makeTileSwatchSvg(tileId) — returns SVG string for a tile swatch.
 // updateStatus(text) — sets the status bar text.
 
-// ── Pack tile injection ───────────────────────────────────────────────────────
-// Injects DSL-based tiles from enabled packs into TILE_DEFS so the palette
-// and renderer can use them. Manually-defined TILE_DEFS entries take priority.
-// Tracks injected IDs so they can be cleared on pack toggle.
-
-let _packInjectedIds = new Set();
-
-function _injectPackTiles() {
-  if (typeof getAllRenderableTiles !== 'function') return;
-  if (typeof TILE_GEO === 'undefined' || typeof TILE_GEO.parseDSL !== 'function') return;
-
-  // Initialize enabledPacks to defaults if not set
-  if (!state.enabledPacks) {
-    state.enabledPacks = typeof DEFAULT_ENABLED_PACKS !== 'undefined'
-      ? Object.assign({}, DEFAULT_ENABLED_PACKS)
-      : {};
-  }
-
-  // Remove previously pack-injected tiles from TILE_DEFS
-  for (const id of _packInjectedIds) delete TILE_DEFS[id];
-  _packInjectedIds = new Set();
-
-  const packTiles = getAllRenderableTiles(state.enabledPacks);
-  for (const [id, entry] of Object.entries(packTiles)) {
-    if (TILE_DEFS[id]) continue; // manually-defined entry takes priority
-    const parsed = TILE_GEO.parseDSL(entry.dsl, entry.color);
-    if (!parsed) continue;
-    const normalized = TILE_GEO.normalizeTileDef(parsed);
-    if (normalized) {
-      TILE_DEFS[id] = normalized;
-      _packInjectedIds.add(id);
-    }
-  }
-}
 
 // ── Tile swatch SVG generation ───────────────────────────────────────────────
 
 function makeTileSwatchSvg(tileId) {
-  const td = TILE_DEFS[String(tileId)];
+  const td = TileRegistry.getTileDef(tileId);
   if (!td) return '';
   // Geometry constants (sourced from TILE_GEO to avoid duplication)
   const SLOT_RADIUS = TILE_GEO.SLOT_RADIUS; // 12.5 at scale 50
@@ -187,10 +153,14 @@ function makeTileSwatchSvg(tileId) {
 // ── Palette builder ──────────────────────────────────────────────────────────
 
 function buildPalette() {
-  // Inject DSL tiles from enabled packs into TILE_DEFS before rendering
-  _injectPackTiles();
+  // Initialize enabledPacks to defaults if not set
+  if (!state.enabledPacks) {
+    state.enabledPacks = typeof DEFAULT_ENABLED_PACKS !== 'undefined'
+      ? Object.assign({}, DEFAULT_ENABLED_PACKS)
+      : {};
+  }
 
-  // ── Tile swatches — dynamic from TILE_DEFS ────────────────────────────────
+  // ── Tile swatches — dynamic from TileRegistry ─────────────────────────────
   const container = document.getElementById('starterTilesGrid');
   container.innerHTML = '';
 
@@ -214,10 +184,9 @@ function buildPalette() {
     }
   }
 
-  const enabledPacks = state.enabledPacks; // already initialised by _injectPackTiles()
+  const enabledPacks = state.enabledPacks;
 
-  for (const id of Object.keys(TILE_DEFS)) {
-    const td = TILE_DEFS[id];
+  for (const [id, td] of Object.entries(TileRegistry.getAllTileDefs())) {
     // X tiles are manifest-only — skip them in the map palette
     if (/^X/i.test(id)) continue;
 

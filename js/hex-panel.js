@@ -68,7 +68,7 @@ function updateHexPanel(hexId) {
 
   // ── City Name (shown when placed tile has a city/OO, or white-tile city/oo) ─
   const tileCitySection = document.getElementById('tileCityNameSection');
-  const td = hex.tile ? TILE_DEFS[String(hex.tile)] : null;
+  const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
   const hasCityFeature = (td && (td.city || td.oo)) || !!hex.city || !!hex.oo;
   if (hasCityFeature) {
     tileCitySection.style.display = 'block';
@@ -253,7 +253,7 @@ document.getElementById('applyHexBtn').addEventListener('click', () => {
     hex.label       = document.getElementById('hexLabel').value.trim();
 
     // Save city name for placed tiles that have a city/OO
-    const td = hex.tile ? TILE_DEFS[String(hex.tile)] : null;
+    const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
     if (td && (td.city || td.oo)) {
       hex.cityName = document.getElementById('tileCityName').value.trim();
     }

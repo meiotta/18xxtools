@@ -97,11 +97,11 @@ let dragState = null;
 // ─── TILE ID ─────────────────────────────────────────────────────────────────
 
 // Returns the next available tile ID in the 9000+ custom range.
-// Checks TILE_DEFS (constants.js) to avoid collisions with any already-registered
-// custom tiles. Standard tiles (1–999) are far below 9000 so they never collide.
+// Uses TileRegistry to avoid collisions with any already-registered custom tiles.
+// Standard tiles (1–999) are far below 9000 so they never collide.
 function nextCustomTileId() {
   const used = new Set(
-    Object.keys(TILE_DEFS)
+    Object.keys(TileRegistry.getAllTileDefs())
       .map(k => parseInt(k, 10))
       .filter(n => !isNaN(n) && n >= 9000)
   );

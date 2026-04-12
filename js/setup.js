@@ -206,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (mapCols) mapCols.value = state.meta.cols;
 
   // Initialise editor
+  TileRegistry.rebuildRegistry();
   buildPalette();
   renderCompaniesTable();
   renderMinorsTable();
