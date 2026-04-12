@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>18xx Game Designer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+
+<!-- MAIN EDITOR -->
+<div class="editor" id="editor">
+  <div class="toolbar">
+    <h1 id="toolbarTitle">18xx Game Designer</h1>
+    <input type="text" id="gameTitleEdit" placeholder="Game Title">
+    <span id="baseGameLabel" style="color: #999; font-size: 13px;"></span>
+    <div class="sep"></div>
+    <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
+      <button id="fileMenuBtn" style="padding:5px 14px;">File ▾</button>
+      <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:160px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:hidden;">
+        <button id="newMapBtn"     class="file-menu-item">🗺 New Map</button>
+        <div style="height:1px;background:#3a3a3a;margin:2px 0;"></div>
+        <button id="saveBtn"      class="file-menu-item">💾 Save JSON</button>
+        <button id="loadBtn"      class="file-menu-item">📂 Load JSON</button>
+        <div style="height:1px;background:#3a3a3a;margin:2px 0;"></div>
+        <button id="importMapBtn" class="file-menu-item">⬇ Import Map (.rb)</button>
+        <button id="exportBtn"    class="file-menu-item">⬆ Export ZIP</button>
+      </div>
+    </div>
+    <button id="themeToggleBtn" title="Toggle light/dark theme" style="padding:5px 10px;font-size:15px;line-height:1;">☀️</button>
+    <button id="helpBtn" title="Show help">? Help</button>
+    <input type="file" id="fileInput" style="display: none;" accept=".json">
+    <input type="file" id="importMapFile" style="display: none;" accept=".rb">
+  </div>
+
+  <div class="content">
+    <!-- LEFT PANEL -->
+    <div class="left-panel" id="leftPanel">
+
+      <!-- ── Vertical Navigation Rail (72px, always visible) ─────────────────── -->
+      <div class="nav-rail">
+
+        <button class="nav-rail-btn active" data-lsec="map" title="Map &amp; Tiles">
+          <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 L21 7 V17 L12 22 L3 17 V7 Z"/>
+          </svg>
+          <span>Map</span>
+        </button>
+
+        <button class="nav-rail-btn" data-lsec="companies" title="Companies / Corps">
+          <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 21 H21"/>
+            <path d="M5 21 V9 L12 4 L19 9 V21"/>
+            <rect x="9" y="14" width="6" height="7"/>
+          </svg>
+          <span>Companies</span>
+        </button>
+
+        <button class="nav-rail-btn" data-lsec="market" title="Stock Market">
+          <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="20" x2="21" y2="20"/>
+            <rect x="4" y="14" width="4" height="6"/>
+            <rect x="10" y="9" width="4" height="11"/>
+            <rect x="16" y="4" width="4" height="16"/>
+          </svg>
+          <span>Market</span>
+        </button>
+
+        <button class="nav-rail-btn" data-lsec="trains" title="Trains &amp; Phases">
+          <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="17" height="11" rx="2"/>
+            <path d="M19 11 H22 V14 H19"/>
+            <circle cx="6.5" cy="18" r="2"/>
+            <circle cx="14.5" cy="18" r="2"/>
+            <line x1="9.5" y1="7" x2="9.5" y2="18"/>
+          </svg>
+          <span>Trains &amp; Phases</span>
+        </button>
+
+      </div>
+
+      <!-- ── Section Content (fills width to the right of the rail) ────────── -->
+      <div class="nav-content" id="navContent">
+
+      <!-- ── MAP / TILES SECTION ────────────────────────────────────────────── -->
+      <div class="lsection active" id="lsec-map">
+        <!-- EDGE TOOLS -->
+        <div class="palette-section">
+          <div class="palette-header">Edge Tools</div>
+          <div style="display:flex;gap:6px;padding:6px;">
+            <button id="edgeImpassableBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Impassable — click an edge to block crossing">🚫</button>
+            <button id="edgeWaterBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Water Crossing — click an edge to add a river crossing cost">🌊</button>
+          </div>
+          <div style="display:flex;gap:6px;padding:0 6px 4px;font-size:10px;color:#999;">
+            <span style="flex:1;text-align:center;">Impassable</span>
+            <span style="flex:1;text-align:center;">Water Crossing</span>
+          </div>
+        </div>
+        <!-- TERRAIN BRUSH (hidden — terrain is right-click only) -->
+        <div class="palette-section" id="terrainBrushSection" style="display:none"></div>
+
+        <!-- STARTER TILES -->
+        <div class="palette-section tile-swatches-section" id="starterTilesGrid">
+        <!-- Tile swatches generated dynamically by palette.js -->
+        </div>
+        <!-- LABELS -->
+        <div class="palette-section">
+          <div class="palette-header">Labels</div>
+          <div class="label-input-group">
+            <input type="text" id="labelInput" placeholder="Text..." maxlength="6">
+            <button id="labelApplyBtn">Apply</button>
+          </div>
+        </div>
+        <!-- ERASE -->
+        <button class="erase-btn" id="eraseBtn">Erase Selected</button>
+      </div>
+
+      <!-- ── COMPANIES SECTION (nav-content stub — tables live in corpView) ──── -->
+      <div class="lsection" id="lsec-companies"></div>
+
+      <!-- ── MARKET SECTION ────────────────────────────────────────────────── -->
+      <div class="lsection" id="lsec-market">
+        <div style="padding:16px 12px 12px;">
+          <p style="font-size:12px;color:#888;margin-bottom:16px;line-height:1.6;">
+            Design the stock market grid, price bands, and movement logic for your game.
+          </p>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#666;margin-bottom:6px;">Summary</div>
+          <div id="lsec-market-summary" style="font-size:12px;color:#bbb;padding:8px 12px;background:#242424;border-radius:5px;border:1px solid #333;margin-bottom:16px;">2D Grid · 11×19</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#666;margin-bottom:8px;">Market is open in the center view.</div>
+          <p style="font-size:11px;color:#666;line-height:1.5;">Use the toolbar above the market grid to change type, dimensions, and templates.</p>
+        </div>
+      </div>
+
+      <!-- ── TRAINS SECTION (nav-content stub — table lives in trainsView) ──── -->
+      <div class="lsection" id="lsec-trains"></div>
+
+      </div><!-- end nav-content -->
+
+    </div><!-- end left-panel -->
+
+    <!-- CANVAS -->
+    <div class="canvas-container" id="canvasContainer" style="position:relative;">
+      <canvas id="canvas"></canvas>
+      <button id="tileManifestBtn" style="position:absolute;bottom:16px;right:16px;z-index:5;padding:7px 14px;background:#3a3a3a;color:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px;">Tile Manifest</button>
+    </div>
+
+    <!-- TILE MANIFEST VIEW (replaces canvas in flex row) -->
+    <div id="tileManifestView" style="display:none;flex:1;flex-direction:column;background:#1e1e1e;overflow:auto;min-width:0;">
+      <div id="manifestHeader" style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#2a2a2a;border-bottom:1px solid #444;flex-shrink:0;">
+        <button id="manifestMapBtn" style="padding:5px 12px;">← Map</button>
+        <span style="color:#fff;font-size:15px;font-weight:bold;">Tile Manifest</span>
+        <select id="manifestTileSet" style="margin-left:auto;padding:4px 8px;">
+          <option value="manifest">1822 (manifest.txt)</option>
+          <option value="1822">1822</option>
+          <option value="1830">1830</option>
+          <option value="1846">1846</option>
+          <option value="1856">1856</option>
+          <option value="1861">1861</option>
+          <option value="1882">1882</option>
+          <option value="1889">1889</option>
+          <option value="18Chesapeake">18Chesapeake</option>
+          <option value="18NewEngland">18NewEngland</option>
+        </select>
+      </div>
+      <div id="manifestGrid" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px;align-content:flex-start;"></div>
+    </div>
+
+    <!-- MARKET VIEW -->
+    <div id="marketView" style="display:none; flex:1; flex-direction:row; overflow:hidden; min-width:0;">
+
+      <!-- ── LEFT: Market Grid (resizable) ─────────────────────────────────────── -->
+      <div id="marketLeftPane" style="width:60%; min-width:280px; max-width:85%; display:flex; flex-direction:column; overflow:hidden; background:#161616; flex-shrink:0;">
+
+        <!-- Market toolbar -->
+        <div class="market-toolbar">
+
+          <!-- Type + Dims -->
+          <div class="mtb-group">
+            <span class="mtb-label">Type</span>
+            <select id="finMarketType" class="mtb-select" style="width:110px;">
+              <option value="2D">2D Grid</option>
+              <option value="1D">1D Linear</option>
+              <option value="zigzag">1.5D Zigzag</option>
+            </select>
+            <div id="finMarket2DConfig" style="display:flex; gap:5px; align-items:center;">
+              <input type="number" id="finMarketRows" value="11" min="1" max="25" class="mtb-num" title="Rows">
+              <span style="color:#444; font-size:11px;">×</span>
+              <input type="number" id="finMarketCols" value="19" min="1" max="40" class="mtb-num" title="Cols">
+            </div>
+            <div id="finMarket1DConfig" style="display:none;">
+              <input type="number" id="finMarketCount" value="10" min="1" max="100" class="mtb-num" style="width:56px;" title="Count">
+            </div>
+          </div>
+
+          <div class="mtb-sep"></div>
+
+          <!-- Bank -->
+          <div class="mtb-group">
+            <span class="mtb-label">Bank</span>
+            <span class="mtb-bank-val">$<span id="bankCashValWide">12000</span></span>
+            <input type="number" id="finBank" value="12000" class="mtb-num" style="width:70px;" title="Bank cash">
+          </div>
+
+          <div class="mtb-sep"></div>
+
+          <!-- Templates -->
+          <div class="mtb-group">
+            <span class="mtb-label">Template</span>
+            <button id="tmplChesa" class="mtb-btn">18Chesa</button>
+            <button id="tmpl1846" class="mtb-btn">1846</button>
+            <button id="tmpl1862" class="mtb-btn">1862</button>
+          </div>
+
+          <div class="mtb-sep"></div>
+
+          <!-- Wizard — uses main grid Rows/Cols, just needs Min/Max prices -->
+          <div class="mtb-group">
+            <span class="mtb-label">Wizard</span>
+            <span style="font-size:10px;color:#4a4a4a;">$</span>
+            <input type="number" id="wizMin" placeholder="Min" class="mtb-num" style="width:54px;" value="40" title="Lowest price">
+            <span style="font-size:10px;color:#4a4a4a;">→</span>
+            <input type="number" id="wizMax" placeholder="Max" class="mtb-num" style="width:60px;" value="400" title="Highest price">
+            <button id="wizGenerateBtn" class="mtb-btn mtb-btn-primary">Generate</button>
+            <!-- hidden stubs kept for market-wizard.js compatibility -->
+            <input type="number" id="wizRows" style="display:none;" value="8">
+            <input type="number" id="wizCols" style="display:none;" value="16">
+          </div>
+          <!-- Nudge: shown when user adds cells without regenerating -->
+          <div id="marketRegenNudge" class="market-regen-nudge" style="display:none;">
+            <span>Values added — you may want to <button id="marketNudgeRegenBtn" class="nudge-regen-btn">Regenerate</button> for balance</span>
+            <button id="marketNudgeDismissBtn" class="nudge-dismiss-btn" title="Dismiss">✕</button>
+          </div>
+
+          <div class="mtb-sep"></div>
+
+          <!-- Painter -->
+          <div class="mtb-group">
+            <span class="mtb-label">Paint</span>
+            <div id="painterTools" style="display:flex; gap:3px; align-items:center;">
+              <button class="painter-btn active" data-brush="price" title="Edit price">✎</button>
+              <button class="painter-btn painter-par"    data-brush="p" title="Par band">P</button>
+              <button class="painter-btn painter-yellow" data-brush="y" title="No-limit yellow">Y</button>
+              <button class="painter-btn painter-orange" data-brush="o" title="Orange zone">O</button>
+              <button class="painter-btn painter-brown"  data-brush="b" title="Brown zone">B</button>
+              <button class="painter-btn painter-closed" data-brush="c" title="Closed">✕</button>
+              <button class="painter-btn painter-lock"   data-brush="locked" title="Lock price">⚿</button>
+              <button onclick="enforceContiguity()" class="mtb-btn" style="margin-left:4px;" title="Enforce staircase">Tidy</button>
+            </div>
+          </div>
+
+          <div class="mtb-sep"></div>
+
+          <!-- Debug -->
+          <div class="mtb-group">
+            <button id="marketDebugBtn" class="mtb-btn" title="Show market array in .rb format">🔍 Debug</button>
+          </div>
+        </div>
+
+        <!-- Market grid (scrollable) -->
+        <div id="marketContainerWide" style="flex:1; padding:28px; display:flex; justify-content:center; align-items:flex-start; overflow:auto;">
+        </div>
+
+        <!-- Submitted movement rules (below grid) -->
+        <div id="submittedRulesArea" class="submitted-rules-area">
+          <div class="submitted-rules-header">
+            <span>Movement Rules</span>
+            <span id="submittedRulesCount" class="submitted-rules-count">0 rules</span>
+          </div>
+          <div id="submittedRulesList" class="submitted-rules-list">
+            <!-- populated by rule-builder.js -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── Resize Handle ─────────────────────────────────────────────────────── -->
+      <div id="marketResizeHandle" class="market-resize-handle" title="Drag to resize"></div>
+
+      <!-- ── RIGHT: Logic Builder (flex:1, fills remainder) ───────────────────── -->
+      <div id="marketLogicPanel" class="logic-builder-panel" style="flex:1; min-width:220px;">
+
+        <!-- Header -->
+        <div class="logic-builder-header">
+          <div class="logic-builder-title">Logic Builder</div>
+          <div class="logic-builder-sub">Drag pills to build a movement rule, then submit</div>
+        </div>
+
+        <!-- Pill Palette -->
+        <div class="pill-palette-scroll">
+
+          <!-- WHEN triggers -->
+          <div class="pill-section">
+            <div class="pill-section-label">When (trigger)</div>
+            <div class="pill-palette">
+              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_paid">Pays Dividend</div>
+              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_withheld">Withholds</div>
+              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_sold_out">Sold Out</div>
+              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_shares_sold">Shares Sold</div>
+              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_no_run">Doesn't Run</div>
+            </div>
+          </div>
+
+          <!-- COMPANY type conditions (blue) -->
+          <div class="pill-section">
+            <div class="pill-section-label">Company type (and condition)</div>
+            <div class="pill-palette">
+              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"any"}'>Any Company</div>
+              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"major"}'>Major</div>
+              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"minor"}'>Minor</div>
+              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"private"}'>Private</div>
+            </div>
+          </div>
+
+          <!-- REVENUE conditions (green, stackable) -->
+          <div class="pill-section">
+            <div class="pill-section-label">Revenue (and condition — stackable)</div>
+            <div class="pill-palette">
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">=","value":50,"unit":"percent"}'>Revenue ≥ 50%</div>
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">=","value":100,"unit":"percent"}'>Revenue ≥ 100%</div>
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":"==","value":0}'>Revenue = 0</div>
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">","value":0}'>Revenue &gt; 0</div>
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue_calc","op":"==","value":"per_share"}'>Per Share</div>
+              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue_calc","op":"==","value":"per_sell"}'>Per Sell Action</div>
+            </div>
+          </div>
+
+          <!-- EVENT conditions (gray) -->
+          <div class="pill-section">
+            <div class="pill-section-label">Event / actor (and condition)</div>
+            <div class="pill-palette">
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_out_timing","op":"==","value":"end_of_sr"}'>Sold Out at End of SR</div>
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_by","op":"==","value":"any_player"}'>Sold by Any Player</div>
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_by","op":"==","value":"director"}'>Sold by Director</div>
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"bank","op":"<","value":5000}'>Bank &lt; 5000</div>
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"price","op":">=","value":100}'>Price ≥ 100</div>
+              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"price","op":"<","value":50}'>Price &lt; 50</div>
+            </div>
+          </div>
+
+          <!-- THEN actions -->
+          <div class="pill-section">
+            <div class="pill-section-label">Then (action)</div>
+            <div class="pill-palette">
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"right"}'>→ Right</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"left"}'>← Left</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"up"}'>↑ Up</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"down"}'>↓ Down</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"up_twice"}'>↑↑ Up ×2</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"right_twice"}'>→→ Right ×2</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"end_game","value":"end_of_or"}'>End Game</div>
+              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"bankrupt"}'>Go Bankrupt</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statement Builder -->
+        <div class="stmt-builder">
+          <div class="pill-section-label" style="margin-bottom:10px;">Build statement</div>
+
+          <div class="stmt-rows" id="stmtRows">
+            <div class="stmt-row">
+              <span class="stmt-label">When</span>
+              <div class="stmt-drop-zone" id="stmtWhen" data-accept="trigger" data-placeholder="drop a trigger here">drop a trigger here</div>
+            </div>
+            <!-- AND condition rows added dynamically by rule-builder.js -->
+            <div class="stmt-row" id="stmtAndRow0">
+              <span class="stmt-label">And</span>
+              <div class="stmt-drop-zone stmt-and-zone" id="stmtAnd0" data-accept="condition" data-idx="0" data-placeholder="drop a condition (optional)">drop a condition (optional)</div>
+            </div>
+            <div class="stmt-row">
+              <span class="stmt-label">Then</span>
+              <div class="stmt-drop-zone" id="stmtThen" data-accept="action" data-placeholder="drop an action here">drop an action here</div>
+            </div>
+          </div>
+
+          <div class="stmt-actions">
+            <button id="submitRuleBtn" class="stmt-submit" disabled>Submit Rule</button>
+            <button id="clearRuleBtn" class="stmt-clear">Clear</button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- CORPS VIEW ─────────────────────────────────────────────────────────── -->
+    <div id="corpView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden;">
+
+      <!-- toolbar -->
+      <div class="fullview-toolbar">
+        <span class="fullview-title">Companies</span>
+        <div class="corp-tab-bar">
+          <button class="corp-tab-btn active" data-corp-tab="privates">Privates</button>
+          <button class="corp-tab-btn" data-corp-tab="minors">Minors</button>
+          <button class="corp-tab-btn" data-corp-tab="majors">Majors</button>
+        </div>
+        <div style="flex:1;"></div>
+        <button id="addPrivateBtn" class="corp-add-btn" data-add-for="privates">+ Add Private</button>
+        <button id="addMinorBtn"   class="corp-add-btn" data-add-for="minors"   style="display:none;">+ Add Minor</button>
+        <button id="addCompanyBtn" class="corp-add-btn" data-add-for="majors"   style="display:none;">+ Add Major</button>
+      </div>
+
+      <!-- table area -->
+      <div style="flex:1; overflow:auto; padding:24px 28px; background:var(--bg-base);">
+
+        <!-- Privates table -->
+        <div id="corpPrivatesSection">
+          <table class="card-table fullview-table">
+            <thead><tr><th>Name</th><th>Cost</th><th>Revenue</th><th>Ability</th><th style="width:36px;"></th></tr></thead>
+            <tbody id="privatesTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Minors table -->
+        <div id="corpMinorsSection" style="display:none;">
+          <table class="card-table fullview-table">
+            <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Mechanism</th><th>Tokens</th><th style="width:36px;"></th></tr></thead>
+            <tbody id="minorsTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Majors table -->
+        <div id="corpMajorsSection" style="display:none;">
+          <table class="card-table fullview-table">
+            <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Par</th><th>Tokens</th><th>Float %</th><th style="width:36px;"></th></tr></thead>
+            <tbody id="companiesTableBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TRAINS VIEW ─────────────────────────────────────────────────────────── -->
+    <div id="trainsView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden;">
+
+      <!-- toolbar -->
+      <div class="fullview-toolbar">
+        <span class="fullview-title">Trains &amp; Phases</span>
+        <div style="flex:1;"></div>
+      </div>
+
+      <!-- table area -->
+      <div style="flex:1; overflow:auto; padding:24px 28px; background:var(--bg-base);">
+
+        <!-- Train Roster section -->
+        <div style="margin-bottom:40px;">
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px; border-bottom:1px solid var(--border);">
+            <span style="font-size:14px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.1em; padding-bottom:12px;">Train Roster</span>
+          </div>
+          <table class="card-table fullview-table">
+            <thead>
+              <tr>
+                <th style="width:6px;"></th>
+                <th>Train</th>
+                <th>Configuration</th>
+                <th>Cost</th>
+                <th>Quantity</th>
+                <th>Rusts On</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="trainsTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Game Phases section -->
+        <div id="gamePhasesSection">
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px; border-bottom:1px solid var(--border);">
+            <span style="font-size:14px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.1em; padding-bottom:12px;">Game Phases</span>
+          </div>
+          <table class="card-table fullview-table">
+            <thead>
+              <tr>
+                <th>Phase</th>
+                <th>On Train</th>
+                <th>ORs</th>
+                <th>Limit</th>
+                <th>Tiles</th>
+                <th>Status</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="phasesTableBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="right-panel" id="rightPanel">
+      <div class="tab-header">
+        <button class="tab-btn active" data-tab="hex">HEX</button>
+        <button class="tab-btn" data-tab="config">CONFIG</button>
+      </div>
+
+      <!-- HEX TAB -->
+      <div class="tab-content active" id="hexTab">
+
+        <!-- Killed-hex notice: shown when selected hex is killed -->
+        <div id="killedHexNotice" style="display:none; background:#2a0a0a; border:1px solid #5a1a1a; border-radius:5px; padding:10px 12px; margin-bottom:10px; font-size:12px; color:#e06060; line-height:1.5;">
+          💀 <strong>Killed hex.</strong><br>
+          <span style="color:#888; font-size:11px;">Right-click to unkill. No features can be placed here.</span>
+        </div>
+
+        <!-- Main hex editing controls — disabled when killed -->
+        <div id="hexEditControls">
+
+          <!-- ── Coordinate / name header ──────────────────── -->
+          <div class="hpanel-title-block">
+            <div class="hpanel-title-main" id="hexTitleMain">—</div>
+            <div id="hexBadgeRow" class="hpanel-badge-row"></div>
+          </div>
+          <!-- Keep hidden input for JS compatibility -->
+          <input type="text" id="hexCoordDisplay" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
+          <input type="text" id="hexCoord" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
+
+          <!-- ── Label ────────────────────────────────────── -->
+          <div class="field">
+            <label>Label</label>
+            <input type="text" id="hexLabel" placeholder="e.g. NY, B, OO…" autocomplete="off">
+          </div>
+
+          <!-- Terrain is painted via the left-panel brush — keep elements hidden for JS compat -->
+          <select id="hexTerrain" style="display:none;">
+            <option value="">Plains</option>
+            <option value="mountain">Mountain</option>
+            <option value="hill">Hill</option>
+            <option value="water">Water</option>
+            <option value="swamp">Swamp</option>
+            <option value="forest">Forest</option>
+            <option value="desert">Desert</option>
+            <option value="pass">Pass</option>
+            <option value="offmap">Off-Map</option>
+          </select>
+          <button id="removeTerrainBtn" style="display:none;"></button>
+
+          <!-- Hidden inputs kept for JS compatibility (hex-panel.js wires rotPrevBtn/rotNextBtn) -->
+          <div style="display:none;">
+            <button id="rotPrevBtn"></button>
+            <button id="rotNextBtn"></button>
+            <input type="number" id="hexRotation" min="0" max="5" value="0">
+          </div>
+
+          <!-- ── Rotation ─────────────────────────────────── -->
+          <div class="field">
+            <label>Rotation</label>
+            <div class="rot-picker" id="rotationPicker">
+              <button class="rot-seg active" data-rot="0" title="0° — no rotation">0°</button>
+              <button class="rot-seg" data-rot="1" title="60°">60°</button>
+              <button class="rot-seg" data-rot="2" title="120°">120°</button>
+              <button class="rot-seg" data-rot="3" title="180°">180°</button>
+              <button class="rot-seg" data-rot="4" title="240°">240°</button>
+              <button class="rot-seg" data-rot="5" title="300°">300°</button>
+            </div>
+          </div>
+
+          <!-- ── City Name (shown when a city/OO tile is placed) ── -->
+          <div id="tileCityNameSection" style="display:none;">
+            <div class="field">
+              <label>City Name</label>
+              <input type="text" id="tileCityName" placeholder="City name (optional)">
+            </div>
+          </div>
+          <!-- Keep homeCompany select for JS compat (hidden) -->
+          <select id="homeCompany" style="display:none;"></select>
+          <!-- cityEditorSection kept as empty hook for JS compat -->
+          <div id="cityEditorSection" style="display:none;"></div>
+
+          <!-- ── Company references (read-only, populated from company setup) ── -->
+          <div id="hexCompanyRefs" style="display:none; background:#1a1a2e; border:1px solid #2a2a4a; border-radius:5px; padding:8px 10px; margin-bottom:10px;">
+            <div id="hexCompanyRefsList"></div>
+          </div>
+
+          <!-- ── Upgrade Rules (reserved — content added when needed) ──────── -->
+          <div class="hpanel-section" id="upgradeRulesSection">
+            <div class="hpanel-section-title">Upgrade Rules</div>
+            <!-- placeholder: upgrade rule controls will be added here -->
+            <input type="checkbox" id="hexNoUpgrade" style="display:none;">
+            <input type="text"     id="hexUpgradeOnly" style="display:none;" autocomplete="off">
+          </div>
+
+          <!-- ── Apply ────────────────────────────────────── -->
+          <button id="applyHexBtn" style="width:100%; margin-top:8px;">Apply</button>
+
+          <!-- ── Phase Revenue (static gray/red hexes only) ── -->
+          <div id="staticPhaseRevenueSection" style="display:none;margin-top:8px;">
+            <div class="hpanel-section-title">Phase Revenue</div>
+            <div style="display:flex;flex-direction:column;gap:3px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:10px;height:10px;background:#F0D070;border-radius:50%;flex-shrink:0;"></span>
+                <label style="width:46px;font-size:11px;">Yellow</label>
+                <input type="number" id="phRevYellow" min="0" max="9999" style="flex:1;">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:10px;height:10px;background:#71BF44;border-radius:50%;flex-shrink:0;"></span>
+                <label style="width:46px;font-size:11px;">Green</label>
+                <input type="number" id="phRevGreen" min="0" max="9999" style="flex:1;">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:10px;height:10px;background:#CB7745;border-radius:50%;flex-shrink:0;"></span>
+                <label style="width:46px;font-size:11px;">Brown</label>
+                <input type="number" id="phRevBrown" min="0" max="9999" style="flex:1;">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="width:10px;height:10px;background:#BCBDC0;border-radius:50%;flex-shrink:0;"></span>
+                <label style="width:46px;font-size:11px;">Gray</label>
+                <input type="number" id="phRevGray" min="0" max="9999" style="flex:1;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Keep stub divs for JS compat — makeDualTownBtn / makeOOCityBtn no longer shown -->
+          <div id="hexTypeActionsSection" style="display:none;">
+            <button id="makeDualTownBtn"></button>
+            <button id="makeOOCityBtn"></button>
+          </div>
+
+          <!-- ── Clear ─────────────────────────────────────── -->
+          <button id="clearHexBtn" style="width:100%; margin-top:4px; background:#8b0000;">Clear Hex</button>
+
+        </div><!-- end hexEditControls -->
+      </div>
+
+      <!-- COMPANIES TAB stub (content moved to left panel lsec-companies) -->
+      <div class="tab-content" id="companiesTab" style="display:none !important;"></div>
+
+      <!-- TRAINS TAB stub (content moved to left panel lsec-trains) -->
+      <div class="tab-content" id="trainsTab" style="display:none !important;"></div>
+
+      <!-- FINANCIALS TAB (hidden — controls moved to market view) -->
+      <!-- Keep this div so financials-panel.js getElementById calls don't break,
+           but it's not reachable via the tab bar. -->
+      <div class="tab-content" id="financialsTab" style="display:none !important;">
+        <span id="bankCashVal" style="display:none;">12000</span>
+        <div id="bankCard" style="display:none;"></div>
+        <div id="marketEditorContainer" style="display:none;"></div>
+      </div>
+
+      <!-- CONFIG TAB -->
+      <div class="tab-content" id="configTab">
+        <div class="field">
+          <label>Hex Orientation</label>
+          <select id="configOrientation" style="width:100%;padding:4px 6px;background:#2a2a2a;color:#fff;border:1px solid #555;border-radius:3px;">
+            <option value="flat">Flat-top</option>
+            <option value="pointy">Pointy-top</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Map Size</label>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span style="font-size:11px;color:#aaa;width:32px;">Rows</span>
+            <button id="rowsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">−</button>
+            <input type="number" id="mapRows" min="2" max="50" style="width:48px;text-align:center;padding:2px;">
+            <button id="rowsIncBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">+</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <span style="font-size:11px;color:#aaa;width:32px;">Cols</span>
+            <button id="colsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">−</button>
+            <input type="number" id="mapCols" min="2" max="80" style="width:48px;text-align:center;padding:2px;">
+            <button id="colsIncBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">+</button>
+          </div>
+          <button id="applyResizeBtn" style="width:100%;">Apply Size</button>
+        </div>
+        <div class="field">
+          <label>Terrain Costs</label>
+          <table class="config-table">
+            <tbody id="terrainCostsTable"></tbody>
+          </table>
+        </div>
+        <div class="field">
+          <label>Tile Packs</label>
+          <div id="tilePackToggles" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;"></div>
+        </div>
+        <div class="field" style="margin-top:8px;">
+          <label>Map Actions</label>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+            <button id="mapValidateBtn" style="width:100%;padding:7px 10px;font-size:12px;" disabled title="Coming soon">✓ Validate Map</button>
+            <button id="mapClearBtn" style="width:100%;background:#8b0000;color:#fff;border-color:#a00000;padding:7px 10px;font-size:12px;">🗑 Clear Map</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-bar" id="statusBar">Ready</div>
+</div>
+
+<!-- Resize warning dialog -->
+<div id="resizeWarning" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:2000;align-items:center;justify-content:center;">
+  <div class="resize-warn-box">
+    <p>Resizing will remove hexes outside the new bounds. Continue?</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button id="resizeCancelBtn" class="shw-btn-cancel">Cancel</button>
+      <button id="resizeConfirmBtn" class="shw-btn-primary">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Clear Map confirmation dialog -->
+<div id="clearMapWarning" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:2000;align-items:center;justify-content:center;">
+  <div class="resize-warn-box">
+    <p><strong>Clear all map content?</strong></p>
+    <p style="font-size:12px;color:#aaa;margin-top:6px;">This will erase all tile placements, terrain, cities, labels, and hex kills. Map dimensions are preserved.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button id="clearMapCancelBtn" class="shw-btn-cancel">Cancel</button>
+      <button id="clearMapConfirmBtn" class="shw-btn-primary" style="background:#c0392b;">Clear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Loading splash -->
+<div id="loadingSplash" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:3000;align-items:center;justify-content:center;flex-direction:column;gap:16px;pointer-events:none;">
+  <svg width="64" height="60" viewBox="0 0 64 60">
+    <polygon points="47,4 62,30 47,56 17,56 2,30 17,4" fill="none" stroke="#ffd700" stroke-width="2.5"/>
+  </svg>
+  <div class="splash-title">18xx Game Designer</div>
+  <div class="splash-subtitle">by meiotta</div>
+  <div class="splash-bar-wrap"><div class="splash-bar"></div></div>
+</div>
+
+<!-- ── STATIC HEX BUILDER WIZARD ─────────────────────────────────────────── -->
+<div id="staticHexWizard" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.72);z-index:1500;align-items:center;justify-content:center;">
+  <div class="shw-card">
+    <div class="shw-header">
+      <div class="shw-step-dots">
+        <span class="shw-step-dot active"></span>
+        <span class="shw-step-dot"></span>
+        <span class="shw-step-dot"></span>
+        <span class="shw-step-dot"></span>
+        <span class="shw-step-dot"></span>
+      </div>
+      <span id="shwStepLabel" class="shw-step-label">Step 1 of 5</span>
+    </div>
+    <div id="shwBody" class="shw-body"></div>
+    <div class="shw-footer">
+      <button id="shwBtnCancel" class="shw-btn-cancel">Cancel</button>
+      <div style="display:flex;gap:8px;">
+        <button id="shwBtnBack"  class="shw-btn-sec" disabled>&#8592; Back</button>
+        <button id="shwBtnNext"  class="shw-btn-primary">Next &#8594;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PLACEMENT OVERLAY ────────────────────────────────────────────────── -->
+<div id="placementOverlay" style="display:none;position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);padding:12px 24px;border:2px solid #ffd700;border-radius:100px;z-index:2000;pointer-events:none;color:#fff;font-weight:bold;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+  <span style="font-size:18px;">🎯</span>
+  <span id="placementText">Select Home Hex for [Minor]</span>
+  <span style="font-size:11px;background:#444;padding:2px 8px;border-radius:4px;margin-left:8px;">ESC to Cancel</span>
+</div>
+
+<!-- ── COMPANY WIZARD ─────────────────────────────────────────────────────── -->
+<div id="companyWizard" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.72);z-index:1500;align-items:center;justify-content:center;">
+  <div class="shw-card">
+    <div class="shw-header">
+      <span id="cwTitle" style="color:#ffd700;font-size:16px;font-weight:bold;">Add Company</span>
+    </div>
+    <div class="shw-body">
+      <input type="hidden" id="cwType" value="major">
+      <div class="field"><label>Company Name</label><input type="text" id="cwName" placeholder="e.g. Pennsylvania Railroad"></div>
+      <div class="field-row">
+        <div class="field"><label>Abbreviation</label><input type="text" id="cwAbbr" maxlength="4" placeholder="PRR"></div>
+        <div class="field" style="display:flex; flex-direction:column;"><label>Color</label><input type="color" id="cwColor" value="#ff0000" style="width:100%;height:32px;padding:2px;"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Home Hex</label><input type="text" id="cwHome" maxlength="3" placeholder="e.g. D4"></div>
+        <div class="field"><label>Tokens</label><input type="number" id="cwTokens" min="0" value="5"></div>
+      </div>
+      <div class="field-row" id="cwMajorFields">
+        <div class="field"><label>Par Value</label><input type="number" id="cwPar" min="0" value="100"></div>
+        <div class="field"><label>Float %</label><input type="number" id="cwFloat" min="0" max="100" value="60"></div>
+      </div>
+      <div class="field" id="cwMinorFields" style="display:none;">
+        <div class="field">
+          <label>Location Mechanism</label>
+          <select id="cwLocationMech">
+            <option value="fixed">Fixed location</option>
+            <option value="choice">User chooses location during first OR</option>
+            <option value="draft">Draft auction (Opener sets par/location, bids follow)</option>
+          </select>
+        </div>
+        <div class="field" id="cwBulkContainer">
+          <label>How many companies?</label>
+          <input type="number" id="cwMinorCount" min="1" value="1">
+        </div>
+        <div class="field">
+          <label>Starting Color Palette</label>
+          <select id="cwColorPalette">
+            <option value="charter">Charter Style (White BG / Black Text)</option>
+            <option value="standard">Standard 18xx (Red, Blue, Green...)</option>
+            <option value="rainbow">Rainbow (Vibrant progression)</option>
+          </select>
+        </div>
+        <div class="field" id="cwMinBidContainer" style="display:none;">
+          <label>Minimum Opening Bid</label>
+          <input type="number" id="cwMinBid" min="0" value="0">
+        </div>
+        <div class="field">
+          <label>When does the company buy trains?</label>
+          <select id="cwTrainTiming">
+            <option value="first_or_before_run">First OR (Before it runs)</option>
+            <option value="first_or_after_run">First OR (After it runs)</option>
+            <option value="first_sr">During Stock Round</option>
+            <option value="never">Never (Cannot buy trains)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="shw-footer">
+      <button id="cwBtnCancel" class="shw-btn-cancel">Cancel</button>
+      <button id="cwBtnSave" class="shw-btn-primary">Add Company</button>
+    </div>
+  </div>
+</div>
+
+<!-- Help drawer -->
+<div id="helpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:300px;background:#1e1e1e;border-left:1px solid #444;z-index:1000;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,0.5);">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #333;position:sticky;top:0;background:#1e1e1e;">
+    <span style="color:#fff;font-weight:bold;font-size:15px;">Help</span>
+    <button id="helpDrawerClose" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;line-height:1;">×</button>
+  </div>
+  <div id="helpSections" style="padding:8px 0;">
+
+    <details class="help-section" open>
+      <summary>Getting Started</summary>
+      <div class="help-body">
+        <p>The map is your canvas. Click a tile in the left panel, then click a hex to place it. Right-click any hex for quick options — add a city, town, terrain, or resource icon directly.</p>
+        <p>Use <strong>File → Import Map</strong> to load an existing 18xx.games .rb file and reproduce a published map automatically.</p>
+      </div>
+    </details>
+
+    <details class="help-section">
+      <summary>Tiles &amp; the Palette</summary>
+      <div class="help-body">
+        <p>Tiles are numbered track pieces from the 18xx catalog. Yellow → green → brown is the upgrade progression. Gray tiles are fixed and can't be upgraded in-game.</p>
+        <p>Use the <strong>Tile Manifest</strong> button (bottom-right of canvas) to browse all tiles for a specific game and drag them to the palette.</p>
+        <p><strong>Shift+click</strong> repeats the last placed tile at the same rotation.</p>
+      </div>
+    </details>
+
+    <details class="help-section">
+      <summary>Static Hexes</summary>
+      <div class="help-body">
+        <p>Static hexes (gray, red, blue backgrounds) are pre-printed and don't change during a game — major cities, offboard areas, and ocean hexes.</p>
+        <p>Right-click a hex → <strong>Static Hex Wizard</strong> to build one visually. Gray hexes support pre-printed track, towns, cities, OO layouts, and phase-varying revenue.</p>
+        <p>Red hexes are offboard destinations with revenue that increases by phase.</p>
+      </div>
+    </details>
+
+    <details class="help-section">
+      <summary>Import &amp; Export</summary>
+      <div class="help-body">
+        <p><strong>Import Map (.rb)</strong> parses an 18xx.games Ruby source file and reproduces the full board — static hexes, terrain, borders, icons, and city names.</p>
+        <p><strong>Export ZIP</strong> generates a map.rb file compatible with the 18xx.games engine, plus a JSON save of your session.</p>
+        <p><strong>Save / Load JSON</strong> saves your editor state so you can resume later.</p>
+      </div>
+    </details>
+
+    <details class="help-section">
+      <summary>Map Configuration</summary>
+      <div class="help-body">
+        <p>The <strong>Config</strong> tab (right panel) controls hex orientation (flat-top or pointy-top), terrain costs, and map dimensions.</p>
+        <p>Use the Map Size controls to grow or shrink the grid. Shrinking warns you before deleting any defined hexes.</p>
+      </div>
+    </details>
+
+    <details class="help-section">
+      <summary>Keyboard &amp; Mouse</summary>
+      <div class="help-body">
+        <p><strong>Right-click</strong> any hex — quick add menu (city, town, terrain, icons)</p>
+        <p><strong>Shift+click</strong> — repeat last tile at same rotation</p>
+        <p><strong>Scroll wheel</strong> — zoom in/out</p>
+        <p><strong>Middle-click drag</strong> or <strong>right-drag</strong> — pan the map</p>
+        <p><strong>Erase</strong> button — clears a hex back to blank</p>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<script src="js/tile-geometry.js"></script>
+<script src="js/tile-packs.js"></script>
+<script src="js/tile-registry.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/state.js"></script>
+<script src="js/hex-geometry.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/canvas-input.js"></script>
+<script src="js/context-menu.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/hex-panel.js"></script>
+<script src="js/companies-panel.js"></script>
+<script src="js/trains-panel.js"></script>
+<script src="js/config-panel.js"></script>
+<script src="js/market-wizard.js"></script>
+<script src="js/market-painter.js"></script>
+<script src="js/financials-panel.js"></script>
+<script src="js/rule-builder.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/io.js"></script>
+<script src="js/import-ruby.js"></script>
+<script src="js/tile-manifest.js"></script>
+<script src="js/static-hex-builder.js"></script>
+
+<!-- ── Market Debug Modal ─────────────────────────────────────────────────── -->
+<div id="marketDebugModal" class="debug-modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="debug-modal-box">
+    <div class="debug-modal-header">
+      <span class="debug-modal-title">Market Array (.rb format)</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="debugCopyBtn" class="mtb-btn" style="font-size:12px;">Copy</button>
+        <button onclick="document.getElementById('marketDebugModal').style.display='none'" class="debug-modal-close">✕</button>
+      </div>
+    </div>
+    <textarea id="marketDebugTextarea" class="debug-modal-textarea" readonly spellcheck="false"></textarea>
+  </div>
+</div>
+</body>
+</html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
