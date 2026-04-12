@@ -963,30 +963,7 @@ function drawHex(row, col, hex = null) {
     ctx.restore();
   }
 
-  // Town marker for hexes with a town but no placed tile
-  if ((hex?.feature === 'town' || hex?.feature === 'dualTown') && !hex?.tile) {
-    ctx.save();
-    ctx.translate(cx, cy);
-    const sc = size / 50;
-    ctx.scale(sc, sc);
-    if (hex.feature === 'dualTown') {
-      // Two small black bars side by side
-      for (const ox of [-12, 12]) {
-        ctx.save();
-        ctx.translate(ox, 0);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(-8, -2.5, 16, 5);
-        ctx.restore();
-      }
-    } else {
-      // Single town dit — small black dot
-      ctx.beginPath();
-      ctx.arc(0, 0, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#000';
-      ctx.fill();
-    }
-    ctx.restore();
-  }
+  // town / dualTown features are fully rendered by the switch above — no second pass needed.
 
   // Location name for unplaced city/town hexes (below the feature)
   {
