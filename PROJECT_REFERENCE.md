@@ -64,8 +64,6 @@ Every module that calls another module's function must be loaded after it. If yo
 
 `TILES_tobymao.pdf` — a saved copy of the official 18xx.games TILES.md. Source of truth for tobymao DSL syntax and tile definitions.
 
-`packwriter.txt` — the original tile definitions file from the 18xx.games source repo, converted to plain text. A previous Claude session was given this file and asked to write a classification schema from it. That schema now lives in `tile-manifest.js` as `BASE_TILE_SETS` (and possibly a separate `tile-packs.js` if it was generated). The txt file itself is read-only reference.
-
 `for_claude.txt` — a context document written during a period when Gemini was being used as a collaborator on the companies/financials schema design. That Gemini tool use has been suspended. The document describes a proposed JSON schema for companies and stock markets that was aspirational at the time of writing and has not been fully implemented.
 
 `ARCHITECTURE.md` — shorter module reference, maintained separately from this file.
@@ -448,7 +446,7 @@ A planned but not yet implemented escape hatch for exotic layouts (e.g., tile #1
 `hidden` — solid fill only, no features drawn.
 
 These verbose fields are needed during composition. The eventual export pipeline will need to collapse them back to tobymao DSL syntax.
-
+<!-- i don't know if there's a better way to implement hex/tile building that doesn't rely on these fragile fields, but i also understand that TOBYMAO's reference will draw a track to an element on the tile when you reference in the DSL, but you would have to build the tile incrementally to get here. I have an idea on how to execute this,  -->
 ---
 
 ## 11. Tile Manifest and Pack Classification
@@ -468,7 +466,13 @@ The four packs defined are:
 **These are dumb and you are dumb but they don't break anything, I think** — exotic and game-specific tiles. Includes: XX-label tiles (210–215, `label=XX`), towns with revenue > 10, tiles with `icon=` attributes, and the pre-defined set: 115, 128, 437, 438, 445, 451a, 471–473, 790, 441a, 8850–8857.
 
 **Unsupported** — any tile with `track:narrow` or `track:dual` in any path. Excluded from rendering and the palette.
+<!-- these tile packs, especially the basic ones and your terminology 'lawson junctions' and k-label cities are badly misleading. Just correct your description to the following and say that you're not smart enough to intuit these rules
 
+1) basic tiles are yellow tiles with revenue and behavior appropriate to the first generation of 18xx titles, up through brown and gray
+2) junctions & nontraditional cities these are the second generation and well-used 'weird' track
+3) these are tiles that are more unique and in the popular 'exotic variants'
+4) these are exotic tiles that probably can import into the tool without fuss but basically nobody uses them and they are in obscure games with no plays
+5) these are tiles with game-time behaviors we are not currently supporting-->
 ---
 
 ## 12. Special Tiles — DSL Render Compatibility Tests
@@ -485,7 +489,7 @@ Tobymao DSL: `path=a:4,b:_0; path=a:1,b:_0; path=a:4,b:1` where `_0` is the city
 
 4 token slots, 5+ exits converging. Large city circle, expanded radius to accommodate 4 tokens. Tests multi-slot city rendering.
 
-### London (1861) / 1822 MX Mexico City
+### London (1822) / 1822 MX Mexico City
 
 Two separate city slots at opposite positions, each serving a distinct set of exits. Tests OO-style layout with non-default city positions and exit pairing. These two tiles are geometrically identical — the 1822 MX version is a London rebrand, not related to 18MEX Mexico City.
 
@@ -595,8 +599,9 @@ Rules can be reordered by drag handle, edited (restored to builder), or deleted.
 ### 18xx market mechanics context
 
 The market grid is a 2D staircase — Row 0 is the longest (all columns active), each successive row is one column shorter from the right. A company whose price reaches the end of a short row and needs to move left will instead move up to the longer row above (the "bumping up" behavior). This is what `enforceContiguity()` enforces structurally — empty cells must be at the right end of each row.
-
+<!-- THIS IS SO WRONG Markets have various shapes, 1D, 1.5D, and 2D, you don't understand this, so do research, you mention it in the financial panels.js notes but you clearly don't know how to relate these concepts-->
 Price movement semantics: right = price increase, left = decrease, up = move to higher row (better position), down = move to lower row. The `rules` object in `state.financials` captures the base movement directions for the four main triggers. `logicRules` captures conditional overrides (e.g., pay ≥ 200% → move right twice instead of once).
+
 
 ---
 
