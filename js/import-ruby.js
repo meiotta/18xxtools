@@ -554,14 +554,21 @@ function importRubyMap(content) {
 
       if (color === 'white') {
         if (parsed.oo) {
+          h.feature = 'oo';
           h.oo = true; h.ooCityName = name;
           h.label = parsed.label || 'OO';
         } else if (parsed.city) {
+          h.feature = 'city';
+          h.slots = parsed.city.slots;
           h.city = { name, slots: parsed.city.slots, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
         } else if (parsed.dualTown) {
+          h.feature = 'dualTown';
           h.dualTown = true; h.town = { name };
         } else if (parsed.town) {
+          h.feature = 'town';
           h.town = { name };
+        } else {
+          h.feature = 'blank';
         }
         if (parsed.borders && parsed.borders.length > 0) h.borders = parsed.borders;
         // Carry icon directives (port, franchise markers, etc.) to white hexes
