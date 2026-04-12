@@ -17,14 +17,21 @@
 //   9. Fill unused grid positions with killed hexes.
 
 // ── Edge midpoints in manifest SVG path-space (apothem=43.3, y-down) ─────────
-// Index = 18xx edge number (0=N/top, 1=NE, 2=SE, 3=S/bottom, 4=SW, 5=NW)
+// Index = 18xx edge number.  Both the Ruby DSL (tile.rb / HEXES) and edgePos()
+// in renderer.js use 0=Bottom, clockwise — matching hex.rb's Y_B=87 convention.
+//   0=S/bottom  (0,    +43.3)   edgePos(0) = (0, +43.3)
+//   1=SW/LL     (-37.5, +21.65) edgePos(1)
+//   2=NW/UL     (-37.5, -21.65) edgePos(2)
+//   3=N/top     (0,    -43.3)   edgePos(3)
+//   4=NE/UR     (+37.5, -21.65) edgePos(4)
+//   5=SE/LR     (+37.5, +21.65) edgePos(5)
 const IMPORT_EDGE_PTS = [
-  [0,    -43.3],  // 0 N
-  [37.5, -21.65], // 1 NE
-  [37.5,  21.65], // 2 SE
-  [0,    43.3],   // 3 S
-  [-37.5, 21.65], // 4 SW
-  [-37.5,-21.65], // 5 NW
+  [ 0,     43.3 ],  // 0 Bottom / S
+  [-37.5,  21.65],  // 1 LL / SW
+  [-37.5, -21.65],  // 2 UL / NW
+  [ 0,    -43.3 ],  // 3 Top / N
+  [ 37.5, -21.65],  // 4 UR / NE
+  [ 37.5,  21.65],  // 5 LR / SE
 ];
 
 // Convert a SVG path string to a Set of edge indices by matching each M command
@@ -408,6 +415,23 @@ function importRubyMap(content) {
   const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 
+  // ── Detect coordinate parity ───────────────────────────────────────────────
+  // coordParity=0: even-index cols (A,C,E…) use even row-numbers (2,4,6…) — e.g. 1889
+  // coordParity=1: even-index cols (A,C,E…) use odd  row-numbers (1,3,5…) — e.g. 1830, 1846
+  // We detect this by tallying which parity the even-letter columns actually use.
+  let _evenColEven = 0, _evenColOdd = 0;
+  if (!transposedAxes && orientation !== 'pointy') {
+    for (const coord of allCoords) {
+      const letterIdx = coord.charCodeAt(0) - 65;
+      const numPart   = parseInt(coord.slice(1));
+      if (letterIdx % 2 === 0) {
+        if (numPart % 2 === 0) _evenColEven++; else _evenColOdd++;
+      }
+    }
+  }
+  const coordParity = (_evenColOdd > _evenColEven) ? 1 : 0;
+  console.log(`[importRubyMap] coordParity=${coordParity} (evenColEven=${_evenColEven} evenColOdd=${_evenColOdd})`);
+
   // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
   //
   // ── Standard flat-top convention (most games) ────────────────────────────
@@ -465,13 +489,20 @@ function importRubyMap(content) {
       }
     } else {
       // Standard flat-top: letter=col, number=row-identifier.
-      // Try the most common parity first; fall back to the other if needed.
+      // Use the detected coordParity to pick the correct formula directly.
+      //   coordParity=0: even cols use even row-nums (A2,A4…), odd cols odd (B1,B3…)
+      //   coordParity=1: even cols use odd  row-nums (A1,A3…), odd cols even (B2,B4…)
       col = coord.charCodeAt(0) - 65;
       const coordRow = parseInt(coord.slice(1));
-      row = (col % 2 === 0) ? (coordRow - 2) / 2 : (coordRow - 1) / 2;
+      const evenColUsesEven = (coordParity === 0);
+      row = ((col % 2 === 0) === evenColUsesEven)
+        ? (coordRow - 2) / 2   // even row-number formula: (n-2)/2
+        : (coordRow - 1) / 2;  // odd  row-number formula: (n-1)/2
+      // Fallback in case a coord doesn't fit detected parity (shouldn't happen in valid maps)
       if (!Number.isInteger(row)) {
-        // Some games use the opposite stagger parity convention (formula B)
-        row = (col % 2 === 0) ? (coordRow - 1) / 2 : (coordRow - 2) / 2;
+        row = ((col % 2 === 0) === evenColUsesEven)
+          ? (coordRow - 1) / 2
+          : (coordRow - 2) / 2;
       }
     }
     if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) return null;
@@ -594,7 +625,7 @@ function importRubyMap(content) {
   const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
   const statics = Object.values(newHexes).filter(h => h.static).length;
   console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
-  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, maxRowPerCol };
+  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, coordParity, maxRowPerCol };
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -615,7 +646,8 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       state.meta.cols = result.cols;
       state.meta.orientation = result.orientation;
       state.meta.staggerParity = result.staggerParity;
-      state.meta.maxRowPerCol = result.maxRowPerCol;
+      state.meta.coordParity   = result.coordParity;
+      state.meta.maxRowPerCol  = result.maxRowPerCol;
       // Sync orientation select and dimension inputs in the toolbar/config panel
       syncOrientationSelect();
       syncDimInputs();

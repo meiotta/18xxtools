@@ -574,7 +574,9 @@ function drawHex(row, col, hex = null) {
 
   const terrain = hex?.terrain || '';
   const tileDef = hex?.tile ? TILE_DEFS[String(hex.tile)] : null;
-  const color = tileDef ? (TILE_HEX_COLORS[tileDef.color] || '#F0D070') : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']);
+  // Normalise 'gray' → 'grey' to match TILE_HEX_COLORS key (tile-packs.js uses American spelling)
+  const _tileColor = tileDef ? (tileDef.color === 'gray' ? 'grey' : tileDef.color) : null;
+  const color = _tileColor ? (TILE_HEX_COLORS[_tileColor] || TILE_HEX_COLORS['grey']) : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']);
 
   const corners = hexCorners(cx, cy, size, state.meta.orientation);
   ctx.fillStyle = color;
@@ -602,6 +604,103 @@ function drawHex(row, col, hex = null) {
   }
   ctx.stroke();
   ctx.setLineDash([]);
+
+  // Terrain icon — show whenever terrain type is set and no tile placed
+  if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
+    const iconX = cx;
+    const iconY = cy + size * 0.22;
+    const is = Math.max(6, Math.round(8 * zoom));  // icon scale
+    ctx.save();
+    ctx.translate(iconX, iconY);
+
+    if (terrain === 'mountain') {
+      // Large triangle (snow-capped)
+      ctx.beginPath();
+      ctx.moveTo(0, -is * 1.4);
+      ctx.lineTo(-is * 1.2, is * 0.6);
+      ctx.lineTo( is * 1.2, is * 0.6);
+      ctx.closePath();
+      ctx.fillStyle = '#777';
+      ctx.fill();
+      // Snow cap
+      ctx.beginPath();
+      ctx.moveTo(0, -is * 1.4);
+      ctx.lineTo(-is * 0.4, -is * 0.5);
+      ctx.lineTo( is * 0.4, -is * 0.5);
+      ctx.closePath();
+      ctx.fillStyle = 'white';
+      ctx.fill();
+    } else if (terrain === 'hill') {
+      // Smaller rounded hill bump
+      ctx.beginPath();
+      ctx.arc(0, is * 0.2, is * 0.9, Math.PI, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#8B7355';
+      ctx.fill();
+    } else if (terrain === 'water') {
+      // Water drop / wave
+      ctx.beginPath();
+      ctx.moveTo(0, -is);
+      ctx.bezierCurveTo(is * 0.8, -is * 0.2, is * 0.8, is * 0.6, 0, is * 0.7);
+      ctx.bezierCurveTo(-is * 0.8, is * 0.6, -is * 0.8, -is * 0.2, 0, -is);
+      ctx.fillStyle = '#3366CC';
+      ctx.fill();
+    } else if (terrain === 'swamp' || terrain === 'marsh') {
+      // Three vertical grass tufts
+      ctx.strokeStyle = '#4A7A4A';
+      ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
+      ctx.lineCap = 'round';
+      for (const ox of [-is * 0.6, 0, is * 0.6]) {
+        ctx.beginPath();
+        ctx.moveTo(ox, is * 0.5);
+        ctx.lineTo(ox, -is * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ox, -is * 0.2);
+        ctx.lineTo(ox - is * 0.35, -is * 0.8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(ox, -is * 0.2);
+        ctx.lineTo(ox + is * 0.35, -is * 0.8);
+        ctx.stroke();
+      }
+    } else {
+      // Generic: small diamond
+      ctx.beginPath();
+      ctx.moveTo(0, -is); ctx.lineTo(is * 0.7, 0); ctx.lineTo(0, is); ctx.lineTo(-is * 0.7, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#AA8844';
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Supplemental water indicator: small blue drop beside the main terrain icon.
+    // Shown when a hex has compound terrain like water|mountain (water crossing cost
+    // stacks with the other terrain cost — both are shown visually).
+    if (hex?.terrainHasWater && terrain !== 'water') {
+      const ws = Math.max(4, Math.round(5 * zoom));
+      ctx.save();
+      ctx.translate(iconX + is * 1.5, iconY - is * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(0, -ws);
+      ctx.bezierCurveTo(ws * 0.8, -ws * 0.2, ws * 0.8, ws * 0.6, 0, ws * 0.7);
+      ctx.bezierCurveTo(-ws * 0.8, ws * 0.6, -ws * 0.8, -ws * 0.2, 0, -ws);
+      ctx.fillStyle = '#3366CC';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Cost number below icon — only when cost is explicitly set and > 0
+    if (hex.terrainCost && hex.terrainCost > 0) {
+      const fs = Math.max(6, Math.round(7 * zoom));
+      ctx.font = `bold ${fs}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#222';
+      ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
+    }
+  }
 
   // Render tile track if placed
   if (hex?.tile) {
@@ -654,36 +753,24 @@ function drawHex(row, col, hex = null) {
           ctx.restore();
         }
       } else if (tileDef.oo) {
-        if (tileDef.cityPositions) {
-          // Custom-positioned OO cities (e.g. tiles X3, X4, X5, 1, 2, 94)
-          for (const pos of tileDef.cityPositions) {
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, 12.5, 0, Math.PI * 2);
-            ctx.fillStyle = 'white';
-            ctx.fill();
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
-        } else {
-          ctx.fillStyle = 'white';
-          ctx.strokeStyle = '#333';
-          ctx.lineWidth = 2;
-          // Rectangular frame
+        // Source city.rb: BOX_ATTRS[2] = white rect (no stroke), then white circles (no stroke).
+        // SLOT_RADIUS=12.5 at scale 50. Centers at (±12.5, 0).
+        const SR = 12.5; // SLOT_RADIUS at scale 50
+        const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
+        // White background box spanning all positions (no stroke)
+        const xs = positions.map(p => p.x);
+        const ys = positions.map(p => p.y);
+        const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
+        const bw = Math.max(...xs) - Math.min(...xs) + 2 * SR;
+        const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(bx, by, bw, bh);
+        // City slot circles (white fill, no stroke — outline comes from contrast with track/hex)
+        for (const pos of positions) {
           ctx.beginPath();
-          ctx.roundRect(-25, -14, 50, 28, 3);
+          ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
           ctx.fill();
-          ctx.stroke();
-          // Two token circles
-          for (const ox of [-13, 13]) {
-            ctx.beginPath();
-            ctx.arc(ox, 0, 11, 0, Math.PI * 2);
-            ctx.fillStyle = 'white';
-            ctx.fill();
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-          }
         }
       } else if (tileDef.town) {
         // Small black bar at center — no circle, no revenue inside
@@ -723,7 +810,7 @@ function drawHex(row, col, hex = null) {
         const r = 7.5 * sc;
         ctx.beginPath();
         ctx.arc(rx, ry, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = color; // phase color matches tile background (yellow/green/brown/grey)
         ctx.fill();
         ctx.strokeStyle = '#777';
         ctx.lineWidth = 1;
@@ -737,8 +824,9 @@ function drawHex(row, col, hex = null) {
     }
   }
 
-  // City name for placed tiles (city:true or oo:true)
-  if (hex?.cityName && tileDef && (tileDef.city || tileDef.oo)) {
+  // City name for placed tiles (city:true or oo:true) AND for white-tile city/oo features
+  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city || !!hex?.oo;
+  if (hex?.cityName && hasCityOrOo) {
     const name = hex.cityName;
     ctx.font = `bold ${9 * zoom}px Arial`;
     ctx.textAlign = 'center';
@@ -803,12 +891,37 @@ function drawHex(row, col, hex = null) {
     const sc = size / 50;
     ctx.scale(sc, sc);
     const slots = hex.city.slots || 1;
-    if (slots >= 2) {
+    const isJoined = !!hex.city.joined;
+    if (slots >= 3) {
+      // Triple city: triangle formation in a rounded-rect frame
       ctx.fillStyle = 'white';
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.roundRect(-26, -15, 52, 30, 3);
+      ctx.roundRect(-28, -26, 56, 52, 3);
+      ctx.fill();
+      ctx.stroke();
+      const triPts = [{ x: 0, y: -14 }, { x: -14, y: 10 }, { x: 14, y: 10 }];
+      for (const p of triPts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    } else if (slots >= 2) {
+      ctx.fillStyle = 'white';
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (isJoined) {
+        // Joined / OO-style: two circles sharing a line in a rectangular frame
+        ctx.roundRect(-26, -15, 52, 30, 3);
+      } else {
+        ctx.roundRect(-26, -15, 52, 30, 3);
+      }
       ctx.fill();
       ctx.stroke();
       for (const ox of [-13, 13]) {
@@ -932,104 +1045,6 @@ function drawHex(row, col, hex = null) {
       }
       ctx.restore();
     });
-  }
-
-  // Terrain icon — show whenever terrain type is set and no tile placed
-  if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
-    const terrain = hex.terrain || '';
-    const iconX = cx;
-    const iconY = cy + size * 0.22;
-    const is = Math.max(6, Math.round(8 * zoom));  // icon scale
-    ctx.save();
-    ctx.translate(iconX, iconY);
-
-    if (terrain === 'mountain') {
-      // Large triangle (snow-capped)
-      ctx.beginPath();
-      ctx.moveTo(0, -is * 1.4);
-      ctx.lineTo(-is * 1.2, is * 0.6);
-      ctx.lineTo( is * 1.2, is * 0.6);
-      ctx.closePath();
-      ctx.fillStyle = '#777';
-      ctx.fill();
-      // Snow cap
-      ctx.beginPath();
-      ctx.moveTo(0, -is * 1.4);
-      ctx.lineTo(-is * 0.4, -is * 0.5);
-      ctx.lineTo( is * 0.4, -is * 0.5);
-      ctx.closePath();
-      ctx.fillStyle = 'white';
-      ctx.fill();
-    } else if (terrain === 'hill') {
-      // Smaller rounded hill bump
-      ctx.beginPath();
-      ctx.arc(0, is * 0.2, is * 0.9, Math.PI, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#8B7355';
-      ctx.fill();
-    } else if (terrain === 'water') {
-      // Water drop / wave
-      ctx.beginPath();
-      ctx.moveTo(0, -is);
-      ctx.bezierCurveTo(is * 0.8, -is * 0.2, is * 0.8, is * 0.6, 0, is * 0.7);
-      ctx.bezierCurveTo(-is * 0.8, is * 0.6, -is * 0.8, -is * 0.2, 0, -is);
-      ctx.fillStyle = '#3366CC';
-      ctx.fill();
-    } else if (terrain === 'swamp' || terrain === 'marsh') {
-      // Three vertical grass tufts
-      ctx.strokeStyle = '#4A7A4A';
-      ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
-      ctx.lineCap = 'round';
-      for (const ox of [-is * 0.6, 0, is * 0.6]) {
-        ctx.beginPath();
-        ctx.moveTo(ox, is * 0.5);
-        ctx.lineTo(ox, -is * 0.5);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(ox, -is * 0.2);
-        ctx.lineTo(ox - is * 0.35, -is * 0.8);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(ox, -is * 0.2);
-        ctx.lineTo(ox + is * 0.35, -is * 0.8);
-        ctx.stroke();
-      }
-    } else {
-      // Generic: small diamond
-      ctx.beginPath();
-      ctx.moveTo(0, -is); ctx.lineTo(is * 0.7, 0); ctx.lineTo(0, is); ctx.lineTo(-is * 0.7, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#AA8844';
-      ctx.fill();
-    }
-
-    ctx.restore();
-
-    // Supplemental water indicator: small blue drop beside the main terrain icon.
-    // Shown when a hex has compound terrain like water|mountain (water crossing cost
-    // stacks with the other terrain cost — both are shown visually).
-    if (hex?.terrainHasWater && terrain !== 'water') {
-      const ws = Math.max(4, Math.round(5 * zoom));
-      ctx.save();
-      ctx.translate(iconX + is * 1.5, iconY - is * 0.5);
-      ctx.beginPath();
-      ctx.moveTo(0, -ws);
-      ctx.bezierCurveTo(ws * 0.8, -ws * 0.2, ws * 0.8, ws * 0.6, 0, ws * 0.7);
-      ctx.bezierCurveTo(-ws * 0.8, ws * 0.6, -ws * 0.8, -ws * 0.2, 0, -ws);
-      ctx.fillStyle = '#3366CC';
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Cost number below icon — only when cost is explicitly set and > 0
-    if (hex.terrainCost && hex.terrainCost > 0) {
-      const fs = Math.max(6, Math.round(7 * zoom));
-      ctx.font = `bold ${fs}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#222';
-      ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
-    }
   }
 
   // Killed hex — dark overlay so it reads as out-of-bounds

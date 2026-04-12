@@ -119,9 +119,15 @@ function pixelToHex(px, py, size, orientation) {
 }
 
 function hexId(row, col) {
-  // 18xx.games flat layout: odd cols (1,3,5...) use odd coord rows (1,3,5...→ 2r+1)
-  //                         even cols (0,2,4...) use even coord rows (2,4,6...→ 2r+2)
-  const coordRow = (col % 2 === 0) ? (2 * row + 2) : (2 * row + 1);
+  // Two coordinate parity conventions exist in 18xx games:
+  //   coordParity=0 (default): even cols use even row-nums (A2,A4…), odd cols odd (B1,B3…) — e.g. 1889
+  //   coordParity=1:           even cols use odd  row-nums (A1,A3…), odd cols even (B2,B4…) — e.g. 1830, 1846
+  // The parity is detected on import and stored in state.meta.coordParity.
+  const cp = (typeof state !== 'undefined') ? (state.meta?.coordParity ?? 0) : 0;
+  const evenCol = (col % 2 === 0);
+  // When cp=0: evenCol→even(+2), !evenCol→odd(+1)
+  // When cp=1: evenCol→odd(+1),  !evenCol→even(+2)
+  const coordRow = ((evenCol) === (cp === 0)) ? (2 * row + 2) : (2 * row + 1);
   return String.fromCharCode(65 + col) + coordRow;
 }
 

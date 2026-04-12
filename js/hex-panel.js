@@ -66,10 +66,11 @@ function updateHexPanel(hexId) {
     seg.classList.toggle('active', parseInt(seg.dataset.rot) === rot);
   });
 
-  // ── City Name (shown when placed tile has a city or OO station) ────────────
+  // ── City Name (shown when placed tile has a city/OO, or white-tile city/oo) ─
   const tileCitySection = document.getElementById('tileCityNameSection');
   const td = hex.tile ? TILE_DEFS[String(hex.tile)] : null;
-  if (td && (td.city || td.oo)) {
+  const hasCityFeature = (td && (td.city || td.oo)) || !!hex.city || !!hex.oo;
+  if (hasCityFeature) {
     tileCitySection.style.display = 'block';
     document.getElementById('tileCityName').value = hex.cityName || '';
   } else {

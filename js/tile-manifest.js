@@ -195,24 +195,25 @@ function buildManifestView() {
     style.textContent = `
       .manifest-card { position:relative; display:inline-flex; flex-direction:column;
         align-items:center; background:#2a2a2a; border:2px solid #444;
-        border-radius:7px; padding:6px 6px 7px; width:88px; box-sizing:border-box;
+        border-radius:7px; padding:8px 8px 9px; width:116px; box-sizing:border-box;
         transition:border-color .12s, transform .1s; cursor:default; }
       .manifest-card:hover { border-color:#888; }
       .manifest-card.drag-over { border-color:#88aaff; transform:scale(1.04); }
-      .manifest-remove { position:absolute; top:3px; right:3px; width:16px; height:16px;
+      .manifest-remove { position:absolute; top:4px; right:4px; width:16px; height:16px;
         background:#c0392b; border:none; border-radius:50%; color:#fff;
         font-size:10px; line-height:16px; text-align:center; cursor:pointer;
         display:none; padding:0; z-index:3; font-weight:bold; }
       .manifest-card:hover .manifest-remove { display:block; }
-      .manifest-count { display:flex; align-items:center; gap:3px; margin-top:5px; }
-      .manifest-count button { width:22px; height:22px; font-size:14px; padding:0;
-        line-height:1; cursor:pointer; border:1px solid #666; background:#333;
-        color:#ddd; border-radius:3px; }
-      .manifest-count button:hover { background:#555; }
-      .manifest-count button:disabled { opacity:.3; cursor:default; }
-      .manifest-count input { width:32px; text-align:center; font-size:12px;
-        padding:0; height:22px; background:#1a1a1a; color:#eee;
-        border:1px solid #555; border-radius:3px; }
+      .manifest-count { display:flex; align-items:stretch; gap:0; margin-top:7px;
+        width:100%; background:#1a1a1a; border:1px solid #3a3a3a; border-radius:5px;
+        overflow:hidden; }
+      .manifest-count button { flex:0 0 28px; font-size:15px; padding:0; line-height:1;
+        cursor:pointer; border:none; background:transparent; color:#888; }
+      .manifest-count button:hover:not(:disabled) { background:#2e2e2e; color:#fff; }
+      .manifest-count button:disabled { opacity:.2; cursor:default; }
+      .manifest-count input { flex:1; min-width:0; text-align:center; font-size:12px;
+        padding:0; height:24px; background:transparent; color:#eee;
+        border:none; border-left:1px solid #2e2e2e; border-right:1px solid #2e2e2e; }
       #manifestGrid.accepting { outline:2px dashed #88aaff; outline-offset:-4px;
         border-radius:4px; }
       .manifest-drop-hint { color:#777; font-size:12px; margin:auto;
@@ -274,6 +275,7 @@ function makeManifestCard(id) {
   card.appendChild(svgWrap);
 
   // Count stepper — null = unlimited (displayed as ∞)
+  // Simplified: [−] [n] [+]  — type ∞ in the field to set unlimited
   const isUnlimited = state.manifest[id] === null;
   const count = isUnlimited ? 1 : (state.manifest[id] || 1);
   const wrap = document.createElement('div');
@@ -286,9 +288,8 @@ function makeManifestCard(id) {
 
   const inp = document.createElement('input');
   inp.type = 'text';
-  inp.style.cssText = 'width:32px;text-align:center;font-size:12px;padding:0;height:22px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:3px;';
   inp.value = isUnlimited ? '∞' : count;
-  inp.title = 'Enter a number or ∞ for unlimited';
+  inp.title = 'Count (type ∞ for unlimited)';
   inp.addEventListener('change', () => {
     const raw = inp.value.trim();
     if (raw === '∞' || raw === 'inf' || raw === '') {
@@ -296,12 +297,14 @@ function makeManifestCard(id) {
       state.manifest[id] = null;
       dec.disabled = true;
       inc.disabled = true;
+      if (inf) inf.disabled = true;
     } else {
       const v = Math.max(1, parseInt(raw) || 1);
       inp.value = v;
       state.manifest[id] = v;
       dec.disabled = false;
       inc.disabled = false;
+      if (inf) inf.disabled = false;
     }
     autosave();
   });
@@ -311,37 +314,23 @@ function makeManifestCard(id) {
   inc.disabled = isUnlimited;
   inc.addEventListener('click', () => adjustCount(id, inp, dec, inc, +1));
 
-  const unlimBtn = document.createElement('button');
-  unlimBtn.textContent = '∞';
-  unlimBtn.title = 'Toggle unlimited';
-  unlimBtn.style.cssText = 'width:22px;height:22px;font-size:11px;padding:0;line-height:1;cursor:pointer;border:1px solid #666;border-radius:3px;';
-  unlimBtn.style.background = isUnlimited ? '#555' : '#333';
-  unlimBtn.style.color = isUnlimited ? '#ffd700' : '#888';
-  unlimBtn.addEventListener('click', () => {
-    if (state.manifest[id] === null) {
-      // Turn off unlimited — restore to 1
-      state.manifest[id] = 1;
-      inp.value = 1;
-      dec.disabled = false;
-      inc.disabled = false;
-      unlimBtn.style.background = '#333';
-      unlimBtn.style.color = '#888';
-    } else {
-      // Turn on unlimited
-      state.manifest[id] = null;
-      inp.value = '∞';
-      dec.disabled = true;
-      inc.disabled = true;
-      unlimBtn.style.background = '#555';
-      unlimBtn.style.color = '#ffd700';
-    }
+  const inf = document.createElement('button');
+  inf.textContent = '∞';
+  inf.title = 'Set unlimited';
+  inf.addEventListener('click', () => {
+    state.manifest[id] = null;
+    inp.value = '∞';
+    dec.disabled = true;
+    inc.disabled = true;
+    inf.disabled = true;
     autosave();
   });
+  if (isUnlimited) inf.disabled = true;
 
   wrap.appendChild(dec);
   wrap.appendChild(inp);
   wrap.appendChild(inc);
-  wrap.appendChild(unlimBtn);
+  wrap.appendChild(inf);
   card.appendChild(wrap);
 
   // Card as drop target: same tile → increment; different tile → add/increment

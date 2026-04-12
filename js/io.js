@@ -37,7 +37,9 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
     renderPrivatesTable();
     renderTrainsTable();
+    if (typeof renderPhasesTable === 'function') renderPhasesTable();
     renderTerrainCostsTable();
+    if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
     renderHomeCompanySelect();
     if (typeof initFinancialsListeners === 'function') initFinancialsListeners();
     if (typeof renderLogicRules === 'function') renderLogicRules();
@@ -89,23 +91,84 @@ function autosave() {
 
 // ── Restore on load ───────────────────────────────────────────────────────────
 
+function _applyAutosave(data) {
+  Object.assign(state, data);
+  const el = document.getElementById('gameTitleEdit');
+  if (el) el.value = state.meta.title || '';
+  const bl = document.getElementById('baseGameLabel');
+  if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
+  syncDimInputs();
+  if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
+  if (typeof syncFinancialsUI      === 'function') syncFinancialsUI();
+  if (typeof renderMarketEditor    === 'function') renderMarketEditor();
+  if (typeof renderLogicRules      === 'function') renderLogicRules();
+  if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
+  if (typeof renderTrainsTable     === 'function') renderTrainsTable();
+  if (typeof renderPhasesTable     === 'function') renderPhasesTable();
+  if (typeof buildPalette          === 'function') buildPalette();
+  render();
+}
+
+function _showAutosaveBanner(data) {
+  const banner = document.createElement('div');
+  banner.id = 'autosaveBanner';
+  const title = data.meta?.title || 'Untitled';
+  banner.style.cssText = [
+    'position:fixed', 'bottom:20px', 'left:50%', 'transform:translateX(-50%)',
+    'background:#1e2a1e', 'border:1px solid #4a7c4a', 'border-radius:8px',
+    'padding:12px 20px', 'z-index:9999', 'display:flex', 'align-items:center',
+    'gap:14px', 'box-shadow:0 4px 18px rgba(0,0,0,0.6)',
+    'font-size:13px', 'color:#ccc', 'max-width:480px'
+  ].join(';');
+  banner.innerHTML = `
+    <span>📋 Autosaved work found: <strong style="color:#e8e8e8">${title}</strong></span>
+    <button id="autosaveRestoreBtn" style="background:#4a7c4a;color:#fff;border:none;border-radius:5px;padding:5px 12px;cursor:pointer;font-size:12px;">Restore</button>
+    <button id="autosaveDismissBtn" style="background:#3a3a3a;color:#ccc;border:1px solid #555;border-radius:5px;padding:5px 12px;cursor:pointer;font-size:12px;">Discard</button>
+  `;
+  document.body.appendChild(banner);
+  document.getElementById('autosaveRestoreBtn').addEventListener('click', () => {
+    _applyAutosave(data);
+    banner.remove();
+  });
+  document.getElementById('autosaveDismissBtn').addEventListener('click', () => {
+    localStorage.removeItem('18xx-autosave');
+    banner.remove();
+  });
+}
+
+document.getElementById('newMapBtn')?.addEventListener('click', () => {
+  if (!confirm('Start a new map? Unsaved changes will be lost.')) return;
+  const fresh = {
+    meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, coordParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
+    hexes: {}, companies: [], minors: [], trains: [], privates: [],
+    terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
+    financials: { bank: 12000, marketType: '2D', market: [], marketRows: 11, marketCols: 19, rules: { dividend: 'right', withheld: 'left', soldOut: 'up', canPool: true }, logicRules: [] },
+    enabledPacks: null,
+  };
+  Object.assign(state, fresh);
+  document.getElementById('gameTitleEdit').value = '';
+  document.getElementById('baseGameLabel').textContent = '';
+  syncDimInputs();
+  if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
+  if (typeof buildPalette          === 'function') buildPalette();
+  if (typeof renderCompaniesTable  === 'function') renderCompaniesTable();
+  if (typeof renderMarketEditor    === 'function') renderMarketEditor();
+  render();
+  autosave();
+  document.getElementById('fileMenu').style.display = 'none';
+});
+
 window.addEventListener('load', () => {
   const saved = localStorage.getItem('18xx-autosave');
   if (saved) {
     try {
       const data = JSON.parse(saved);
-      Object.assign(state, data);
-      const el = document.getElementById('gameTitleEdit');
-      if (el) el.value = state.meta.title || '';
-      const bl = document.getElementById('baseGameLabel');
-      if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
-      syncDimInputs();
-      if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
-      // Re-render panels that were initialized before state was restored
-      if (typeof syncFinancialsUI   === 'function') syncFinancialsUI();
-      if (typeof renderMarketEditor === 'function') renderMarketEditor();
-      if (typeof renderLogicRules   === 'function') renderLogicRules();
-      if (typeof buildPalette       === 'function') buildPalette();
+      // Only offer restore if there's actual content (hexes or a title)
+      if (data && (data.meta?.title || Object.keys(data.hexes || {}).length > 0)) {
+        _showAutosaveBanner(data);
+      } else {
+        localStorage.removeItem('18xx-autosave');
+      }
     } catch (err) {
       localStorage.removeItem('18xx-autosave');
     }

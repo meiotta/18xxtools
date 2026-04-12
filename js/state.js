@@ -38,13 +38,31 @@
 // It is serialized in the save file so imported maps reload correctly.
 
 const state = {
-  meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
+  meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, coordParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
   hexes: {},
   companies: [],
+  minors: [],
   trains: [],
+  phases: [],
   privates: [],
   terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
-  phase: 'setup'
+  financials: {
+    bank: 12000,
+    marketType: '2D', // '1D', '2D', 'zigzag'
+    market: [],       // Array of rows (2D) or simple array (1D)
+    marketRows: 11,
+    marketCols: 19,
+    rules: {
+      dividend: 'right',    // legacy, will migrate or remove
+      withheld: 'left',
+      soldOut: 'up',
+      canPool: true
+    },
+    logicRules: [],
+    locks: {} // coordinates of fixed prices { "0,5": 90 }
+  },
+  phase: 'setup',
+  enabledPacks: null
 };
 
 let activeTool = null;
@@ -55,6 +73,10 @@ let selectedHex = null;
 let selectedHexes = new Set();   // ctrl+click multi-selection
 let zoom = 1;
 let panX = 0, panY = 0;
+
+// Placement Mode for setting minor company home hexes
+let pendingMinorIndex = null; 
+let isPlacementMode = false;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');

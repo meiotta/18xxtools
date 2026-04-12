@@ -208,7 +208,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialise editor
   buildPalette();
   renderCompaniesTable();
+  renderMinorsTable();
   renderTrainsTable();
+  renderPhasesTable();
   renderPrivatesTable();
   renderTerrainCostsTable();
   renderHomeCompanySelect();
@@ -225,37 +227,6 @@ document.addEventListener('DOMContentLoaded', () => {
   state.phase = 'design';
   document.getElementById('editor').classList.add('active');
   requestAnimationFrame(() => { resizeCanvas(); render(); });
-
-  // ── Toolbar dim selects — resize on change ───────────────────────────────
-  if (dimColsSel) dimColsSel.addEventListener('change', () => {
-    applyResize(parseInt(dimRowsSel.value), parseInt(dimColsSel.value));
-  });
-  if (dimRowsSel) dimRowsSel.addEventListener('change', () => {
-    applyResize(parseInt(dimRowsSel.value), parseInt(dimColsSel.value));
-  });
-
-  // ── Config tab: +/- buttons and Apply ───────────────────────────────────
-  const rowsDecBtn = document.getElementById('rowsDecBtn');
-  const rowsIncBtn = document.getElementById('rowsIncBtn');
-  const colsDecBtn = document.getElementById('colsDecBtn');
-  const colsIncBtn = document.getElementById('colsIncBtn');
-  const applyResizeBtn = document.getElementById('applyResizeBtn');
-
-  if (rowsDecBtn) rowsDecBtn.addEventListener('click', () => {
-    if (mapRows) mapRows.value = Math.max(2, parseInt(mapRows.value) - 1);
-  });
-  if (rowsIncBtn) rowsIncBtn.addEventListener('click', () => {
-    if (mapRows) mapRows.value = Math.min(50, parseInt(mapRows.value) + 1);
-  });
-  if (colsDecBtn) colsDecBtn.addEventListener('click', () => {
-    if (mapCols) mapCols.value = Math.max(2, parseInt(mapCols.value) - 1);
-  });
-  if (colsIncBtn) colsIncBtn.addEventListener('click', () => {
-    if (mapCols) mapCols.value = Math.min(80, parseInt(mapCols.value) + 1);
-  });
-  if (applyResizeBtn) applyResizeBtn.addEventListener('click', () => {
-    applyResize(parseInt(mapRows.value), parseInt(mapCols.value));
-  });
 
   // ── Resize warning dialog buttons ────────────────────────────────────────
   document.getElementById('resizeConfirmBtn').addEventListener('click', () => {
@@ -369,6 +340,7 @@ function commitResize(newRows, newCols) {
   }
   state.meta.rows = newRows;
   state.meta.cols = newCols;
+  state.meta.maxRowPerCol = null; // Clear per-column limits on resize
   syncDimInputs();
   render();
   autosave();
@@ -465,20 +437,3 @@ function loadPreset(game) {
   state.trains         = JSON.parse(JSON.stringify(p.trains));
   state.privates       = JSON.parse(JSON.stringify(p.privates));
 }
-
-// ── Orientation config control ────────────────────────────────────────────────
-
-// Sync the CONFIG tab orientation select to the current state.
-// Call after any operation that changes state.meta.orientation.
-function syncOrientationSelect() {
-  const sel = document.getElementById('configOrientation');
-  if (sel) sel.value = state.meta.orientation || 'flat';
-}
-
-// Re-render map + palette whenever orientation is changed in the config panel.
-document.getElementById('configOrientation').addEventListener('change', (e) => {
-  state.meta.orientation = e.target.value;
-  if (typeof buildPalette === 'function') buildPalette(); // re-render tile swatches for new orientation
-  render();
-  autosave();
-});

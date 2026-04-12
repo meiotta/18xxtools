@@ -52,7 +52,7 @@
             <path d="M5 21 V9 L12 4 L19 9 V21"/>
             <rect x="9" y="14" width="6" height="7"/>
           </svg>
-          <span>Corps</span>
+          <span>Companies</span>
         </button>
 
         <button class="nav-rail-btn" data-lsec="market" title="Stock Market">
@@ -65,7 +65,7 @@
           <span>Market</span>
         </button>
 
-        <button class="nav-rail-btn" data-lsec="trains" title="Train Roster">
+        <button class="nav-rail-btn" data-lsec="trains" title="Trains &amp; Phases">
           <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="7" width="17" height="11" rx="2"/>
             <path d="M19 11 H22 V14 H19"/>
@@ -73,7 +73,7 @@
             <circle cx="14.5" cy="18" r="2"/>
             <line x1="9.5" y1="7" x2="9.5" y2="18"/>
           </svg>
-          <span>Trains</span>
+          <span>Trains &amp; Phases</span>
         </button>
 
       </div>
@@ -512,17 +512,55 @@
 
       <!-- toolbar -->
       <div class="fullview-toolbar">
-        <span class="fullview-title">Train Roster</span>
+        <span class="fullview-title">Trains &amp; Phases</span>
         <div style="flex:1;"></div>
-        <button id="addTrainBtn" class="corp-add-btn">+ Add Train</button>
       </div>
 
       <!-- table area -->
       <div style="flex:1; overflow:auto; padding:24px 28px; background:var(--bg-base);">
-        <table class="card-table fullview-table">
-          <thead><tr><th>Type</th><th>Cost</th><th>Distance</th><th>Rusts At</th><th>Obsolete At</th><th>Count</th><th style="width:36px;"></th></tr></thead>
-          <tbody id="trainsTableBody"></tbody>
-        </table>
+
+        <!-- Train Roster section -->
+        <div style="margin-bottom:40px;">
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px; border-bottom:1px solid var(--border);">
+            <span style="font-size:14px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.1em; padding-bottom:12px;">Train Roster</span>
+          </div>
+          <table class="card-table fullview-table">
+            <thead>
+              <tr>
+                <th style="width:6px;"></th>
+                <th>Train</th>
+                <th>Configuration</th>
+                <th>Cost</th>
+                <th>Quantity</th>
+                <th>Rusts On</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="trainsTableBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Game Phases section -->
+        <div id="gamePhasesSection">
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px; border-bottom:1px solid var(--border);">
+            <span style="font-size:14px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.1em; padding-bottom:12px;">Game Phases</span>
+          </div>
+          <table class="card-table fullview-table">
+            <thead>
+              <tr>
+                <th>Phase</th>
+                <th>On Train</th>
+                <th>ORs</th>
+                <th>Limit</th>
+                <th>Tiles</th>
+                <th>Status</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="phasesTableBody"></tbody>
+          </table>
+        </div>
+
       </div>
     </div>
 
@@ -706,6 +744,10 @@
           <table class="config-table">
             <tbody id="terrainCostsTable"></tbody>
           </table>
+        </div>
+        <div class="field">
+          <label>Tile Packs</label>
+          <div id="tilePackToggles" style="display:flex;flex-direction:column;gap:6px;margin-top:4px;"></div>
         </div>
       </div>
     </div>
@@ -908,6 +950,7 @@
 </div>
 
 <script src="js/tile-geometry.js"></script>
+<script src="js/tile-packs.js"></script>
 <script src="js/constants.js"></script>
 <script src="js/state.js"></script>
 <script src="js/hex-geometry.js"></script>
@@ -917,6 +960,8 @@
 <script src="js/palette.js"></script>
 <script src="js/hex-panel.js"></script>
 <script src="js/companies-panel.js"></script>
+<script src="js/trains-panel.js"></script>
+<script src="js/config-panel.js"></script>
 <script src="js/market-wizard.js"></script>
 <script src="js/market-painter.js"></script>
 <script src="js/financials-panel.js"></script>
@@ -942,3 +987,4 @@
 </div>
 </body>
 </html>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           

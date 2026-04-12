@@ -6,11 +6,50 @@
 // makeTileSwatchSvg(tileId) — returns SVG string for a tile swatch.
 // updateStatus(text) — sets the status bar text.
 
+// ── Pack tile injection ───────────────────────────────────────────────────────
+// Injects DSL-based tiles from enabled packs into TILE_DEFS so the palette
+// and renderer can use them. Manually-defined TILE_DEFS entries take priority.
+// Tracks injected IDs so they can be cleared on pack toggle.
+
+let _packInjectedIds = new Set();
+
+function _injectPackTiles() {
+  if (typeof getAllRenderableTiles !== 'function') return;
+  if (typeof TILE_GEO === 'undefined' || typeof TILE_GEO.parseDSL !== 'function') return;
+
+  // Initialize enabledPacks to defaults if not set
+  if (!state.enabledPacks) {
+    state.enabledPacks = typeof DEFAULT_ENABLED_PACKS !== 'undefined'
+      ? Object.assign({}, DEFAULT_ENABLED_PACKS)
+      : {};
+  }
+
+  // Remove previously pack-injected tiles from TILE_DEFS
+  for (const id of _packInjectedIds) delete TILE_DEFS[id];
+  _packInjectedIds = new Set();
+
+  const packTiles = getAllRenderableTiles(state.enabledPacks);
+  for (const [id, entry] of Object.entries(packTiles)) {
+    if (TILE_DEFS[id]) continue; // manually-defined entry takes priority
+    const parsed = TILE_GEO.parseDSL(entry.dsl, entry.color);
+    if (!parsed) continue;
+    const normalized = TILE_GEO.normalizeTileDef(parsed);
+    if (normalized) {
+      TILE_DEFS[id] = normalized;
+      _packInjectedIds.add(id);
+    }
+  }
+}
+
 // ── Tile swatch SVG generation ───────────────────────────────────────────────
 
 function makeTileSwatchSvg(tileId) {
   const td = TILE_DEFS[String(tileId)];
   if (!td) return '';
+  // Geometry constants (sourced from TILE_GEO to avoid duplication)
+  const SLOT_RADIUS = TILE_GEO.SLOT_RADIUS; // 12.5 at scale 50
+  const BAR_RW = TILE_GEO.BAR_RW;           // 16
+  const BAR_RH = TILE_GEO.BAR_RH;           // 4
 
   const hexColor = TILE_HEX_COLORS[td.color] || '#c8a87a';
   const trackStroke = '#222';
@@ -31,17 +70,28 @@ function makeTileSwatchSvg(tileId) {
 
   // Station graphics
   if (td.oo) {
-    if (td.cityPositions) {
-      // Custom-positioned OO: just draw the circles at given positions (no rect)
-      // Use r=12.5 for standalone circles
+    // City slot layout from city.rb:
+    //   BOX_ATTRS[2] = white rect, SLOT_DIAMETER×SLOT_DIAMETER at (-SLOT_RADIUS,-SLOT_RADIUS), NO stroke
+    //   CitySlot: white circle r=SLOT_RADIUS, NO stroke
+    // At scale 50: SLOT_RADIUS=12.5, box 25×25 at (-12.5,-12.5)
+    if (td.cityPositions && td.cityPositions.length >= 2) {
+      // Custom-positioned (off-centre or multi-slot at computed positions)
+      // Draw a white background box spanning the positions, then the circles
+      const p0 = td.cityPositions[0], p1 = td.cityPositions[1];
+      const bx = Math.min(p0.x, p1.x) - SLOT_RADIUS;
+      const by = Math.min(p0.y, p1.y) - SLOT_RADIUS;
+      const bw = Math.abs(p1.x - p0.x) + 2 * SLOT_RADIUS;
+      const bh = Math.abs(p1.y - p0.y) + 2 * SLOT_RADIUS;
+      inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
       for (const pos of td.cityPositions) {
-        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="12.5" fill="white" stroke="#333" stroke-width="2"/>`;
+        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white"/>`;
       }
     } else {
-      // Standard inline OO: white station box + two side-by-side circles
-      inner += `<rect x="-25" y="-14" width="50" height="28" fill="white" stroke="#333" stroke-width="2" rx="3"/>`;
-      inner += `<circle cx="-13" cy="0" r="11" fill="white" stroke="#333" stroke-width="1.5"/>`;
-      inner += `<circle cx="13" cy="0" r="11" fill="white" stroke="#333" stroke-width="1.5"/>`;
+      // Standard inline OO (legacy static tiles with no cityPositions set)
+      // Matches source exactly: white 25×25 box then two white circles, no strokes
+      inner += `<rect x="${-SLOT_RADIUS}" y="${-SLOT_RADIUS}" width="${2*SLOT_RADIUS}" height="${2*SLOT_RADIUS}" fill="white"/>`;
+      inner += `<circle cx="${-SLOT_RADIUS}" cy="0" r="${SLOT_RADIUS}" fill="white"/>`;
+      inner += `<circle cx="${SLOT_RADIUS}" cy="0" r="${SLOT_RADIUS}" fill="white"/>`;
     }
     // Revenue
     if (td.revenue) {
@@ -49,8 +99,7 @@ function makeTileSwatchSvg(tileId) {
       inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
     }
-    // OO label (top-left corner, doesn't rotate with tile)
-    inner += `<text x="-14" y="-37" font-size="7" fill="${labelColor}">OO</text>`;
+    // OO label removed — the two city circles already identify the tile type
 
   } else if (td.city) {
     // Single city
@@ -62,10 +111,20 @@ function makeTileSwatchSvg(tileId) {
     }
 
   } else if (td.dualTown) {
-    // Dual town: two dit circles
-    const positions = td.townPositions || [{ x: -10, y: -10 }, { x: 10, y: 10 }];
+    // Dual town: two bars (town_rect.rb render_part: black rect, no stroke for normal towns)
+    // Fallback positions for legacy tiles without computed townPositions
+    const positions = td.townPositions || [{ x: -10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH },
+                                            { x:  10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH }];
     for (const pos of positions) {
-      inner += `<circle cx="${pos.x}" cy="${pos.y}" r="10" fill="black" stroke="white" stroke-width="3"/>`;
+      if (pos.dot) {
+        // 3+-exit junction town → dot
+        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="5" fill="black"/>`;
+      } else {
+        const rw = pos.rw || BAR_RW, rh = pos.rh || BAR_RH;
+        inner += `<g transform="translate(${pos.x},${pos.y}) rotate(${pos.rot || 0})">` +
+                 `<rect x="${-rw/2}" y="${-rh/2}" width="${rw}" height="${rh}" fill="black"/>` +
+                 `</g>`;
+      }
     }
     if (td.revenues) {
       for (const rv of td.revenues) {
@@ -95,13 +154,14 @@ function makeTileSwatchSvg(tileId) {
     }
   }
 
-  // Tile label (Y / T)
-  if (td.tileLabel) {
-    inner += `<text x="-46" y="1" font-size="11" fill="#111" font-weight="bold" dominant-baseline="middle">${td.tileLabel}</text>`;
-  }
+  // Tile label (Y / T / OO etc.) — shown as a small badge in the bottom-right corner,
+  // outside the rotated group so it stays upright
+  const labelBadge = td.tileLabel
+    ? `<text x="36" y="44" font-size="8" fill="rgba(255,255,255,0.55)" font-weight="bold" text-anchor="end" dominant-baseline="auto">${td.tileLabel}</text>`
+    : '';
 
-  // Tile number — stays in top-left corner, unrotated
-  const numLabel = `<text x="-41" y="-36" font-size="10" font-weight="bold" fill="${labelColor}">#${tileId}</text>`;
+  // Tile number — small badge bottom-right, semi-transparent, doesn't rotate
+  const numBadge = `<text x="46" y="44" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end" dominant-baseline="auto">#${tileId}</text>`;
 
   // Rotate entire hex + track for pointy-top orientation (30° = flat→pointy)
   const isPointy = (state.meta && state.meta.orientation === 'pointy');
@@ -109,12 +169,15 @@ function makeTileSwatchSvg(tileId) {
     ? `<g transform="rotate(30)">${inner}</g>`
     : inner;
 
-  return `<svg viewBox="-50 -50 100 100" width="72" height="72">${hexGroup}${numLabel}</svg>`;
+  return `<svg viewBox="-50 -50 100 100" width="90" height="90">${hexGroup}${labelBadge}${numBadge}</svg>`;
 }
 
 // ── Palette builder ──────────────────────────────────────────────────────────
 
 function buildPalette() {
+  // Inject DSL tiles from enabled packs into TILE_DEFS before rendering
+  _injectPackTiles();
+
   // ── Tile swatches — dynamic from TILE_DEFS ────────────────────────────────
   const container = document.getElementById('starterTilesGrid');
   container.innerHTML = '';
@@ -126,11 +189,46 @@ function buildPalette() {
   const groups = {};
   for (const color of colorOrder) groups[color] = [];
 
+  // Precompute tile → pack name map for reliable filtering (avoids per-tile nested loops)
+  const tilePackMap = {};
+  if (typeof TILE_PACK_ORDER !== 'undefined' && typeof TILE_PACKS !== 'undefined') {
+    for (const pn of TILE_PACK_ORDER) {
+      const pack = TILE_PACKS[pn];
+      if (!pack) continue;
+      for (const col of ['yellow', 'green', 'brown', 'grey', 'gray']) {
+        if (!pack[col]) continue;
+        for (const tid of Object.keys(pack[col])) tilePackMap[tid] = pn;
+      }
+    }
+  }
+
+  const enabledPacks = state.enabledPacks; // already initialised by _injectPackTiles()
+
   for (const id of Object.keys(TILE_DEFS)) {
     const td = TILE_DEFS[id];
     // X tiles are manifest-only — skip them in the map palette
     if (/^X/i.test(id)) continue;
-    if (groups[td.color]) groups[td.color].push(id);
+
+    // Pack filtering: skip tiles whose pack is disabled.
+    // Tiles with no pack classification are always shown.
+    if (enabledPacks) {
+      const pn = tilePackMap[id];
+      if (pn !== undefined && !enabledPacks[pn]) continue;
+    }
+
+    // Normalise 'gray' → 'grey' for DSL-injected tiles
+    const color = td.color === 'gray' ? 'grey' : td.color;
+    if (groups[color]) groups[color].push(id);
+  }
+
+  // Empty-state message when all packs are disabled
+  const totalTiles = colorOrder.reduce((n, c) => n + groups[c].length, 0);
+  if (totalTiles === 0) {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'padding:20px 12px; color:#666; font-size:12px; text-align:center; line-height:1.6;';
+    msg.innerHTML = 'No tile packs enabled.<br><span style="color:#999;">Go to <strong>Config → Tile Packs</strong> to turn some on.</span>';
+    container.appendChild(msg);
+    return;
   }
 
   function sortTileIds(ids) {
@@ -164,7 +262,7 @@ function buildPalette() {
       swatch.className = 'tile-swatch';
       swatch.setAttribute('data-tile', id);
       swatch.draggable = true;
-      swatch.innerHTML = makeTileSwatchSvg(id) + `<div class="tile-swatch-label">#${id}</div>`;
+      swatch.innerHTML = makeTileSwatchSvg(id); // tile number rendered as SVG badge inside hex
 
       swatch.addEventListener('click', () => {
         activeTool = 'tile';

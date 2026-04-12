@@ -50,8 +50,12 @@ const TILE_GEO = (() => {
 
 const HEX_CIRCUMRADIUS = 50;
 const HEX_INRADIUS = 43.5;   // hex.rb: Y_B=87 at scale 100 → 43.5 at scale 50
-const BAR_RW = 16.93;
-const BAR_RH = 4.23;
+// Town bar dimensions from town_rect.rb: height=(width/2)+4, bar_width=height*4
+// Default track width=8 → bar height=8, bar_width=32 at scale 100 → 4×16 at scale 50
+const BAR_RW = 16;
+const BAR_RH = 4;
+// City slot from city.rb: SLOT_RADIUS=25 at scale 100 → 12.5 at scale 50
+const SLOT_RADIUS = 12.5;
 
 // ── Edge geometry ─────────────────────────────────────────────────────────────
 
@@ -306,6 +310,181 @@ function buildSvgPath(nodes, paths) {
   return parts.join(' ');
 }
 
+// ── computeCityTownEdges ──────────────────────────────────────────────────────
+// Port of tile.rb#compute_city_town_edges.
+// Returns preferred[nodeIdx] = edge 0-5, or null (center placement).
+
+function computeCityTownEdges(nodes, paths) {
+  const ctIs = nodes.reduce((a, n, i) => {
+    if (n.type === 'town' || n.type === 'city') a.push(i);
+    return a;
+  }, []);
+  const preferred = new Array(nodes.length).fill(null);
+  if (!ctIs.length) return preferred;
+
+  // Edges directly connected to each city/town via paths
+  const ctEdges = {};
+  for (const ni of ctIs) ctEdges[ni] = edgesForNode(ni, paths);
+
+  const hasPaths = paths.length > 0;
+  const cityIs   = ctIs.filter(i => nodes[i].type === 'city');
+  const townIs   = ctIs.filter(i => nodes[i].type === 'town');
+
+  // No paths + multiple cities → spread evenly around hex
+  if (!hasPaths && cityIs.length >= 2) {
+    const div = Math.floor(6 / cityIs.length);
+    cityIs.forEach((ci, idx) => { preferred[ci] = (idx * div) % 6; });
+    townIs.forEach((ti, idx) => { preferred[ti] = (idx * 3) % 6; });
+    return preferred;
+  }
+  // Single city, no towns, no loc → center (null)
+  if (cityIs.length === 1 && townIs.length === 0 && nodes[cityIs[0]].loc === undefined)
+    return preferred;
+  // Single town with ≠2 exits, no loc → center (null)
+  if (cityIs.length === 0 && townIs.length === 1) {
+    const ti = townIs[0];
+    if (ctEdges[ti].length !== 2 && nodes[ti].loc === undefined) return preferred;
+  }
+
+  // Build edge_count: edge → weighted traffic count + 0.1 for neighboring edges.
+  // Slightly favour keeping edge 0 free for hex location name.
+  const edgeCount = new Array(6).fill(0);
+  edgeCount[0] += 0.1;
+  for (const ni of ctIs) {
+    for (const e of ctEdges[ni]) {
+      edgeCount[e]           += 1;
+      edgeCount[(e + 1) % 6] += 0.1;
+      edgeCount[(e - 1 + 6) % 6] += 0.1;
+    }
+  }
+
+  // Process nodes lowest-min-edge first (matches Ruby sort_by)
+  const sorted = [...ctIs].sort((a, b) => {
+    const ma = ctEdges[a].length ? Math.min(...ctEdges[a]) : 999;
+    const mb = ctEdges[b].length ? Math.min(...ctEdges[b]) : 999;
+    return ma - mb;
+  });
+
+  for (const ni of sorted) {
+    const node  = nodes[ni];
+    const edges = ctEdges[ni];
+    if (node.loc !== undefined) {
+      // Explicit loc: round to nearest edge
+      const v = parseFloat(node.loc);
+      preferred[ni] = isNaN(v) ? null : Math.round(v) % 6;
+    } else if (edges.length > 0) {
+      // Pick connected edge with lowest count
+      let best = edges[0], bestCnt = edgeCount[best];
+      for (const e of edges) {
+        if (edgeCount[e] < bestCnt) { bestCnt = edgeCount[e]; best = e; }
+      }
+      preferred[ni] = best;
+      edgeCount[best]           += 1;
+      edgeCount[(best + 1) % 6] += 0.1;
+      edgeCount[(best - 1 + 6) % 6] += 0.1;
+    }
+    // else: no edge connections → stays null (center)
+  }
+
+  // Pathless node when exactly 2 total ct nodes → place opposite the other
+  const pathlessIs = ctIs.filter(ni => ctEdges[ni].length === 0);
+  if (pathlessIs.length === 1 && ctIs.length === 2) {
+    const other = ctIs.find(ni => ni !== pathlessIs[0]);
+    if (preferred[other] !== null)
+      preferred[pathlessIs[0]] = (preferred[other] + 3) % 6;
+  }
+
+  return preferred;
+}
+
+// ── townPosition ──────────────────────────────────────────────────────────────
+// Port of town_location.rb#town_position.
+// Returns { x, y, rot } for a town bar at nodeIdx.
+//   preferredEdge: from computeCityTownEdges — edge 0-5, or null (center).
+//   tileExitCount: total unique exit edges on the tile (for center_town? check).
+// All distances at scale 50 (source uses scale 100; divide by 2).
+//
+// Position constants (source → ÷2):
+//   center straight: 0      center sharp: 50→25    center gentle: 23.2→11.6
+//   non-ctr straight:40→20  non-ctr sharp:55.7→27.85  non-ctr gentle:48.05→24.025
+
+function townPosition(nodeIdx, nodes, paths, tileExitCount, preferredEdge) {
+  const myEdges = edgesForNode(nodeIdx, paths);
+
+  // No preferred edge → center (null means center_town or explicit center)
+  if (preferredEdge === null || preferredEdge === undefined) {
+    const rot = myEdges.length > 0 ? (myEdges[0] * 60) % 180 : 0;
+    return { x: 0, y: 0, rot };
+  }
+
+  const edgeA = preferredEdge;
+
+  if (myEdges.length === 2) {
+    // Normalize so |normA - normB| ≤ 3 (add 6 to the smaller if needed)
+    let normA = edgeA;
+    let normB = myEdges.find(e => e !== edgeA);
+    if (normB === undefined) normB = myEdges[0]; // shouldn't happen
+    if (Math.abs(normA - normB) > 3) {
+      if (normA < normB) normA += 6; else normB += 6;
+    }
+    const minEdge = Math.min(normA, normB) % 6;
+    const absDiff = Math.abs(normA - normB);
+    // [nil, :sharp, :gentle, :straight][absDiff]
+    const trackType = absDiff === 1 ? 'sharp' : absDiff === 2 ? 'gentle' : 'straight';
+
+    // center_town? = exits.size==2 && tile.exits.size==2 or 3
+    const isCenterTown = (tileExitCount === 2 || tileExitCount === 3);
+
+    if (isCenterTown) {
+      let position, posAngle, rotAngle;
+      if (trackType === 'straight') {
+        position = 0;    posAngle = minEdge * 60;          rotAngle = minEdge * 60;
+      } else if (trackType === 'sharp') {
+        position = 25;   posAngle = (minEdge + 0.5) * 60;  rotAngle = (minEdge + 2) * 60;
+      } else { // gentle
+        position = 11.6; posAngle = (minEdge + 1) * 60;    rotAngle = (minEdge * 60) - 30;
+      }
+      const rad = posAngle * Math.PI / 180;
+      return {
+        x:   parseFloat((-Math.sin(rad) * position).toFixed(2)),
+        y:   parseFloat(( Math.cos(rad) * position).toFixed(2)),
+        rot: ((rotAngle % 180) + 180) % 180,
+      };
+    } else {
+      // Non-center 2-exit town: positional + rotational offset by track type/direction
+      const POSITIONAL = { sharp: 12.12, gentle: 6.11,  straight: 0 };
+      const TILT       = { sharp: 40,    gentle: 15,     straight: 0 };
+      const DISTANCE   = { sharp: 27.85, gentle: 24.025, straight: 20 };
+
+      // Track direction from edgeA perspective
+      const trackDir = absDiff === 3 ? 'straight'
+                     : normA > normB  ? 'right' : 'left';
+      const posDelta = trackDir === 'left'  ?  POSITIONAL[trackType]
+                     : trackDir === 'right' ? -POSITIONAL[trackType] : 0;
+      const rotDelta = trackDir === 'left'  ? -TILT[trackType]
+                     : trackDir === 'right' ?  TILT[trackType]       : 0;
+
+      const posAngle = edgeA * 60 + posDelta;
+      const rotAngle = edgeA * 60 + rotDelta;
+      const rad = posAngle * Math.PI / 180;
+      const dist = DISTANCE[trackType];
+      return {
+        x:   parseFloat((-Math.sin(rad) * dist).toFixed(2)),
+        y:   parseFloat(( Math.cos(rad) * dist).toFixed(2)),
+        rot: ((rotAngle % 180) + 180) % 180,
+      };
+    }
+  }
+
+  // 0-exit, 1-exit, or 3+ exits: position toward preferred edge at half-inradius
+  const rad = edgeA * 60 * Math.PI / 180;
+  return {
+    x:   parseFloat((-Math.sin(rad) * 20).toFixed(2)),
+    y:   parseFloat(( Math.cos(rad) * 20).toFixed(2)),
+    rot: (edgeA * 60) % 180,
+  };
+}
+
 // ── normalizeTileDef ──────────────────────────────────────────────────────────
 
 // Converts a new-format tile definition (nodes + paths) into the structure
@@ -329,47 +508,88 @@ function normalizeTileDef(def) {
 
   const { nodes, paths, color, label } = def;
 
+  // Count unique exit edges (needed for center_town? check in townPosition)
+  const exitEdgeSet = new Set();
+  for (const p of paths) {
+    const ea = parseEndpoint(p.a), eb = parseEndpoint(p.b);
+    if (ea.type === 'edge') exitEdgeSet.add(ea.index);
+    if (eb.type === 'edge') exitEdgeSet.add(eb.index);
+  }
+  const tileExitCount = exitEdgeSet.size;
+
+  // Compute preferred edges for all city/town nodes
+  const preferred = computeCityTownEdges(nodes, paths);
+
   const townPositions = [];
   const revenues      = [];
   const cityPositions = [];
-  let townCount = 0;
-  let cityCount = 0;
+  let townCount  = 0;
+  let cityCount  = 0;
+  let totalSlots = 0;
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
-    const nx = node.x, ny = node.y;
 
     if (node.type === 'town') {
-      const barRot = computeBarRotation(i, paths);
-      townPositions.push({ x: nx, y: ny, rot: barRot, rw: BAR_RW, rh: BAR_RH });
+      // town.rect? = paths.size < 3 (bar) else dot
+      const pathCount = pathCountForNode(i, paths);
+      const isBar     = pathCount < 3;
+      const pos       = townPosition(i, nodes, paths, tileExitCount, preferred[i]);
 
-      // Revenue: use explicit revenueX/Y if provided, else compute
+      if (isBar) {
+        townPositions.push({ x: pos.x, y: pos.y, rot: pos.rot, rw: BAR_RW, rh: BAR_RH });
+      } else {
+        // 3+-exit junction town → dot (rw/rh=0 signals dot rendering)
+        townPositions.push({ x: pos.x, y: pos.y, rot: 0, rw: 0, rh: 0, dot: true });
+      }
+
       if (node.revenue !== undefined) {
-        const rp = (node.revenueX !== undefined)
+        const tp = townPositions[townPositions.length - 1];
+        const rp = node.revenueX !== undefined
           ? { x: node.revenueX, y: node.revenueY }
-          : computeRevenuePos(nx, ny, barRot);
+          : computeRevenuePos(tp.x, tp.y, tp.rot);
         revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
       }
       townCount++;
 
     } else if (node.type === 'city') {
-      cityPositions.push({ x: nx, y: ny });
-      if (node.revenue !== undefined) {
-        const rp = (node.revenueX !== undefined)
-          ? { x: node.revenueX, y: node.revenueY }
-          : { x: parseFloat((nx + 16).toFixed(2)), y: parseFloat((ny + 0).toFixed(2)) };
-        revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
+      const slots = node.slots || 1;
+      totalSlots += slots;
+
+      if (slots >= 2) {
+        // Multi-slot city: OO visual — two slots at ±SLOT_RADIUS from city center.
+        // Source city.rb: CITY_SLOT_POSITION[2] = [-SLOT_RADIUS, 0], rotated 180° for slot 1.
+        // REVENUE_DISPLACEMENT[flat][2] = 67 at scale 100 → 33.5 at scale 50.
+        const cx = node.x, cy = node.y;
+        cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
+        cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+        if (node.revenue !== undefined) {
+          revenues.push({ x: cx + 33.5, y: cy, v: node.revenue });
+        }
+      } else {
+        cityPositions.push({ x: node.x, y: node.y });
+        if (node.revenue !== undefined) {
+          const rp = node.revenueX !== undefined
+            ? { x: node.revenueX, y: node.revenueY }
+            : { x: node.x + 16, y: node.y };
+          revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
+        }
       }
       cityCount++;
     }
-    // offboard and junction: not yet implemented here — add in next session
+    // offboard / junction: extend later
   }
 
   const out = { color, svgPath: buildSvgPath(nodes, paths) };
   if (label) out.tileLabel = label;
 
   if (townCount === 1 && cityCount === 0) {
-    out.townAt = townPositions[0];
+    const t = townPositions[0];
+    if (t.dot) {
+      out.town = true; // centered dot town
+    } else {
+      out.townAt = t;
+    }
     if (revenues.length > 0) out.revenue = revenues[0];
 
   } else if (townCount >= 2 && cityCount === 0) {
@@ -378,21 +598,23 @@ function normalizeTileDef(def) {
     if (revenues.length > 0) out.revenues = revenues;
 
   } else if (cityCount === 1 && townCount === 0) {
-    out.city = true;
+    if (totalSlots >= 2) {
+      // 2-slot (or more) city → OO visual (two overlapping circles, no box border)
+      out.oo   = true;
+      out.cityPositions = cityPositions; // [{x:-12.5,y:0},{x:12.5,y:0}] for standard
+    } else {
+      out.city = true;
+    }
     if (revenues.length > 0) out.revenue = revenues[0];
 
-  } else if (cityCount === 2 && townCount === 0) {
+  } else if (cityCount >= 2 && townCount === 0) {
+    // Two (or more) separate city nodes → OO / multi-city
     out.oo = true;
     out.cityPositions = cityPositions;
     if (revenues.length > 0) out.revenue = revenues[0];
 
-  } else if (cityCount >= 3 && townCount === 0) {
-    // Multi-slot city (3-slot etc.) — extend in next session
-    out.city = true;
-    out.slots = cityCount;
-    if (revenues.length > 0) out.revenue = revenues[0];
   }
-  // Mixed (town + city, e.g. Mexico City): extend in next session
+  // Mixed (town + city) and offboard: extend later
 
   return out;
 }
@@ -446,24 +668,35 @@ function parseDSL(dslString, color) {
                                'pass', 'halt'];
 
   // Tokenize: split on ';' then re-join into components by detecting keyword=
+  // Also handle bare keywords like 'junction' that appear without '=' (tile.rb
+  // format: 'junction;path=a:0,b:_0;...' — junction is a naked component).
+  const BARE_KEYWORDS = new Set(['junction', 'pass', 'halt']);
+
   const raw = dslString.trim();
   const tokens = raw.split(';');
 
   const components = [];
   let cur = null;
   for (const tok of tokens) {
-    const eqIdx = tok.indexOf('=');
+    const trimmed = tok.trim();
+    // Check for bare keyword (no '=') that starts a new component
+    if (BARE_KEYWORDS.has(trimmed.toLowerCase())) {
+      if (cur) components.push(cur);
+      cur = trimmed.toLowerCase() + '=';  // normalize to 'keyword=' form
+      continue;
+    }
+    const eqIdx = trimmed.indexOf('=');
     if (eqIdx !== -1) {
-      const kw = tok.slice(0, eqIdx).trim().toLowerCase();
+      const kw = trimmed.slice(0, eqIdx).trim().toLowerCase();
       if (COMPONENT_KEYWORDS.includes(kw)) {
         if (cur) components.push(cur);
-        cur = tok.trim();
+        cur = trimmed;
         continue;
       }
     }
     // Continuation of previous component
-    if (cur !== null) cur += ';' + tok.trim();
-    else cur = tok.trim();
+    if (cur !== null) cur += ';' + trimmed;
+    else cur = trimmed;
   }
   if (cur) components.push(cur);
 
@@ -576,28 +809,9 @@ function locToPos(loc) {
   if (!Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5) {
     return cornerPosition(f);
   }
-  // Integer: edge midpoint (city/town sitting on an edge side)
+  // Integer: edge midpoint
   return edgeMidpoint(Math.round(f));
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-return {
-  edgeMidpoint,
-  edgeAngleDeg,
-  cornerPosition,
-  edgesAreOpposite,
-  edgesForNode,
-  computeBarRotation,
-  computeRevenuePos,
-  calcArcGeom,
-  buildSvgPath,
-  normalizeTileDef,
-  parseDSL,
-  BAR_RW,
-  BAR_RH,
-  HEX_INRADIUS,
-  HEX_CIRCUMRADIUS
-};
-
-})(); // end TILE_GEO IIFE
+return { normalizeTileDef, parseDSL, computeCityTownEdges, townPosition, SLOT_RADIUS, BAR_RW, BAR_RH };
+})();
