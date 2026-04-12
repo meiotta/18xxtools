@@ -392,13 +392,6 @@ function drawStaticHex(row, col, hex) {
           ctx.stroke();
         }
       } else if (slots === 4) {
-        ctx.beginPath();
-        ctx.roundRect(-29, -16, 58, 32, 3);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        ctx.stroke();
         for (const [px, py] of [[-14, -7], [14, -7], [-14, 7], [14, 7]]) {
           ctx.beginPath();
           ctx.arc(px, py, 9, 0, Math.PI * 2);
@@ -409,13 +402,6 @@ function drawStaticHex(row, col, hex) {
           ctx.stroke();
         }
       } else if (slots === 2) {
-        ctx.beginPath();
-        ctx.roundRect(-26, -15, 52, 30, 3);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        ctx.stroke();
         for (const ox of [-13, 13]) {
           ctx.beginPath();
           ctx.arc(ox, 0, 11, 0, Math.PI * 2);
@@ -787,9 +773,7 @@ function drawHex(row, col, hex = null) {
       } else if (tileDef.town) {
         // Small black bar at center — no circle, no revenue inside
         ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.roundRect(-8, -4, 16, 8, 1);
-        ctx.fill();
+        ctx.fillRect(-8, -4, 16, 8);
       } else if (tileDef.townAt) {
         // Positioned town bar (e.g. tile 3/58 — junction off-center)
         const { x, y, rot, rw, rh } = tileDef.townAt;

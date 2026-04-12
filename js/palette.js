@@ -42,14 +42,7 @@ function makeTileSwatchSvg(tileId) {
     //   CitySlot: white circle r=SLOT_RADIUS, NO stroke
     // At scale 50: SLOT_RADIUS=12.5, box 25×25 at (-12.5,-12.5)
     if (td.cityPositions && td.cityPositions.length >= 2) {
-      // Custom-positioned (off-centre or multi-slot at computed positions)
-      // Draw a white background box spanning the positions, then the circles
-      const p0 = td.cityPositions[0], p1 = td.cityPositions[1];
-      const bx = Math.min(p0.x, p1.x) - SLOT_RADIUS;
-      const by = Math.min(p0.y, p1.y) - SLOT_RADIUS;
-      const bw = Math.abs(p1.x - p0.x) + 2 * SLOT_RADIUS;
-      const bh = Math.abs(p1.y - p0.y) + 2 * SLOT_RADIUS;
-      inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
+      // Custom-positioned OO nodes — circles only, no bounding rect
       for (const pos of td.cityPositions) {
         inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white" stroke="#333" stroke-width="1.5"/>`;
       }
