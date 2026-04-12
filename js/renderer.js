@@ -801,12 +801,16 @@ function drawHex(row, col, hex = null) {
         ctx.fillText(tileDef.tileLabel, cx - size * 0.62, cy);
       }
 
-      // Revenue bubble(s) — drawn in canvas space (no rotation), scaled with zoom
+      // Revenue bubble(s) — position follows tile rotation (node travels with tile),
+      // but the circle/text is drawn canvas-upright (never tilted).
       const revList = tileDef.revenues || (tileDef.revenue ? [tileDef.revenue] : []);
+      const _revRotRad = rotation * Math.PI / 180;
+      const _revCosR = Math.cos(_revRotRad), _revSinR = Math.sin(_revRotRad);
       for (const rev of revList) {
         const sc = size / 50;
-        const rx = cx + rev.x * sc;
-        const ry = cy + rev.y * sc;
+        // Rotate (rev.x, rev.y) by tile rotation so bubble tracks the node position
+        const rx = cx + (rev.x * _revCosR - rev.y * _revSinR) * sc;
+        const ry = cy + (rev.x * _revSinR + rev.y * _revCosR) * sc;
         const r = 7.5 * sc;
         ctx.beginPath();
         ctx.arc(rx, ry, r, 0, Math.PI * 2);

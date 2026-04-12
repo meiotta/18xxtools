@@ -154,19 +154,48 @@ function computeBarRotation(nodeIdx, paths) {
 
 // Computes a good position for the revenue bubble near a town/city.
 // Offset perpendicular to the bar axis, in the direction away from hex center.
-function computeRevenuePos(nx, ny, barRot) {
-  const perp1 = (barRot + 90) % 360;
-  const perp2 = (barRot - 90 + 360) % 360;
-  const offset = 14;
-  const r1 = perp1 * Math.PI / 180;
-  const r2 = perp2 * Math.PI / 180;
-  const p1 = { x: nx + offset * Math.cos(r1), y: ny + offset * Math.sin(r1) };
-  const p2 = { x: nx + offset * Math.cos(r2), y: ny + offset * Math.sin(r2) };
-  // Pick whichever is further from center (away from hex interior)
-  const d1 = p1.x * p1.x + p1.y * p1.y;
-  const d2 = p2.x * p2.x + p2.y * p2.y;
-  const rp = d1 >= d2 ? p1 : p2;
-  return { x: parseFloat(rp.x.toFixed(2)), y: parseFloat(rp.y.toFixed(2)) };
+// exitEdges: array of edge indices (0-5) connecting to this node.
+// Finds the largest angular gap between consecutive exit directions and places
+// the bubble in the clear space, keeping it off the track lines.
+function computeRevenuePos(nx, ny, exitEdges, radius) {
+  if (radius === undefined) radius = 18;
+
+  if (!exitEdges || exitEdges.length === 0) {
+    // No exits: place above node
+    return { x: parseFloat(nx.toFixed(2)), y: parseFloat((ny - radius).toFixed(2)) };
+  }
+
+  if (exitEdges.length === 1) {
+    // Terminus: push bubble directly away from the single exit
+    const a = exitEdges[0] * Math.PI / 3;
+    return {
+      x: parseFloat((nx + Math.sin(a) * radius).toFixed(2)),
+      y: parseFloat((ny - Math.cos(a) * radius).toFixed(2)),
+    };
+  }
+
+  // Sort exit angles in [0, 2π) then find the largest gap between consecutive exits.
+  // Edge e outward direction follows edgePos convention: angle = e * π/3,
+  // vector = (-sin(angle), cos(angle)).
+  const angles = exitEdges.map(e => ((e % 6) + 6) % 6 * Math.PI / 3);
+  angles.sort((a, b) => a - b);
+
+  let maxGap = -1, gapMid = 0;
+  for (let i = 0; i < angles.length; i++) {
+    const curr = angles[i];
+    const next = i + 1 < angles.length ? angles[i + 1] : angles[0] + 2 * Math.PI;
+    const gap = next - curr;
+    if (gap > maxGap) {
+      maxGap = gap;
+      gapMid = curr + gap / 2;
+    }
+  }
+
+  // Place bubble in the gap midpoint direction from the node
+  return {
+    x: parseFloat((nx - Math.sin(gapMid) * radius).toFixed(2)),
+    y: parseFloat((ny + Math.cos(gapMid) * radius).toFixed(2)),
+  };
 }
 
 // ── Arc computation ───────────────────────────────────────────────────────────
@@ -547,7 +576,7 @@ function normalizeTileDef(def) {
         const tp = townPositions[townPositions.length - 1];
         const rp = node.revenueX !== undefined
           ? { x: node.revenueX, y: node.revenueY }
-          : computeRevenuePos(tp.x, tp.y, tp.rot);
+          : computeRevenuePos(tp.x, tp.y, edgesForNode(i, paths));
         revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
       }
       townCount++;
@@ -571,7 +600,7 @@ function normalizeTileDef(def) {
         if (node.revenue !== undefined) {
           const rp = node.revenueX !== undefined
             ? { x: node.revenueX, y: node.revenueY }
-            : { x: node.x + 16, y: node.y };
+            : computeRevenuePos(node.x, node.y, edgesForNode(i, paths));
           revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
         }
       }
