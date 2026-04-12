@@ -751,11 +751,11 @@ function drawHex(row, col, hex = null) {
           ctx.restore();
         }
       } else if (tileDef.oo) {
-        // Source city.rb: BOX_ATTRS[2] = white rect (no stroke), then white circles (no stroke).
-        // SLOT_RADIUS=12.5 at scale 50. Centers at (±12.5, 0).
+        // OO tile: two city circles side by side. White background rect connects them,
+        // then bordered circles on top.
         const SR = 12.5; // SLOT_RADIUS at scale 50
         const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
-        // White background box spanning all positions (no stroke)
+        // White background rect spanning all circles
         const xs = positions.map(p => p.x);
         const ys = positions.map(p => p.y);
         const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
@@ -763,12 +763,15 @@ function drawHex(row, col, hex = null) {
         const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
         ctx.fillStyle = 'white';
         ctx.fillRect(bx, by, bw, bh);
-        // City slot circles (white fill, no stroke — outline comes from contrast with track/hex)
+        // City slot circles with stroke (same style as single-city circle)
         for (const pos of positions) {
           ctx.beginPath();
           ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
           ctx.fillStyle = 'white';
           ctx.fill();
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
       } else if (tileDef.town) {
         // Small black bar at center — no circle, no revenue inside
