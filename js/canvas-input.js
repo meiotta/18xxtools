@@ -314,9 +314,9 @@ function applyTool(hexId) {
     (activeTool === 'terrain' && activeTerrainType) ||
     activeTool === 'terrain-clear' ||
     (activeTool === 'tile'    && activeTile) ||
-    activeTool === 'city-1' || activeTool === 'city-2' || activeTool === 'city-3' ||
+    activeTool === 'city-1' ||
     activeTool === 'town'    || activeTool === 'dual-town' ||
-    activeTool === 'city-oo' || activeTool === 'city-joined' ||
+    activeTool === 'city-oo' ||
     activeTool === 'white-blank' ||
     (activeTool === 'label' && activeLabel) ||
     activeTool === 'erase' ||
@@ -348,14 +348,6 @@ function applyTool(hexId) {
     hex.feature = 'city'; hex.slots = 1;
     hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
-  } else if (activeTool === 'city-2') {
-    hex.feature = 'city'; hex.slots = 2;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'city-3') {
-    hex.feature = 'city'; hex.slots = 3;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
   } else if (activeTool === 'town') {
     hex.feature = 'town'; hex.slots = 1;
     hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
@@ -366,10 +358,6 @@ function applyTool(hexId) {
     _clearWhiteTileTool();
   } else if (activeTool === 'city-oo') {
     hex.feature = 'oo'; hex.slots = 1;
-    hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
-    _clearWhiteTileTool();
-  } else if (activeTool === 'city-joined') {
-    hex.feature = 'city'; hex.slots = 2; hex.joined = true;
     hex.tile = null; hex.city = null; hex.town = false; hex.oo = false; hex.dualTown = false;
     _clearWhiteTileTool();
   } else if (activeTool === 'white-blank') {
@@ -417,7 +405,7 @@ canvas.addEventListener('dragleave', (e) => {
 });
 
 // White-tile tool names that can be dragged and dropped
-const WHITE_TILE_TOOLS = new Set(['town','dual-town','city-1','city-2','city-3','city-joined','city-oo','white-blank']);
+const WHITE_TILE_TOOLS = new Set(['town','dual-town','city-1','city-oo','white-blank']);
 
 canvas.addEventListener('drop', (e) => {
   const payload = e.dataTransfer.getData('text/plain');

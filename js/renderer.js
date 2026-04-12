@@ -872,73 +872,8 @@ function drawHex(row, col, hex = null) {
     }
   }
 
-  // White feature tiles (white-city-1, white-town, etc.) — no svgPath, draw markers directly
-  if (hex?.tile && tileDef && !tileDef.svgPath) {
-    ctx.save();
-    ctx.translate(cx, cy);
-    const _wsc = size / 50;
-    ctx.scale(_wsc, _wsc);
-    if (tileDef.oo) {
-      for (const ox of [-13, 13]) {
-        ctx.beginPath();
-        ctx.arc(ox, 0, 11, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-    } else if (tileDef.city) {
-      const slots = tileDef.slots || 1;
-      if (slots >= 3) {
-        const triPts = [{ x: 0, y: -16 }, { x: -16, y: 10 }, { x: 16, y: 10 }];
-        for (const p of triPts) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-          ctx.fillStyle = 'white';
-          ctx.fill();
-          ctx.strokeStyle = '#333';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      } else if (slots >= 2) {
-        for (const ox of [-13, 13]) {
-          ctx.beginPath();
-          ctx.arc(ox, 0, 11, 0, Math.PI * 2);
-          ctx.fillStyle = 'white';
-          ctx.fill();
-          ctx.strokeStyle = '#333';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      } else {
-        ctx.beginPath();
-        ctx.arc(0, 0, 14, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-    } else if (tileDef.dualTown) {
-      for (const ox of [-12, 12]) {
-        ctx.save();
-        ctx.translate(ox, 0);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(-8, -2.5, 16, 5);
-        ctx.restore();
-      }
-    } else if (tileDef.town) {
-      ctx.beginPath();
-      ctx.arc(0, 0, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#000';
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // City name for placed tiles (city:true or oo:true) AND for white-tile city/oo features
-  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city || !!hex?.oo
+  // City name for placed tiles (city:true or oo:true) AND for feature-schema city/oo hexes
+  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo)) || !!hex?.city
     || hex?.feature === 'city' || hex?.feature === 'oo';
   if (hex?.cityName && hasCityOrOo) {
     const name = hex.cityName;
@@ -957,7 +892,7 @@ function drawHex(row, col, hex = null) {
   }
 
   // OO white hex: two city circles, no bounding box (no tile placed)
-  if ((hex?.oo || hex?.feature === 'oo') && !hex?.tile) {
+  if (hex?.feature === 'oo' && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
@@ -990,7 +925,7 @@ function drawHex(row, col, hex = null) {
   }
 
   // City circle(s) for hexes that have a city marker but no placed tile
-  if ((hex?.city || hex?.feature === 'city') && !hex?.tile) {
+  if ((hex?.feature === 'city' || (hex?.city && !hex?.tile && !hex?.feature)) && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
@@ -1033,12 +968,12 @@ function drawHex(row, col, hex = null) {
   }
 
   // Town marker for hexes with a town but no placed tile
-  if ((hex?.town || hex?.feature === 'town' || hex?.feature === 'dualTown') && !hex?.tile) {
+  if ((hex?.feature === 'town' || hex?.feature === 'dualTown') && !hex?.tile) {
     ctx.save();
     ctx.translate(cx, cy);
     const sc = size / 50;
     ctx.scale(sc, sc);
-    if (hex.dualTown || hex.feature === 'dualTown') {
+    if (hex.feature === 'dualTown') {
       // Two small black bars side by side
       for (const ox of [-12, 12]) {
         ctx.save();

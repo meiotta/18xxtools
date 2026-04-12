@@ -111,14 +111,12 @@ const TILE_DEFS = {
   // X23: grey OO, 6-exit
   'X23': { svgPath: 'M 0 43.5 L 0 25 M -37.67 21.75 L -21.65 12.5 M -37.67 -21.75 L -21.65 -12.5 M 0 -43.5 L 0 -25 M 37.67 -21.75 L 21.65 -12.5 M 37.67 21.75 L 21.65 12.5', color: 'grey', oo: true, cityPositions: [{x:-10, y:0}, {x:10, y:0}], revenue: { x: 33.37, y: 0, v: 60 } },
 
-  // ── White tile feature hexes ──
-  // These are first-class TILE_DEFS entries so placed tiles trigger the correct
-  // renderer branches (hex.town, hex.dualTown, hex.oo, hex.city.slots).
+  // ── White tile feature hexes (palette/manifest display only) ──
+  // These 5 entries appear in the tile pack palette as visual swatches.
+  // White feature hexes are NEVER placed as hex.tile — the tools set hex.feature directly.
   'white-blank':     { color: 'white', svgPath: '' },
   'white-town':      { color: 'white', town: true },
   'white-dual-town': { color: 'white', dualTown: true },
-  'white-city-1':    { color: 'white', city: true, slots: 1 },
-  'white-city-2':    { color: 'white', city: true, slots: 2 },
+  'white-city':      { color: 'white', city: true, slots: 1 },
   'white-oo':        { color: 'white', oo: true },
-  'white-city-3':    { color: 'white', city: true, slots: 3 },
 };
