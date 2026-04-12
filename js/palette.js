@@ -51,7 +51,7 @@ function makeTileSwatchSvg(tileId) {
       const bh = Math.abs(p1.y - p0.y) + 2 * SLOT_RADIUS;
       inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
       for (const pos of td.cityPositions) {
-        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white"/>`;
+        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white" stroke="#333" stroke-width="1.5"/>`;
       }
     } else {
       // Standard inline OO (legacy static tiles with no cityPositions set)
@@ -91,9 +91,11 @@ function makeTileSwatchSvg(tileId) {
 
   } else if (td.dualTown) {
     // Dual town: two bars (town_rect.rb render_part: black rect, no stroke for normal towns)
-    // Fallback positions for legacy tiles without computed townPositions
-    const positions = td.townPositions || [{ x: -10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH },
-                                            { x:  10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH }];
+    // Fallback positions for tiles whose townPositions is absent or empty []
+    const positions = (td.townPositions && td.townPositions.length)
+      ? td.townPositions
+      : [{ x: -10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH },
+         { x:  10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH }];
     for (const pos of positions) {
       if (pos.dot) {
         // 3+-exit junction town → dot

@@ -748,12 +748,15 @@ function drawHex(row, col, hex = null) {
         ctx.strokeStyle = '#333';
         ctx.lineWidth = 2;
         ctx.stroke();
-      } else if (tileDef.dualTown && tileDef.townPositions) {
+      } else if (tileDef.dualTown) {
         // Dual-town placed tile — draw two black bars, one per town node.
         // Revenue is in separate bubble; NEVER inside these bars.
-        for (const pos of tileDef.townPositions) {
-          const rw = pos.rw || 16.93;
-          const rh = pos.rh || 4.23;
+        const dtPositions = (tileDef.townPositions && tileDef.townPositions.length)
+          ? tileDef.townPositions
+          : [{ x: -10, y: 0, rot: 0, rw: 16, rh: 4 }, { x: 10, y: 0, rot: 0, rw: 16, rh: 4 }];
+        for (const pos of dtPositions) {
+          const rw = pos.rw || 16;
+          const rh = pos.rh || 4;
           ctx.save();
           ctx.translate(pos.x, pos.y);
           ctx.rotate((pos.rot || 0) * Math.PI / 180);

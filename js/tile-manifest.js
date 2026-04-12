@@ -112,7 +112,7 @@ function _makeSwatchSvg(id) {
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 
-const COLOR_ORDER = { yellow: 0, green: 1, brown: 2, grey: 3 };
+const COLOR_ORDER = { white: -1, yellow: 0, green: 1, brown: 2, grey: 3 };
 
 function tileSort(a, b) {
   const tdA = TileRegistry.getTileDef(a), tdB = TileRegistry.getTileDef(b);
