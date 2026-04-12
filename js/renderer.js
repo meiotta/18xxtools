@@ -811,19 +811,54 @@ function drawHex(row, col, hex = null) {
         // Rotate (rev.x, rev.y) by tile rotation so bubble tracks the node position
         const rx = cx + (rev.x * _revCosR - rev.y * _revSinR) * sc;
         const ry = cy + (rev.x * _revSinR + rev.y * _revCosR) * sc;
-        const r = 7.5 * sc;
-        ctx.beginPath();
-        ctx.arc(rx, ry, r, 0, Math.PI * 2);
-        ctx.fillStyle = color; // phase color matches tile background (yellow/green/brown/grey)
-        ctx.fill();
-        ctx.strokeStyle = '#777';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${Math.max(6, Math.round(8 * zoom))}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(rev.v), rx, ry);
+
+        if (rev.phases) {
+          // Phase-variable revenue: draw a horizontal row of colored boxes.
+          // Format: 'yellow_30|green_40|brown_60|gray_80'
+          // 'gray' → 'grey' to match TILE_HEX_COLORS key.
+          const segments = rev.phases.split('|').map(seg => {
+            const us = seg.indexOf('_');
+            if (us === -1) return null;
+            const ph = seg.slice(0, us) === 'gray' ? 'grey' : seg.slice(0, us);
+            const val = parseInt(seg.slice(us + 1), 10);
+            return { ph, val };
+          }).filter(Boolean);
+          if (segments.length > 0) {
+            const bw = 13 * sc, bh = 9 * sc, gap = 1 * sc;
+            const totalW = segments.length * bw + (segments.length - 1) * gap;
+            let bx = rx - totalW / 2;
+            const by = ry - bh / 2;
+            const fontSize = Math.max(5, Math.round(6 * zoom));
+            for (const { ph, val } of segments) {
+              const bgCol = TILE_HEX_COLORS[ph] || '#ccc';
+              ctx.fillStyle = bgCol;
+              ctx.fillRect(bx, by, bw, bh);
+              ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+              ctx.lineWidth = 0.5;
+              ctx.strokeRect(bx, by, bw, bh);
+              ctx.fillStyle = '#111';
+              ctx.font = `bold ${fontSize}px Arial`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(String(val), bx + bw / 2, by + bh / 2);
+              bx += bw + gap;
+            }
+          }
+        } else {
+          const r = 7.5 * sc;
+          ctx.beginPath();
+          ctx.arc(rx, ry, r, 0, Math.PI * 2);
+          ctx.fillStyle = color; // phase color matches tile background (yellow/green/brown/grey)
+          ctx.fill();
+          ctx.strokeStyle = '#777';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.fillStyle = '#000';
+          ctx.font = `bold ${Math.max(6, Math.round(8 * zoom))}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(rev.v), rx, ry);
+        }
       }
     }
   }

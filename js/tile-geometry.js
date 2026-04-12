@@ -577,7 +577,9 @@ function normalizeTileDef(def) {
         const rp = node.revenueX !== undefined
           ? { x: node.revenueX, y: node.revenueY }
           : computeRevenuePos(tp.x, tp.y, edgesForNode(i, paths));
-        revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
+        const rev = { x: rp.x, y: rp.y, v: node.revenue };
+        if (node.revenuePhases) rev.phases = node.revenuePhases;
+        revenues.push(rev);
       }
       townCount++;
 
@@ -601,7 +603,9 @@ function normalizeTileDef(def) {
           const rp = node.revenueX !== undefined
             ? { x: node.revenueX, y: node.revenueY }
             : computeRevenuePos(node.x, node.y, edgesForNode(i, paths));
-          revenues.push({ x: rp.x, y: rp.y, v: node.revenue });
+          const rev = { x: rp.x, y: rp.y, v: node.revenue };
+          if (node.revenuePhases) rev.phases = node.revenuePhases;
+          revenues.push(rev);
         }
       }
       cityCount++;
@@ -749,10 +753,13 @@ function parseDSL(dslString, color) {
 
     if (type === 'city' || type === 'town' || type === 'offboard' || type === 'junction') {
       const nodeIdx = nodes.length;
-      const rev = kv['revenue'] !== undefined ? parseRevenue(kv['revenue']) : undefined;
+      const revStr = kv['revenue'];
+      const rev = revStr !== undefined ? parseRevenue(revStr) : undefined;
       const pos = kv['loc'] !== undefined ? locToPos(kv['loc']) : { x: 0, y: 0 };
       const node = { type, x: pos.x, y: pos.y };
       if (rev !== undefined) node.revenue = rev;
+      // Preserve the full phase string so renderer can draw a phase-color bar
+      if (revStr && revStr.includes('|')) node.revenuePhases = revStr;
       if (kv['slots'])  node.slots  = parseInt(kv['slots'], 10);
       if (kv['style'])  node.style  = kv['style'];   // rect | dot | hidden
       if (kv['groups']) node.groups = kv['groups'];
