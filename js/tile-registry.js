@@ -88,6 +88,21 @@ const TileRegistry = (() => {
       delete tileDef.townAt;
     }
 
+    // Spread overlapping town dots (e.g. dual-town with no exits: both land at 0,0).
+    // Same pattern as OO city spread above.
+    if (tileDef.townPositions && tileDef.townPositions.length >= 2) {
+      const first = tileDef.townPositions[0];
+      const allSame = tileDef.townPositions.every(
+        p => Math.abs(p.x - first.x) < 1 && Math.abs(p.y - first.y) < 1
+      );
+      if (allSame) {
+        const n = tileDef.townPositions.length;
+        tileDef.townPositions = tileDef.townPositions.map((p, i) => ({
+          ...p, x: (i - (n - 1) / 2) * 28, y: 0
+        }));
+      }
+    }
+
     return tileDef;
   }
 
