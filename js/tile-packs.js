@@ -547,19 +547,14 @@ const TILE_PACKS = {
 
   // ── White Features ──────────────────────────────────────────────────────────
   // White-hex feature tiles used as map starting positions (no track).
-  // These use old-format (no dsl/nodes/paths) so TileRegistry passes them through
-  // normalizeTileDef unchanged. townPosition() is a route-geometry function and
-  // gives nonsense results for trackless white features — explicit positions here.
+  // These are always enabled and appear in the palette/manifest.
   'White Features': {
     white: {
-      'white-blank':     { svgPath: '', color: 'white' },
-      'white-town':      { svgPath: '', color: 'white', townAt: { x: 0, y: 0, rot: 0, rw: 16, rh: 4 } },
-      'white-dual-town': { svgPath: '', color: 'white', dualTown: true, townPositions: [
-        { x: -14, y: 0, rot: 0, rw: 16, rh: 4 },
-        { x:  14, y: 0, rot: 0, rw: 16, rh: 4 },
-      ]},
-      'white-city':      { svgPath: '', color: 'white', city: true },
-      'white-oo':        { svgPath: '', color: 'white', oo: true, cityPositions: [{ x: -13, y: 0 }, { x: 13, y: 0 }] },
+      'white-blank':     { dsl: '', color: 'white' },
+      'white-town':      { dsl: 'town=revenue:0', color: 'white' },
+      'white-dual-town': { dsl: 'town=revenue:0;town=revenue:0;path=a:0,b:_0;path=a:_0,b:3;path=a:1,b:_1;path=a:_1,b:4', color: 'white' },
+      'white-city':      { dsl: 'city=revenue:0', color: 'white' },
+      'white-oo':        { dsl: 'city=revenue:0;city=revenue:0', color: 'white' },
     },
   },
 
