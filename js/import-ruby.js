@@ -241,6 +241,18 @@ function parseStaticHex(code, bg, locationName) {
         hex.slots = slots;
         hex.phaseRevenue = phases;
         hex.activePhases = (Object.values(active).some(Boolean)) ? active : { yellow: true, green: true, brown: true, gray: true };
+        // Off-center city: parse loc: and compute position in 50-unit tile space
+        const locStr = (part.match(/loc:([\d.]+)/) || [])[1];
+        if (locStr !== undefined) {
+          const f = parseFloat(locStr);
+          if (!isNaN(f)) {
+            const isHalf = !Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5;
+            const angle  = f * Math.PI / 3;
+            const r      = isHalf ? 50 : 43.5;
+            hex.cityLocX = parseFloat((-Math.sin(angle) * r).toFixed(2));
+            hex.cityLocY = parseFloat(( Math.cos(angle) * r).toFixed(2));
+          }
+        }
       }
     } else if (part.startsWith('offboard=')) {
       const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
@@ -389,9 +401,42 @@ function importRubyMap(content) {
   while ((nm = nameRe.exec(namesBlock)) !== null) locationNames[nm[1]] = nm[2];
 
   // ── HEXES ───────────────────────────────────────────────────────────────
-  const hexesStart = content.indexOf('HEXES = {');
-  const hexesEnd   = content.indexOf('}.freeze', hexesStart);
-  const hexesText  = content.substring(hexesStart + 9, hexesEnd);
+  // Most games: HEXES = { ... }.freeze (constant)
+  // Some games (e.g. 1824): def map_optional_hexes / def map_hexes (Ruby method)
+  // We search for both forms; if neither is found we return an empty map.
+  let hexesText = '';
+  {
+    // Try constant form first
+    let hexesStart = content.indexOf('HEXES = {');
+    if (hexesStart === -1) hexesStart = content.indexOf('MAP_HEXES = {');
+    if (hexesStart !== -1) {
+      const innerStart = hexesStart + content.slice(hexesStart).indexOf('{') + 1;
+      const hexesEnd   = content.indexOf('}.freeze', innerStart);
+      if (hexesEnd !== -1) hexesText = content.substring(innerStart, hexesEnd);
+    }
+
+    // Fallback: Ruby method form (def map_hexes / def map_optional_hexes)
+    if (!hexesText.trim()) {
+      const methodRe = /def\s+map(?:_optional)?_hexes[^{]*\{/g;
+      const mMatch = methodRe.exec(content);
+      if (mMatch) {
+        const bodyStart = mMatch.index + mMatch[0].length;
+        // Walk braces to find the matching closing brace
+        let depth = 1, i = bodyStart;
+        while (i < content.length && depth > 0) {
+          if (content[i] === '{') depth++;
+          else if (content[i] === '}') depth--;
+          i++;
+        }
+        hexesText = content.substring(bodyStart, i - 1);
+        console.log(`[importRubyMap] Found method-form hex block (${hexesText.length} chars)`);
+      }
+    }
+
+    if (!hexesText.trim()) {
+      console.warn('[importRubyMap] No HEXES block found — map will be empty');
+    }
+  }
 
   const hexEntries = {}; // coord → { color, code, parsed }
 
@@ -438,6 +483,26 @@ function importRubyMap(content) {
   }
   const coordParity = (_evenColOdd > _evenColEven) ? 1 : 0;
   console.log(`[importRubyMap] coordParity=${coordParity} (evenColEven=${_evenColEven} evenColOdd=${_evenColOdd})`);
+
+  // ── Detect pointy-top stagger parity ──────────────────────────────────────
+  // In a pointy-top grid, alternate rows are offset right by dx/2.
+  // Standard convention (psp=0): odd internal rows stagger right.
+  // Some games (e.g. 1822 MX) use even rows staggered right (psp=1).
+  // We detect this by checking what column-numbers even letter-rows (A,C,E…) use:
+  //   If they mostly use EVEN numbers → even rows stagger → psp=1
+  //   If they mostly use ODD  numbers → standard odd-row stagger → psp=0
+  let _evenRowEven = 0, _evenRowOdd = 0;
+  if (!transposedAxes && orientation === 'pointy') {
+    for (const coord of allCoords) {
+      const letterIdx = coord.charCodeAt(0) - 65;
+      const numPart   = parseInt(coord.slice(1));
+      if (letterIdx % 2 === 0) {
+        if (numPart % 2 === 0) _evenRowEven++; else _evenRowOdd++;
+      }
+    }
+  }
+  const pointyStaggerParity = (orientation === 'pointy' && _evenRowEven > _evenRowOdd) ? 1 : 0;
+  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
 
   // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
   //
@@ -593,68 +658,4 @@ function importRubyMap(content) {
         }
         if (parsed.borders && parsed.borders.length > 0) h.borders = parsed.borders;
         // Carry icon directives (port, franchise markers, etc.) to white hexes
-        if (parsed.icons && parsed.icons.length > 0) h.icons = parsed.icons;
-        newHexes[key] = h;
-
-      } else {
-        // Yellow or green: pre-placed tiles.
-        // Force static hex for: OO hexes, 2+ slot cities, hexes with labels (special),
-        // hexes with icons — all cases where a standard tile would lose information.
-        const targetEdges = new Set(parsed.paths);
-        const hasCityOrOO = !!(parsed.city);
-        const needsStatic = parsed.oo ||
-          (parsed.city && parsed.city.slots > 1) ||
-          (parsed.label && parsed.label !== '') ||
-          (parsed.icons && parsed.icons.length > 0);
-        const match = !needsStatic ? matchTileDef(targetEdges, color, hasCityOrOO) : null;
-
-        if (match) {
-          h.tile     = match.tile;
-          h.rotation = match.rotation;
-          if (name) h.cityName = name;
-          newHexes[key] = h;
-        } else {
-          // No matching tile (or forced static) → import as static hex at this color
-          const sh = parseStaticHex(code, color, name);
-          newHexes[key] = sh;
-        }
-      }
-    }
-  }
-
-  // ── Fill unused grid positions with killed hexes ────────────────────────
-  //
-  // The renderer draws every (row,col) in the maxRow×maxCol bounding box, so
-  // we need a killed hex at every position that has no Ruby hex entry.
-  //
-  // Naïve approach: loop r=0..maxRow, c=0..maxCol and kill anything not set.
-  // Problem with transposed-axes games (1882):
-  //   In 1882 the even internal cols (ruby col numbers 2,4,6…) are the "tall"
-  //   ones — they span one more row than the odd cols.  E.g. the last odd-col
-  //   ruby hex is N6 → internal (6,5), but the global maxRow is 8 (set by USA
-  //   at O11 → internal (7,6), an even col).  The naïve loop would place a
-  //   killed hex at (7,5) — one row below Shaunavon — creating a phantom hex
-  //   that visually extends the map incorrectly.
-  //
-  // Fix: track maxRowPerCol[c] = the highest internal row actually occupied in
-  // column c, then skip any (r,c) where r >= maxRowPerCol[c].
-  // This correctly clips each column to its own extent regardless of which
-  // other columns are taller.
-  for (let r = 0; r < maxRow; r++) {
-    for (let c = 0; c < maxCol; c++) {
-      if (r >= (maxRowPerCol[c] || 0)) continue; // beyond this column's extent
-      const k = hexId(r, c);
-      if (!newHexes[k]) {
-        newHexes[k] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, label: '', killed: true };
-      }
-    }
-  }
-
-  const live    = Object.values(newHexes).filter(h => !h.killed).length;
-  const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
-  const statics = Object.values(newHexes).filter(h => h.static).length;
-  console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
-  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, coordParity, maxRowPerCol };
-}
-
-// ── Wire up the Import Map button ─────────────�
+        if (parsed.icons && pa
