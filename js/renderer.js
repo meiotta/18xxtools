@@ -964,7 +964,8 @@ function renderTilesSVG() {
       const tileDef = TileRegistry.getTileDef(hex.tile);
       if (!tileDef) continue;
 
-      const center = getHexCenter(r, c, HEX_SIZE * zoom, state.meta.orientation);
+      // Use HEX_SIZE (not pre-scaled) — same formula as drawHex so SVG aligns with canvas
+      const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
       const cx = (center.x + panX) * zoom + LABEL_PAD;
       const cy = (center.y + panY) * zoom + LABEL_PAD;
       const tileDeg = (hex.rotation || 0) * 60;
@@ -991,6 +992,12 @@ function renderTilesSVG() {
           const bw = Math.max(...xs) - Math.min(...xs) + 2 * SR;
           const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
           inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
+        } else if (positions.length >= 3) {
+          // 3-slot: white center cover to hide the track-star artifact where paths meet
+          // Circle radius = distance from center to nearest circle edge (R3 - SR ≈ 5.5)
+          const R3 = Math.hypot(positions[0].x, positions[0].y);
+          const gap = Math.max(R3 - SR, 2);
+          inner += `<circle cx="0" cy="0" r="${gap + 1}" fill="white" stroke="none"/>`;
         }
         for (const pos of positions) {
           inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
@@ -1151,27 +1158,4 @@ function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
   const savedHexSize     = window.HEX_SIZE;
   const savedLabelPad    = window.LABEL_PAD;
   const savedSelectedHex = window.selectedHex;
-  const savedOrientation = state.meta.orientation;
-
-  window.ctx              = ctx2;
-  window.zoom             = 1;
-  window.LABEL_PAD        = 0;
-  window.HEX_SIZE         = hs;
-  window.panX             = previewSize / 2 - center.x;
-  window.panY             = previewSize / 2 - center.y;
-  window.selectedHex      = null;
-  state.meta.orientation  = orientation;
-
-  try {
-    drawStaticHex(0, 0, hexData);
-  } finally {
-    window.ctx             = savedCtx;
-    window.zoom            = savedZoom;
-    window.panX            = savedPanX;
-    window.panY            = savedPanY;
-    window.HEX_SIZE        = savedHexSize;
-    window.LABEL_PAD       = savedLabelPad;
-    window.selectedHex     = savedSelectedHex;
-    state.meta.orientation = savedOrientation;
-  }
-}
+  const savedOrientation 
