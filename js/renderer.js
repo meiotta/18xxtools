@@ -701,190 +701,7 @@ function drawHex(row, col, hex = null) {
     }
   }
 
-  // Render tile track if placed
-  if (hex?.tile) {
-    if (tileDef) {
-      const rotation = (hex.rotation || 0) * 60; // degrees
 
-      // Outer save: clip to hex shape so track doesn't bleed outside
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(corners[0].x, corners[0].y);
-      for (let ci = 1; ci < 6; ci++) ctx.lineTo(corners[ci].x, corners[ci].y);
-      ctx.closePath();
-      ctx.clip();
-
-      // Inner save: translate/rotate/scale for tile path coords
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(rotation * Math.PI / 180);
-      // Scale from SVG coords (apothem=43.3) to canvas hex size
-      const scale = size / 50;
-      ctx.scale(scale, scale);
-
-      // Only stroke track if there are actual paths (white station tiles have none)
-      if (tileDef.svgPath) {
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 8;
-        ctx.lineCap = 'round';
-        const p = new Path2D(tileDef.svgPath);
-        ctx.stroke(p);
-      }
-
-      // City/OO/town indicators (drawn in scaled SVG space)
-      if (tileDef.city) {
-        ctx.beginPath();
-        ctx.arc(0, 0, 14, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else if (tileDef.dualTown) {
-        // Dual-town placed tile — draw two black bars, one per town node.
-        // Revenue is in separate bubble; NEVER inside these bars.
-        const dtPositions = (tileDef.townPositions && tileDef.townPositions.length)
-          ? tileDef.townPositions
-          : [{ x: -10, y: 0, rot: 0, rw: 16, rh: 4 }, { x: 10, y: 0, rot: 0, rw: 16, rh: 4 }];
-        for (const pos of dtPositions) {
-          const rw = pos.rw || 16;
-          const rh = pos.rh || 4;
-          ctx.save();
-          ctx.translate(pos.x, pos.y);
-          ctx.rotate((pos.rot || 0) * Math.PI / 180);
-          ctx.fillStyle = '#000';
-          ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
-          ctx.restore();
-        }
-      } else if (tileDef.oo) {
-        // Standard OO city: ONE city node with 2 slots. White background rect
-        // connects the two slot circles. cityPositions are at cx ± SLOT_RADIUS
-        // from the city center (computed by normalizeTileDef for slots>=2).
-        const SR = 12.5; // SLOT_RADIUS at scale 50
-        const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
-        // White background rect spanning both slot circles
-        const xs = positions.map(p => p.x);
-        const ys = positions.map(p => p.y);
-        const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
-        const bw = Math.max(...xs) - Math.min(...xs) + 2 * SR;
-        const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
-        ctx.fillStyle = 'white';
-        ctx.fillRect(bx, by, bw, bh);
-        for (const pos of positions) {
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
-          ctx.fillStyle = 'white';
-          ctx.fill();
-          ctx.strokeStyle = '#333';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      } else if (tileDef.cities && tileDef.cities.length) {
-        // Multi-city tile: 2+ SEPARATE 1-slot city nodes (e.g. tiles 457-464).
-        // Mirrors tobymao's @tile.cities iteration — each city renders independently
-        // at its topology-computed position. No connecting rect; tracks route to
-        // each city center (positions were pre-computed before normalizeTileDef).
-        const SR = 12.5;
-        for (const pos of tileDef.cities) {
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, SR, 0, Math.PI * 2);
-          ctx.fillStyle = 'white';
-          ctx.fill();
-          ctx.strokeStyle = '#333';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      } else if (tileDef.town) {
-        // Unconnected town → dot (Ruby town.rect? = exits.size==2; 0 exits = dot)
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.arc(0, 0, 5, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (tileDef.townAt) {
-        // Positioned town bar (e.g. tile 3/58 — junction off-center)
-        const { x, y, rot, rw, rh } = tileDef.townAt;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rot * Math.PI / 180);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(-rw / 2, -rh / 2, rw, rh);
-        ctx.restore();
-      }
-
-      ctx.restore(); // restore transform
-      ctx.restore(); // restore clip
-
-      // Y / T label — drawn in canvas space so it does NOT rotate with the tile
-      if (tileDef.tileLabel) {
-        ctx.fillStyle = '#111';
-        ctx.font = `bold ${Math.max(8, Math.round(9 * zoom))}px Arial`;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(tileDef.tileLabel, cx - size * 0.62, cy);
-      }
-
-      // Revenue bubble(s) — position follows tile rotation (node travels with tile),
-      // but the circle/text is drawn canvas-upright (never tilted).
-      const revList = tileDef.revenues || (tileDef.revenue ? [tileDef.revenue] : []);
-      const _revRotRad = rotation * Math.PI / 180;
-      const _revCosR = Math.cos(_revRotRad), _revSinR = Math.sin(_revRotRad);
-      for (const rev of revList) {
-        if (rev.v === 0) continue; // no bubble for zero-revenue white tiles
-        const sc = size / 50;
-        // Rotate (rev.x, rev.y) by tile rotation so bubble tracks the node position
-        const rx = cx + (rev.x * _revCosR - rev.y * _revSinR) * sc;
-        const ry = cy + (rev.x * _revSinR + rev.y * _revCosR) * sc;
-
-        if (rev.phases) {
-          // Phase-variable revenue: draw a horizontal row of colored boxes.
-          // Format: 'yellow_30|green_40|brown_60|gray_80'
-          // 'gray' → 'grey' to match TILE_HEX_COLORS key.
-          const segments = rev.phases.split('|').map(seg => {
-            const us = seg.indexOf('_');
-            if (us === -1) return null;
-            const ph = seg.slice(0, us) === 'gray' ? 'grey' : seg.slice(0, us);
-            const val = parseInt(seg.slice(us + 1), 10);
-            return { ph, val };
-          }).filter(Boolean);
-          if (segments.length > 0) {
-            const bw = 13 * sc, bh = 9 * sc, gap = 1 * sc;
-            const totalW = segments.length * bw + (segments.length - 1) * gap;
-            let bx = rx - totalW / 2;
-            const by = ry - bh / 2;
-            const fontSize = Math.max(5, Math.round(6 * zoom));
-            for (const { ph, val } of segments) {
-              const bgCol = TILE_HEX_COLORS[ph] || '#ccc';
-              ctx.fillStyle = bgCol;
-              ctx.fillRect(bx, by, bw, bh);
-              ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-              ctx.lineWidth = 0.5;
-              ctx.strokeRect(bx, by, bw, bh);
-              ctx.fillStyle = '#111';
-              ctx.font = `bold ${fontSize}px Arial`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(String(val), bx + bw / 2, by + bh / 2);
-              bx += bw + gap;
-            }
-          }
-        } else {
-          const r = 7.5 * sc;
-          ctx.beginPath();
-          ctx.arc(rx, ry, r, 0, Math.PI * 2);
-          ctx.fillStyle = 'white';
-          ctx.fill();
-          ctx.strokeStyle = '#777';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.fillStyle = '#000';
-          ctx.font = `bold ${Math.max(6, Math.round(8 * zoom))}px Arial`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(String(rev.v), rx, ry);
-        }
-      }
-    }
-  }
 
   // City name for placed tiles (city:true or oo:true) AND for feature-schema city/oo hexes
   const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities)) || !!hex?.city
@@ -1103,15 +920,169 @@ function drawHex(row, col, hex = null) {
   ctx.fillText(coordLabel, cx, cy - size * 0.62);
 }
 
+
+// ─── SVG TILE OVERLAY ─────────────────────────────────────────────────────────
+// renderTilesSVG() writes placed-tile content (tracks, city/town symbols,
+// revenue bubbles) into the <svg id="tileSvg"> element overlaid on the canvas.
+// SVG transforms handle rotation and orientation correctly by construction —
+// no manual trigonometry needed per symbol type.
+
+function escSvg(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderTilesSVG() {
+  const svgEl = document.getElementById('tileSvg');
+  if (!svgEl) return;
+
+  const w = canvas.clientWidth || 800;
+  const h = canvas.clientHeight || 600;
+  svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+  const isPointy = state.meta.orientation === 'pointy';
+  const orientDeg = isPointy ? 30 : 0;
+  const mRPC = state.meta.maxRowPerCol || null;
+  const size = HEX_SIZE * zoom; // canvas-space circumradius
+  const sc = size / 50;         // scale: tile-SVG-units → canvas-pixels
+
+  // Shared clip path: hex boundary in canvas-space centered at (0,0).
+  // orientDeg rotates the polygon to match the visual hex for the current orientation.
+  const clipPts = Array.from({ length: 6 }, (_, n) => {
+    const a = (orientDeg + n * 60) * Math.PI / 180;
+    return `${(size * Math.cos(a)).toFixed(1)},${(size * Math.sin(a)).toFixed(1)}`;
+  }).join(' ');
+
+  let defs = `<clipPath id="tile-clip"><polygon points="${clipPts}"/></clipPath>`;
+  let content = '';
+
+  for (let r = 0; r < state.meta.rows; r++) {
+    for (let c = 0; c < state.meta.cols; c++) {
+      if (mRPC !== null && r >= (mRPC[c] !== undefined ? mRPC[c] : state.meta.rows)) continue;
+      const id = hexId(r, c);
+      const hex = state.hexes[id] || null;
+      if (!hex?.tile) continue;
+      const tileDef = TileRegistry.getTileDef(hex.tile);
+      if (!tileDef) continue;
+
+      const center = getHexCenter(r, c, HEX_SIZE * zoom, state.meta.orientation);
+      const cx = (center.x + panX) * zoom + LABEL_PAD;
+      const cy = (center.y + panY) * zoom + LABEL_PAD;
+      const tileDeg = (hex.rotation || 0) * 60;
+      const totalDeg = orientDeg + tileDeg;
+
+      // ── Rotated content (tracks + city/town symbols) ──
+      let inner = '';
+
+      if (tileDef.svgPath) {
+        inner += `<path d="${tileDef.svgPath}" stroke="#222" stroke-width="8" stroke-linecap="round" fill="none"/>`;
+      }
+
+      if (tileDef.city) {
+        inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
+
+      } else if (tileDef.oo) {
+        const SR = 12.5;
+        const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
+        if (positions.length === 2) {
+          // White background rect bridges the two circles
+          const xs = positions.map(p => p.x);
+          const ys = positions.map(p => p.y);
+          const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
+          const bw = Math.max(...xs) - Math.min(...xs) + 2 * SR;
+          const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
+          inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
+        }
+        for (const pos of positions) {
+          inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
+        }
+
+      } else if (tileDef.cities && tileDef.cities.length) {
+        const SR = 12.5;
+        for (const pos of tileDef.cities) {
+          inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
+        }
+
+      } else if (tileDef.town) {
+        inner += `<circle cx="0" cy="0" r="5" fill="black"/>`;
+
+      } else if (tileDef.townAt) {
+        const { x, y, rot, rw, rh } = tileDef.townAt;
+        inner += `<g transform="translate(${x},${y}) rotate(${rot})"><rect x="${-rw / 2}" y="${-rh / 2}" width="${rw}" height="${rh}" fill="black"/></g>`;
+
+      } else if (tileDef.dualTown) {
+        const dtPos = (tileDef.townPositions && tileDef.townPositions.length)
+          ? tileDef.townPositions
+          : [{ x: -10, y: 0, rot: 0, rw: 16, rh: 4 }, { x: 10, y: 0, rot: 0, rw: 16, rh: 4 }];
+        for (const pos of dtPos) {
+          if (pos.dot) {
+            inner += `<circle cx="${pos.x}" cy="${pos.y}" r="5" fill="black"/>`;
+          } else {
+            const rw = pos.rw || 16, rh = pos.rh || 4;
+            inner += `<g transform="translate(${pos.x},${pos.y}) rotate(${pos.rot || 0})"><rect x="${-rw / 2}" y="${-rh / 2}" width="${rw}" height="${rh}" fill="black"/></g>`;
+          }
+        }
+      }
+
+      // Tile group: translate to hex center; clip to hex; rotate+scale tile content
+      content += `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)})">`;
+      content += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
+
+      // ── Upright content (stays level regardless of tile rotation) ──
+
+      // Tile label (Y, T, OO …) — left of center, same position as canvas version
+      if (tileDef.tileLabel) {
+        const fs = Math.max(8, Math.round(9 * zoom));
+        content += `<text x="${(-size * 0.62).toFixed(1)}" y="0" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
+      }
+
+      // Revenue bubbles — position orbits with tile rotation, text stays upright
+      const revList = tileDef.revenues || (tileDef.revenue ? [tileDef.revenue] : []);
+      const revRotRad = tileDeg * Math.PI / 180 + (isPointy ? Math.PI / 6 : 0);
+      const cosR = Math.cos(revRotRad), sinR = Math.sin(revRotRad);
+
+      for (const rev of revList) {
+        if (!rev || rev.v === 0) continue;
+        const rx = (rev.x * cosR - rev.y * sinR) * sc;
+        const ry = (rev.x * sinR + rev.y * cosR) * sc;
+
+        if (rev.phases) {
+          const segs = rev.phases.split('|').map(s => {
+            const u = s.indexOf('_');
+            return u < 0 ? null : { ph: s.slice(0, u) === 'gray' ? 'grey' : s.slice(0, u), val: +s.slice(u + 1) };
+          }).filter(Boolean);
+          if (segs.length) {
+            const bw = 13 * sc, bh = 9 * sc, gap = 1 * sc;
+            const tw = segs.length * bw + (segs.length - 1) * gap;
+            let bx = rx - tw / 2;
+            const by = ry - bh / 2;
+            const fs = Math.max(5, Math.round(6 * zoom));
+            for (const { ph, val } of segs) {
+              const col = TILE_HEX_COLORS[ph] || '#ccc';
+              content += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
+              content += `<text x="${(bx + bw / 2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
+              bx += bw + gap;
+            }
+          }
+        } else {
+          const rr = Math.max(7, Math.round(7.5 * zoom));
+          const fs = Math.max(6, Math.round(8 * zoom));
+          content += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="${rr}" fill="white" stroke="#777" stroke-width="1"/>`;
+          content += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
+        }
+      }
+
+      content += '</g>'; // close translate group
+    }
+  }
+
+  svgEl.innerHTML = `<defs>${defs}</defs>${content}`;
+}
+
 // ─── RENDER ───────────────────────────────────────────────────────────────────
-// Clears the canvas and redraws all hex cells.
+// Clears the canvas and redraws all hex cells, then overlays SVG tile content.
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // maxRowPerCol: per-column row extents set by importRubyMap.
-  // When present, skip positions beyond each column's valid range so that
-  // imported maps (e.g. 1889 Shikoku) don't render blank tan hexes outside
-  // the island shape.  Null = no per-column clipping (user-created maps).
   const mRPC = state.meta.maxRowPerCol || null;
   for (let r = 0; r < state.meta.rows; r++) {
     for (let c = 0; c < state.meta.cols; c++) {
@@ -1129,4 +1100,78 @@ function render() {
     ctx.fillStyle = 'rgba(0,204,255,0.07)';
     ctx.fillRect(lx, ly, lw, lh);
     ctx.strokeStyle = '#00ccff';
-    ctx.line
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(lx, ly, lw, lh);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+  // Render placed tile content (tracks, symbols, revenue) as crisp SVG
+  renderTilesSVG();
+}
+
+// ─── RESIZE CANVAS ────────────────────────────────────────────────────────────
+// Matches canvas and SVG overlay to the container size; applies HiDPI scaling.
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = container.clientWidth || 800;
+  const h = container.clientHeight || 600;
+  canvas.width  = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  const svgEl = document.getElementById('tileSvg');
+  if (svgEl) {
+    svgEl.style.width  = w + 'px';
+    svgEl.style.height = h + 'px';
+  }
+  ctx.scale(dpr, dpr);
+  render();
+}
+
+// ── Wizard preview adapter ───────────────────────────────────────────────────
+// Called by static-hex-builder.js to render a wizard hex using the canonical
+// canvas renderer rather than duplicating logic in SVG.
+function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
+  previewSize = previewSize || 170;
+  previewCanvas.width  = previewSize;
+  previewCanvas.height = previewSize;
+  const ctx2 = previewCanvas.getContext('2d');
+  ctx2.clearRect(0, 0, previewSize, previewSize);
+
+  const hs = previewSize * 0.45;
+  const orientation = 'flat';
+  const center = getHexCenter(0, 0, hs, orientation);
+
+  const savedCtx         = window.ctx;
+  const savedZoom        = window.zoom;
+  const savedPanX        = window.panX;
+  const savedPanY        = window.panY;
+  const savedHexSize     = window.HEX_SIZE;
+  const savedLabelPad    = window.LABEL_PAD;
+  const savedSelectedHex = window.selectedHex;
+  const savedOrientation = state.meta.orientation;
+
+  window.ctx              = ctx2;
+  window.zoom             = 1;
+  window.LABEL_PAD        = 0;
+  window.HEX_SIZE         = hs;
+  window.panX             = previewSize / 2 - center.x;
+  window.panY             = previewSize / 2 - center.y;
+  window.selectedHex      = null;
+  state.meta.orientation  = orientation;
+
+  try {
+    drawStaticHex(0, 0, hexData);
+  } finally {
+    window.ctx             = savedCtx;
+    window.zoom            = savedZoom;
+    window.panX            = savedPanX;
+    window.panY            = savedPanY;
+    window.HEX_SIZE        = savedHexSize;
+    window.LABEL_PAD       = savedLabelPad;
+    window.selectedHex     = savedSelectedHex;
+    state.meta.orientation = savedOrientation;
+  }
+}

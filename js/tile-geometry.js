@@ -594,13 +594,13 @@ function normalizeTileDef(def) {
         // Positions match palette.js swatch rendering for consistency.
         const cx = node.x, cy = node.y;
         if (slots >= 3) {
-          // Tight equilateral triangle — each circle center at SLOT_RADIUS from city
-          // node, so the track endpoint (city x,y) sits at the centroid of all three
-          // circles and visually "enters" the cluster from any rotation.
-          const h = SLOT_RADIUS * Math.sqrt(3) / 2; // ≈10.83 at SR=12.5
-          cityPositions.push({ x: cx,      y: cy - SLOT_RADIUS }); // top
-          cityPositions.push({ x: cx + h,  y: cy + SLOT_RADIUS * 0.5 }); // bottom-right
-          cityPositions.push({ x: cx - h,  y: cy + SLOT_RADIUS * 0.5 }); // bottom-left
+          // Equilateral triangle: circles separated so they don't overlap.
+          // R=18 gives center-to-center ≈31.2 vs circle diameter 25 → ~6 unit gap.
+          const R3 = 18;
+          const h3 = R3 * Math.sqrt(3) / 2; // ≈15.59
+          cityPositions.push({ x: cx,       y: cy - R3 });         // top
+          cityPositions.push({ x: cx + h3,  y: cy + R3 * 0.5 });   // bottom-right
+          cityPositions.push({ x: cx - h3,  y: cy + R3 * 0.5 });   // bottom-left
         } else {
           // Standard OO: two circles side by side
           cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
@@ -803,4 +803,9 @@ function parseDSL(dslString, color) {
     // border, icon, frame, junction, halt: silently ignored
   }
 
-  const result = { color: color || 'yell
+  const result = { color: color || 'yellow', nodes, paths };
+  if (labelStr) result.label = labelStr;
+  return result;
+}
+
+// 
