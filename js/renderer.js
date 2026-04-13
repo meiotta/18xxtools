@@ -993,11 +993,9 @@ function renderTilesSVG() {
           const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
           inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
         } else if (positions.length >= 3) {
-          // 3-slot: white triangle connecting circle centers fills the whole interior.
-          // Edges 0/2/4 of tile 171 go exactly BETWEEN the circles and would show as
-          // black stubs — the triangle covers them from center to the circle boundary.
-          const pts = positions.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-          inner += `<polygon points="${pts}" fill="white" stroke="none"/>`;
+          // 3-slot: tobymao BOX_ATTRS[3] — mini hexagon (Hex::POINTS × 0.458) at 50-unit scale.
+          // Covers center and track stubs between circles; circles protrude beyond it.
+          inner += `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>`;
         }
         for (const pos of positions) {
           inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
@@ -1157,4 +1155,7 @@ function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
   const savedPanY        = window.panY;
   const savedHexSize     = window.HEX_SIZE;
   const savedLabelPad    = window.LABEL_PAD;
-  const savedSelect
+  const savedSelectedHex = window.selectedHex;
+  const savedOrientation = state.meta.orientation;
+
+  window.ctx          

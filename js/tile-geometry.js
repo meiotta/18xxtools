@@ -594,10 +594,10 @@ function normalizeTileDef(def) {
         // Positions match palette.js swatch rendering for consistency.
         const cx = node.x, cy = node.y;
         if (slots >= 3) {
-          // Equilateral triangle: circles separated so they don't overlap.
-          // R=18 gives center-to-center ≈31.2 vs circle diameter 25 → ~6 unit gap.
-          const R3 = 18;
-          const h3 = R3 * Math.sqrt(3) / 2; // ≈15.59
+          // Matches tobymao CITY_SLOT_POSITION[3]=[0,-29] at 50/100 scale → R3=14.5.
+          // Circles at rotate(0°/120°/240°)(0,-R3); center-to-center≈25.1 ≈ 2×SLOT_RADIUS → barely touching.
+          const R3 = 14.5;
+          const h3 = R3 * Math.sqrt(3) / 2; // ≈12.56
           cityPositions.push({ x: cx,       y: cy - R3 });         // top
           cityPositions.push({ x: cx + h3,  y: cy + R3 * 0.5 });   // bottom-right
           cityPositions.push({ x: cx - h3,  y: cy + R3 * 0.5 });   // bottom-left
@@ -804,8 +804,4 @@ function parseDSL(dslString, color) {
   }
 
   const result = { color: color || 'yellow', nodes, paths };
-  if (labelStr) result.label = labelStr;
-  return result;
-}
-
-// 
+  if (labelStr) result
