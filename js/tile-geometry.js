@@ -590,12 +590,22 @@ function normalizeTileDef(def) {
       totalSlots += slots;
 
       if (slots >= 2) {
-        // Multi-slot city: OO visual — two slots at ±SLOT_RADIUS from city center.
-        // Source city.rb: CITY_SLOT_POSITION[2] = [-SLOT_RADIUS, 0], rotated 180° for slot 1.
-        // REVENUE_DISPLACEMENT[flat][2] = 67 at scale 100 → 33.5 at scale 50.
+        // Multi-slot city: OO (2-slot) or triangle (3-slot).
+        // Positions match palette.js swatch rendering for consistency.
         const cx = node.x, cy = node.y;
-        cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
-        cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+        if (slots >= 3) {
+          // Tight equilateral triangle — each circle center at SLOT_RADIUS from city
+          // node, so the track endpoint (city x,y) sits at the centroid of all three
+          // circles and visually "enters" the cluster from any rotation.
+          const h = SLOT_RADIUS * Math.sqrt(3) / 2; // ≈10.83 at SR=12.5
+          cityPositions.push({ x: cx,      y: cy - SLOT_RADIUS }); // top
+          cityPositions.push({ x: cx + h,  y: cy + SLOT_RADIUS * 0.5 }); // bottom-right
+          cityPositions.push({ x: cx - h,  y: cy + SLOT_RADIUS * 0.5 }); // bottom-left
+        } else {
+          // Standard OO: two circles side by side
+          cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
+          cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+        }
         if (node.revenue !== undefined) {
           revenues.push({ x: cx + 33.5, y: cy, v: node.revenue });
         }
@@ -793,19 +803,4 @@ function parseDSL(dslString, color) {
     // border, icon, frame, junction, halt: silently ignored
   }
 
-  const result = { color: color || 'yellow', nodes, paths };
-  if (labelStr) result.label = labelStr;
-  return result;
-}
-
-// Parse a phase-variable or simple revenue string.
-// 'yellow_10|green_20|brown_30' → 10 (take first/yellow value)
-// '20' → 20
-// 'E' → 'E' (for offboard variable revenues — keep as string)
-function parseRevenue(str) {
-  if (!str) return undefined;
-  // Phase-variable: yellow_N|green_M|...
-  if (str.includes('|')) {
-    const first = str.split('|')[0];
-    const colIdx = first.indexOf('_');
-    if (colIdx !== -1) return parseRevValue(first.slice(colId
+  const result = { color: color || 'yell
