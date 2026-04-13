@@ -13,7 +13,7 @@
 //   5. Parse HEXES block for all colors (white/yellow/green/gray/red/blue).
 //   6. Convert each coord to editor grid indices via coordToGrid().
 //   7. Match yellow/green hexes to TILE_DEFS by edge set + color.
-//   8. Parse gray/red/blue hexes as static hexes.
+//   8. Parse all colored hexes into DSL hex objects via parseDslHex.
 //   9. Fill unused grid positions with killed hexes.
 
 // ── Edge midpoints in manifest SVG path-space (apothem=43.3, y-down) ─────────
@@ -117,10 +117,16 @@ function parsePhaseRevenue(revStr) {
 // ── Parse a single Ruby hex code string (for white/yellow/green) ──────────────
 // Returns: { city, oo, town, dualTown, paths, label, terrain, terrainCost, borders, icons }
 function parseHexCode(code) {
-  const result = { city: null, oo: false, town: false, dualTown: false, paths: [], directPaths: [], label: '', terrain: '', terrainHasWater: false, terrainCost: 0, borders: [], icons: [] };
+  const result = { city: null, oo: false, town: false, dualTown: false, offboard: false, paths: [], directPaths: [], label: '', terrain: '', terrainHasWater: false, terrainCost: 0, borders: [], icons: [] };
   let cityCount = 0, townCount = 0;
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
+    // Handle bare keywords 'city' and 'town' (no = sign, no attributes)
+    // e.g.  %w[E19 H4] => 'city'   or   %w[B20 D4 F10] => 'town'
+    if (part === 'city') { cityCount++; continue; }
+    if (part === 'town') { townCount++; continue; }
+    if (part === 'city=') { cityCount++; continue; } // degenerate city=
+
     if (part.startsWith('city=')) {
       cityCount++;
       if (cityCount === 1) {
@@ -194,9 +200,9 @@ function parseHexCode(code) {
   return result;
 }
 
-// ── Parse full code string into a static hex object (gray/red/blue/pre-placed) ──
-// bg: 'gray', 'red', 'blue', 'yellow', 'green'
-function parseStaticHex(code, bg, locationName) {
+// ── Parse a Ruby hex DSL code string into a hex object ────────────────────────
+// bg: hex background color ('white', 'yellow', 'green', 'gray', 'red', 'blue')
+function parseDslHex(code, bg, locationName) {
   const hex = {
     static: true,
     bg,
@@ -226,10 +232,15 @@ function parseStaticHex(code, bg, locationName) {
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   let cityCount = 0, townCount = 0;
   const exitSet = new Set();
+  const exitsByNode = {};   // node index → [edge, …]  — used for OO exitPairs
   const pathPairs = [];
   const cityRevs = [];
 
   for (const part of parts) {
+    // Bare keywords: 'city' or 'town' with no attributes (e.g. %w[E19 H4] => 'city')
+    if (part === 'city' || part === 'city=') { cityCount++; continue; }
+    if (part === 'town' || part === 'town=') { townCount++; continue; }
+
     if (part.startsWith('city=')) {
       cityCount++;
       const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
@@ -247,10 +258,11 @@ function parseStaticHex(code, bg, locationName) {
           const f = parseFloat(locStr);
           if (!isNaN(f)) {
             const isHalf = !Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5;
+            // Tobymao city.rb: distance=50 in 100-unit space → 25 in 50-unit space.
+            // x = -sin(f*60°)*25, y = cos(f*60°)*25  (same formula as cityEdgePos() in renderer.js)
             const angle  = f * Math.PI / 3;
-            const r      = isHalf ? 50 : 43.5;
-            hex.cityLocX = parseFloat((-Math.sin(angle) * r).toFixed(2));
-            hex.cityLocY = parseFloat(( Math.cos(angle) * r).toFixed(2));
+            hex.cityLocX = parseFloat((-Math.sin(angle) * 25).toFixed(2));
+            hex.cityLocY = parseFloat(( Math.cos(angle) * 25).toFixed(2));
           }
         }
       }
@@ -266,12 +278,18 @@ function parseStaticHex(code, bg, locationName) {
       if (townCount === 1) { hex.townRevenue = rev; hex.townRevenues[0] = rev; }
       if (townCount === 2) { hex.townRevenues[1] = rev; }
     } else if (part.startsWith('path=')) {
-      const toNode   = part.match(/a:(\d+),b:_\d+/);
-      const fromNode = part.match(/a:_\d+,b:(\d+)/);
+      const toNode   = part.match(/a:(\d+),b:_(\d+)/);
+      const fromNode = part.match(/a:_(\d+),b:(\d+)/);
       const edgePair = !toNode && !fromNode ? part.match(/^path=a:(\d+),b:(\d+)/) : null;
-      if (toNode)   exitSet.add(parseInt(toNode[1]));
-      else if (fromNode) exitSet.add(parseInt(fromNode[1]));
-      else if (edgePair) pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
+      if (toNode) {
+        const edge = parseInt(toNode[1]), ni = parseInt(toNode[2]);
+        exitSet.add(edge);
+        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
+      } else if (fromNode) {
+        const ni = parseInt(fromNode[1]), edge = parseInt(fromNode[2]);
+        exitSet.add(edge);
+        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
+      } else if (edgePair) pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
     } else if (part.startsWith('label=')) {
       hex.label = part.slice(6).trim();
     } else if (part.includes('terrain:')) {
@@ -308,6 +326,13 @@ function parseStaticHex(code, bg, locationName) {
   hex.exits    = [...exitSet];
   hex.pathPairs = pathPairs;
 
+  // cityLocX/Y are set from loc: during city part parsing (if present).
+  // loc: IS the visual position for DSL preprinted map hexes — it is NOT merely
+  // a routing hint. The SVG rotate(orientDeg) wrapper handles orientation, so
+  // cityLocX/Y are used as-is in flat-top coordinate space. Do NOT zero them
+  // for connected cities; the loc: offset (e.g. Altoona loc:2.5 → above center)
+  // is intentional and drives the visual city position.
+
   // Path mode: use 'pairs' when only edge-to-edge paths (no feature exits)
   hex.pathMode = (pathPairs.length > 0 && exitSet.size === 0) ? 'pairs' : 'star';
 
@@ -319,14 +344,19 @@ function parseStaticHex(code, bg, locationName) {
       hex.slots    = cityCount;
       // Use first city's revenue for the single revenue display
       // (already set from cityCount===1 branch above; keep it)
+      // Store cityExitsByNode for multi-node city rendering
+      hex.cityExitsByNode = { ...exitsByNode };
     } else if (cityCount === 2) {
       hex.feature = 'oo';
       hex.ooFlatRevenues = [
         cityRevs[0]?.flat !== null ? (cityRevs[0]?.flat || 0) : (cityRevs[0]?.phases?.yellow || 0),
         cityRevs[1]?.flat !== null ? (cityRevs[1]?.flat || 0) : (cityRevs[1]?.phases?.yellow || 0),
       ];
-      // exitPairs: try to assign one exit per city node for OO
-      if (exitSet.size === 2) {
+      // exitPairs: assign exits per city node using path=a:N,b:_M routing when available,
+      // falling back to a simple 2-exit split for hexes without node-tagged paths.
+      if (Object.keys(exitsByNode).length >= 1) {
+        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
+      } else if (exitSet.size === 2) {
         const exits = [...exitSet];
         hex.exitPairs = [[exits[0]], [exits[1]]];
       }
@@ -334,6 +364,10 @@ function parseStaticHex(code, bg, locationName) {
       hex.feature = 'city';
     } else if (townCount >= 2) {
       hex.feature = 'dualTown';
+      // Store exit pairs per town node so renderer can draw correct arcs
+      if (Object.keys(exitsByNode).length >= 1) {
+        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
+      }
     } else if (townCount === 1) {
       hex.feature = 'town';
     }
@@ -440,8 +474,6 @@ function importRubyMap(content) {
 
   const hexEntries = {}; // coord → { color, code, parsed }
 
-  // Colors to import and how to handle them
-  const staticColors = new Set(['gray', 'red', 'blue']);
   const colorsToImport = ['white', 'yellow', 'green', 'gray', 'red', 'blue'];
 
   for (const color of colorsToImport) {
@@ -599,63 +631,109 @@ function importRubyMap(content) {
     const key  = hexId(g.row, g.col);
     const name = locationNames[coord] || '';
 
-    if (staticColors.has(color)) {
-      // ── Gray / red / blue → parse as static hex ──
-      const h = parseStaticHex(code, color, name);
-      // Blue hexes with no content are ocean — mark killed so they're not shown
-      if (color === 'blue' && !code.trim()) {
-        newHexes[key] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, label: '', killed: true };
+    // ── Blue ocean: no content → killed hex ──────────────────────────────────
+    if (color === 'blue' && !code.trim()) {
+      newHexes[key] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0,
+                        city: null, town: null, label: '', killed: true };
+      continue;
+    }
+
+    if (color === 'white') {
+      // White hexes: detect whether any DSL content is present.
+      // Hexes with content → DSL rendering via parseDslHex.
+      // Blank white hexes (only terrain/cost/borders) → upgradeable blank hex structure.
+      const parsed = parseHexCode(code);
+      const hasContent = parsed.city || parsed.oo || parsed.town || parsed.dualTown ||
+        (parsed.paths && parsed.paths.length > 0) ||
+        (parsed.directPaths && parsed.directPaths.length > 0) ||
+        (parsed.label && parsed.label !== '');
+
+      if (hasContent) {
+        newHexes[key] = parseDslHex(code, 'white', name);
       } else {
-        newHexes[key] = h;
+        // Blank upgradeable hex — keeps terrain, borders, icons for tile placement UI
+        newHexes[key] = {
+          terrain:         parsed.terrain,
+          terrainHasWater: parsed.terrainHasWater || false,
+          terrainCost:     parsed.terrainCost,
+          tile: 0, rotation: 0,
+          city: null, town: null,
+          label: '',
+          upgradesTo: [], overrideUpgrades: false,
+          riverEdges: [], killed: false,
+          cityName: '',
+          borders: parsed.borders || [],
+          icons:   parsed.icons   || [],
+        };
       }
     } else {
-      // ── White / yellow / green ───────────────────
-      const parsed = parseHexCode(code);
-      const h = {
-        terrain:         parsed.terrain,
-        terrainHasWater: parsed.terrainHasWater || false,
-        terrainCost:     parsed.terrainCost,
-        tile: 0, rotation: 0,
-        city: null, town: null,
-        label: parsed.label,
-        upgradesTo: [], overrideUpgrades: false,
-        riverEdges: [], killed: false,
-        cityName: '',
-      };
+      // All non-white hexes (yellow, green, gray, red, blue with content)
+      // → unified DSL rendering via parseDslHex.
+      // No tile matching at import time — the renderer reads DSL fields directly.
+      newHexes[key] = parseDslHex(code, color, name);
+    }
+  }
 
-      if (color === 'white') {
-        if (parsed.oo) {
-          h.feature = 'oo';
-          h.oo = true; h.ooCityName = name;
-          h.label = parsed.label || 'OO';
-        } else if (parsed.city) {
-          h.feature = 'city';
-          h.slots = parsed.city.slots;
-          h.city = { name, slots: parsed.city.slots, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
-          // Off-center city: compute position in 50-unit tile space (same trig as tile-geometry.js)
-          if (parsed.city.loc !== undefined) {
-            const f = parseFloat(parsed.city.loc);
-            if (!isNaN(f)) {
-              const isHalf = !Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5;
-              const angle = f * Math.PI / 3;
-              const r = isHalf ? 50 : 43.5; // circumradius for .5 corners, inradius for integers
-              h.cityLocX = parseFloat((-Math.sin(angle) * r).toFixed(2));
-              h.cityLocY = parseFloat(( Math.cos(angle) * r).toFixed(2));
-            }
-          }
-          // Direct edge-to-edge paths (e.g. bypass path=a:1,b:4 alongside a corner city)
-          if (parsed.directPaths && parsed.directPaths.length > 0) {
-            h.pathPairs = parsed.directPaths;
-          }
-        } else if (parsed.dualTown) {
-          h.feature = 'dualTown';
-          h.dualTown = true; h.town = { name };
-        } else if (parsed.town) {
-          h.feature = 'town';
-          h.town = { name };
-        } else {
-          h.feature = 'blank';
-        }
-        if (parsed.borders && parsed.borders.length > 0) h.borders = parsed.borders;
-        // Carry icon directives (port, franchise markers, etc.) to white hexes
-        if (parsed.icons && pa
+  // ── Fill unused grid positions with killed hexes ────────────────────────
+  //
+  // The renderer draws every (row,col) in the maxRow×maxCol bounding box, so
+  // we need a killed hex at every position that has no Ruby hex entry.
+  //
+  // Use the global bounding box (maxRow × maxCol) — do NOT clip per column.
+  // A per-column ceiling (maxRowPerCol) breaks jagged maps like 1830 where
+  // only some columns reach the last row; those corner positions must still
+  // become killed hexes to fill out the visual grid rectangle.
+  for (let r = 0; r < maxRow; r++) {
+    for (let c = 0; c < maxCol; c++) {
+      const k = hexId(r, c);
+      if (!newHexes[k]) {
+        newHexes[k] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, label: '', killed: true };
+      }
+    }
+  }
+
+  const live    = Object.values(newHexes).filter(h => !h.killed).length;
+  const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
+  const statics = Object.values(newHexes).filter(h => h.static).length;
+  console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
+  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, coordParity, pointyStaggerParity, maxRowPerCol };
+}
+
+// ── Wire up the Import Map button ─────────────────────────────────────────────
+
+document.getElementById('importMapBtn').addEventListener('click', () => {
+  document.getElementById('importMapFile').click();
+});
+
+document.getElementById('importMapFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const result = importRubyMap(ev.target.result);
+      state.hexes = result.hexes;
+      state.meta.rows = result.rows;
+      state.meta.cols = result.cols;
+      state.meta.orientation = result.orientation;
+      state.meta.staggerParity      = result.staggerParity;
+      state.meta.coordParity        = result.coordParity;
+      state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+      state.meta.maxRowPerCol       = result.maxRowPerCol;
+      // Sync orientation select and dimension inputs in the toolbar/config panel
+      syncOrientationSelect();
+      syncDimInputs();
+      // Reset pan so map is visible
+      panX = 0; panY = 0; zoom = 1;
+      render();
+      autosave();
+      const staticCount = Object.values(result.hexes).filter(h => h.static).length;
+      updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes`);
+    } catch (err) {
+      console.error('[importRubyMap] error:', err);
+      alert('Import failed: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = ''; // reset so same file can be re-imported
+});

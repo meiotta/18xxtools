@@ -6,7 +6,7 @@
 // render()                — clears canvas and redraws all hexes + coordinate labels
 // resizeCanvas()          — called on window resize; sets canvas size then re-renders
 
-const RENDERER_VERSION = '2026-04-13-town-canonical';
+const RENDERER_VERSION = '2026-04-13-london-nobg';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
 
 // ── Debug: inspect a hex by grid key or by clicking ──────────────────────────
@@ -467,14 +467,9 @@ function drawHex(row, col, hex = null) {
     ctx.restore();
   }
 
-  // Hex label (label= field, rendered at center when no tile)
-  if (hex?.label && !hex?.tile) {
-    ctx.font = `bold ${Math.max(8, Math.round(9 * zoom))}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#555';
-    ctx.fillText(hex.label, cx, cy);
-  }
+  // Hex label (label= field) is rendered by the SVG layer (hexToSvgInner) for
+  // all DSL hexes — the hasDslContent gate now includes hex.label. Removed the
+  // canvas fallback here to prevent double-rendering on OO/NY/label-only hexes.
 
   // Border markers (impassable / water crossing)
   drawBorders(hex, cx, cy, size);
@@ -643,10 +638,13 @@ function hexToSvgInner(hex, tileDef) {
           svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${nodePos.x.toFixed(1)}" y2="${nodePos.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
         }
       }
-      // White background box (BOX_ATTRS[3] polygon at scale 50 from city.rb)
+      // White background: only for tight 2–3 node clusters. For 4+ nodes the
+      // cities are spread across edge positions (e.g. London 6-node) — a bbox
+      // would cover the entire hex interior. Tobymao renders each node circle
+      // independently in that case with no shared background.
       if (nodeCount === 3) {
         svg += `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>`;
-      } else {
+      } else if (nodeCount === 2) {
         const xs = Object.values(nodePosMap).map(p => p.x);
         const ys = Object.values(nodePosMap).map(p => p.y);
         const bx = Math.min(...xs)-DSL_SLOT_R, by = Math.min(...ys)-DSL_SLOT_R;
@@ -654,6 +652,7 @@ function hexToSvgInner(hex, tileDef) {
         const bh = Math.max(...ys)-Math.min(...ys)+2*DSL_SLOT_R;
         svg += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="white" stroke="none" rx="${DSL_SLOT_R}"/>`;
       }
+      // nodeCount >= 4: no background (spread-out nodes like London)
       for (const ni of nodeIndices) {
         const pos = nodePosMap[ni] || { x: 0, y: 0 };
         svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
@@ -686,10 +685,13 @@ function hexToSvgInner(hex, tileDef) {
       }
 
     } else {
-      // Single-slot city (including off-center loc: cities like Altoona).
-      const rawLoc = rotateLocPos(hex.cityLocX || 0, hex.cityLocY || 0);
-      const locX = rawLoc.x;
-      const locY = rawLoc.y;
+      // Single-slot city. cityLocX/Y come from loc: in the DSL — this IS the
+      // visual position for preprinted map hexes (e.g. Altoona loc:2.5 places
+      // the city above center). Operates in flat-top coordinate space; the SVG
+      // rotate(orientDeg) wrapper handles orientation. rotateLocPos must NOT be
+      // applied here — that was a double-rotation bug.
+      const locX = hex.cityLocX || 0;
+      const locY = hex.cityLocY || 0;
 
       // Bypass tracks (edge-to-edge paths independent of the city, e.g. Altoona path=a:1,b:4)
       for (const [ea, eb] of (hex.pathPairs || [])) {
@@ -703,10 +705,17 @@ function hexToSvgInner(hex, tileDef) {
         }
       }
 
-      // Tracks from exits to city center
+      // Tracks from exits to city. Port of tobymao track_node_path.rb line 363:
+      // use arc when city is off-center and begin/end are not colinear with origin.
       for (const e of (hex.exits || [])) {
         const p = ep(e);
-        svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${locX.toFixed(1)}" y2="${locY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+        const isCenter = (locX === 0 && locY === 0);
+        if (!isCenter && !checkColinear(p.x, p.y, locX, locY)) {
+          const arc = calcArc(p.x, p.y, locX, locY);
+          svg += `<path d="M ${p.x.toFixed(1)} ${p.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${locX.toFixed(1)} ${locY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+        } else {
+          svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${locX.toFixed(1)}" y2="${locY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+        }
       }
 
       // City circle (drawn after tracks so it sits on top)
@@ -821,7 +830,6 @@ function renderTilesSVG() {
 
   const isPointy = state.meta.orientation === 'pointy';
   const orientDeg = isPointy ? 30 : 0;
-  const mRPC = state.meta.maxRowPerCol || null;
   const size = HEX_SIZE * zoom; // canvas-space circumradius
   const sc = size / 50;         // scale: tile-SVG-units → canvas-pixels
 
@@ -837,7 +845,6 @@ function renderTilesSVG() {
 
   for (let r = 0; r < state.meta.rows; r++) {
     for (let c = 0; c < state.meta.cols; c++) {
-      if (mRPC !== null && r >= (mRPC[c] !== undefined ? mRPC[c] : state.meta.rows)) continue;
       const id = hexId(r, c);
       const hex = state.hexes[id] || null;
       if (!hex) continue;
@@ -848,7 +855,8 @@ function renderTilesSVG() {
         (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
         (hex.exits && hex.exits.length > 0) ||
         (hex.pathPairs && hex.pathPairs.length > 0) ||
-        (hex.exitPairs && hex.exitPairs.length > 0)
+        (hex.exitPairs && hex.exitPairs.length > 0) ||
+        (hex.label && hex.label !== '')
       );
       if (!tileDef && !hasDslContent) continue;
 
@@ -959,10 +967,11 @@ function renderTilesSVG() {
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const mRPC = state.meta.maxRowPerCol || null;
+  // Iterate the full bounding box — killed hexes exist in state.hexes for every
+  // position that has no live hex, so drawHex must be called for all (r,c).
+  // Do NOT gate on maxRowPerCol here; that caused corner killed hexes to be skipped.
   for (let r = 0; r < state.meta.rows; r++) {
     for (let c = 0; c < state.meta.cols; c++) {
-      if (mRPC !== null && r >= (mRPC[c] !== undefined ? mRPC[c] : state.meta.rows)) continue;
       drawHex(r, c, state.hexes[hexId(r, c)] || null);
     }
   }
