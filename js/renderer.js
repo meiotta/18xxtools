@@ -979,7 +979,8 @@ function renderTilesSVG() {
       }
 
       if (tileDef.city) {
-        inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
+        const cix = tileDef.cityX || 0, ciy = tileDef.cityY || 0;
+        inner += `<circle cx="${cix}" cy="${ciy}" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
 
       } else if (tileDef.oo) {
         const SR = 12.5;
@@ -1155,7 +1156,4 @@ function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
   const savedPanY        = window.panY;
   const savedHexSize     = window.HEX_SIZE;
   const savedLabelPad    = window.LABEL_PAD;
-  const savedSelectedHex = window.selectedHex;
-  const savedOrientation = state.meta.orientation;
-
-  window.ctx          
+  const savedSelectedHex = window.selectedHex;

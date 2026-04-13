@@ -76,8 +76,9 @@ function edgeAngleDeg(e) {
 
 // Returns the {x, y} of the vertex (corner) at position loc (e.g. 2.5 = corner
 // between edges 2 and 3). Used for Altoona-style off-center city placements.
+// Formula mirrors edgeMidpoint (same trig, circumradius instead of inradius, NO +90 offset).
 function cornerPosition(loc) {
-  const angle = (loc * 60 + 90) * Math.PI / 180;
+  const angle = loc * Math.PI / 3;
   return {
     x: parseFloat((-Math.sin(angle) * HEX_CIRCUMRADIUS).toFixed(2)),
     y: parseFloat(( Math.cos(angle) * HEX_CIRCUMRADIUS).toFixed(2))
@@ -649,6 +650,9 @@ function normalizeTileDef(def) {
       out.cityPositions = cityPositions; // [{x:-12.5,y:0},{x:12.5,y:0}] for standard
     } else {
       out.city = true;
+      // Preserve off-center position for corner/edge cities (loc: placement).
+      const cp = cityPositions[0];
+      if (cp && (cp.x !== 0 || cp.y !== 0)) { out.cityX = cp.x; out.cityY = cp.y; }
     }
     if (revenues.length > 0) out.revenue = revenues[0];
 
@@ -796,12 +800,4 @@ function parseDSL(dslString, color) {
       // label=label:OO or label=label:Chi
       if (labelStr === null && kv['label']) labelStr = kv['label'];
 
-    } else if (type === 'upgrade') {
-      // upgrade component tells us tile color transitions — we don't need it
-      // for rendering. Skip silently.
-    }
-    // border, icon, frame, junction, halt: silently ignored
-  }
-
-  const result = { color: color || 'yellow', nodes, paths };
-  if (labelStr) result
+    } else if (type === 'upgrade') {
