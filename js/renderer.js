@@ -223,13 +223,15 @@ function drawStaticHex(row, col, hex) {
       if (MULTI_DEFAULTS[hex.feature]) {
         // OO/C/M: tracks drawn in section 4 (after box fill so they're visible)
       } else if (hex.feature === 'city') {
-        // City hex: each exit draws a straight line to center (city circle sits at center)
+        // City hex: tracks run to city center, or to off-center loc position if set
+        const destX = hex.cityLocX !== undefined ? (cx + hex.cityLocX * sc) : cx;
+        const destY = hex.cityLocY !== undefined ? (cy + hex.cityLocY * sc) : cy;
         for (const exit of hex.exits) {
           const re = (exit + (hex.rotation || 0)) % 6;
           const mp = edgePos(re);
           ctx.beginPath();
           ctx.moveTo(cx + mp.x * sc, cy + mp.y * sc);
-          ctx.lineTo(cx, cy);
+          ctx.lineTo(destX, destY);
           ctx.stroke();
         }
       } else {
@@ -416,8 +418,10 @@ function drawStaticHex(row, col, hex) {
           ctx.stroke();
         }
       } else {
+        // Single-slot city: draw at off-center position if loc: was specified
+        const cix = hex.cityLocX || 0, ciy = hex.cityLocY || 0;
         ctx.beginPath();
-        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.arc(cix, ciy, 14, 0, Math.PI * 2);
         ctx.fillStyle = 'white';
         ctx.fill();
         ctx.strokeStyle = '#333';
@@ -1148,12 +1152,4 @@ function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
 
   const hs = previewSize * 0.45;
   const orientation = 'flat';
-  const center = getHexCenter(0, 0, hs, orientation);
-
-  const savedCtx         = window.ctx;
-  const savedZoom        = window.zoom;
-  const savedPanX        = window.panX;
-  const savedPanY        = window.panY;
-  const savedHexSize     = window.HEX_SIZE;
-  const savedLabelPad    = window.LABEL_PAD;
-  const savedSelectedHex = window.selectedHex;
+  const center = getHexCenter(0, 0, hs, orie
