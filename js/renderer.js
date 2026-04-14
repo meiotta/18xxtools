@@ -154,46 +154,97 @@ function buildBordersSvg(hex) {
   return svg;
 }
 
-// buildTerrainSvg: terrain icon for a hex with no placed tile.
+// buildTerrainSvg: terrain icon + cost for a hex with no placed tile.
 // Coordinates in hex-local world-unit space (centered at 0,0).
-function buildTerrainSvg(hex) {
+//
+// hasCityFeature: when true (city/town/oo also on this hex) the full icon
+// is rendered in the upper-right corner at small scale to avoid colliding
+// with city circles.  When false (terrain-only hex) the icon is centred
+// slightly below the hex centre with the cost underneath.
+function buildTerrainSvg(hex, hasCityFeature) {
   if (!hex || !hex.terrain) return '';
   const terrain = hex.terrain;
-  const iy = HEX_SIZE * 0.22;  // icon center y-offset from hex center
-  const is = 8;                 // icon half-scale (world units ≈ 8px at zoom=1)
+  const sz = HEX_SIZE;
   let svg = '';
 
-  svg += `<g transform="translate(0,${iy.toFixed(1)})">`;
-  if (terrain === 'mountain') {
-    svg += `<polygon points="0,${(-is*1.4).toFixed(1)} ${(-is*1.2).toFixed(1)},${(is*0.6).toFixed(1)} ${(is*1.2).toFixed(1)},${(is*0.6).toFixed(1)}" fill="#777"/>`;
-    svg += `<polygon points="0,${(-is*1.4).toFixed(1)} ${(-is*0.4).toFixed(1)},${(-is*0.5).toFixed(1)} ${(is*0.4).toFixed(1)},${(-is*0.5).toFixed(1)}" fill="white"/>`;
-  } else if (terrain === 'hill') {
-    svg += `<path d="M ${(-is*0.9).toFixed(1)},${(is*0.2).toFixed(1)} A ${(is*0.9).toFixed(1)},${(is*0.9).toFixed(1)} 0 0 1 ${(is*0.9).toFixed(1)},${(is*0.2).toFixed(1)} Z" fill="#8B7355"/>`;
-  } else if (terrain === 'water') {
-    svg += `<path d="M 0,${(-is).toFixed(1)} C ${(is*0.8).toFixed(1)},${(-is*0.2).toFixed(1)} ${(is*0.8).toFixed(1)},${(is*0.6).toFixed(1)} 0,${(is*0.7).toFixed(1)} C ${(-is*0.8).toFixed(1)},${(is*0.6).toFixed(1)} ${(-is*0.8).toFixed(1)},${(-is*0.2).toFixed(1)} 0,${(-is).toFixed(1)} Z" fill="#3366CC"/>`;
-  } else if (terrain === 'swamp' || terrain === 'marsh') {
-    for (const ox of [-is*0.6, 0, is*0.6]) {
-      const x = ox.toFixed(1);
-      svg += `<line x1="${x}" y1="${(is*0.5).toFixed(1)}" x2="${x}" y2="${(-is*0.5).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
-      svg += `<line x1="${x}" y1="${(-is*0.2).toFixed(1)}" x2="${(ox-is*0.35).toFixed(1)}" y2="${(-is*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
-      svg += `<line x1="${x}" y1="${(-is*0.2).toFixed(1)}" x2="${(ox+is*0.35).toFixed(1)}" y2="${(-is*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+  if (hasCityFeature) {
+    // ── Collision-safe mode: small icon + cost badge at bottom of hex ──────
+    // The city circle occupies roughly y ∈ [-14, +14]; we place the terrain
+    // badge below it so they never overlap.
+    const costY = sz * 0.58;   // below city circle
+    const is    = 5;           // smaller scale so it fits
+
+    svg += `<g transform="translate(${(sz * 0.45).toFixed(1)},${(-(sz * 0.55)).toFixed(1)})">`;
+    svg += _terrainIconSvg(terrain, is);
+    svg += '</g>';
+
+    if (hex.terrainCost && hex.terrainCost > 0) {
+      // Revenue-style bubble: white circle + bold cost number
+      svg += `<circle cx="0" cy="${costY.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+      svg += `<text x="0" y="${costY.toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
     }
   } else {
-    svg += `<polygon points="0,${(-is).toFixed(1)} ${(is*0.7).toFixed(1)},0 0,${is.toFixed(1)} ${(-is*0.7).toFixed(1)},0" fill="#AA8844"/>`;
-  }
-  svg += '</g>';
+    // ── Normal mode: full centred icon + cost text below ──────────────────
+    const iy = sz * 0.22;   // icon group centre-Y (below hex centre)
+    const is = 8;
 
-  if (hex.terrainHasWater && terrain !== 'water') {
-    const ws = 5, wx = is * 1.5, wy_off = iy - is * 0.5;
-    svg += `<g transform="translate(${wx.toFixed(1)},${wy_off.toFixed(1)})">`;
-    svg += `<path d="M 0,${(-ws).toFixed(1)} C ${(ws*0.8).toFixed(1)},${(-ws*0.2).toFixed(1)} ${(ws*0.8).toFixed(1)},${(ws*0.6).toFixed(1)} 0,${(ws*0.7).toFixed(1)} C ${(-ws*0.8).toFixed(1)},${(ws*0.6).toFixed(1)} ${(-ws*0.8).toFixed(1)},${(-ws*0.2).toFixed(1)} 0,${(-ws).toFixed(1)} Z" fill="#3366CC"/>`;
+    svg += `<g transform="translate(0,${iy.toFixed(1)})">`;
+    svg += _terrainIconSvg(terrain, is);
     svg += '</g>';
-  }
 
-  if (hex.terrainCost && hex.terrainCost > 0) {
-    svg += `<text x="0" y="${(iy + is*1.2).toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
+    // Supplemental water indicator beside main icon (compound terrain)
+    if (hex.terrainHasWater && terrain !== 'water' && terrain !== 'river' && terrain !== 'lake') {
+      const ws = 5;
+      svg += `<g transform="translate(${(is * 1.5).toFixed(1)},${(iy - is * 0.5).toFixed(1)})">`;
+      svg += _terrainIconSvg('water', ws);
+      svg += '</g>';
+    }
+
+    if (hex.terrainCost && hex.terrainCost > 0) {
+      svg += `<text x="0" y="${(iy + is * 1.4).toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
+    }
   }
   return svg;
+}
+
+// _terrainIconSvg: pure SVG shapes for a terrain type, centred at (0,0).
+// Scale parameter `s` is the icon half-size in world units (like canvas `is`).
+// Matches the icon shapes drawn by context-menu.js _drawTerrainIcon exactly.
+function _terrainIconSvg(terrain, s) {
+  switch (terrain) {
+    case 'mountain':
+      return `<polygon points="0,${(-s*1.4).toFixed(1)} ${(-s*1.2).toFixed(1)},${(s*0.6).toFixed(1)} ${(s*1.2).toFixed(1)},${(s*0.6).toFixed(1)}" fill="#777"/>` +
+             `<polygon points="0,${(-s*1.4).toFixed(1)} ${(-s*0.4).toFixed(1)},${(-s*0.5).toFixed(1)} ${(s*0.4).toFixed(1)},${(-s*0.5).toFixed(1)}" fill="white"/>`;
+    case 'hill':
+      return `<path d="M ${(-s*0.9).toFixed(1)},${(s*0.2).toFixed(1)} A ${(s*0.9).toFixed(1)},${(s*0.9).toFixed(1)} 0 0 1 ${(s*0.9).toFixed(1)},${(s*0.2).toFixed(1)} Z" fill="#8B7355"/>`;
+    case 'water':
+    case 'river':
+    case 'lake':
+      return `<path d="M 0,${(-s).toFixed(1)} C ${(s*0.8).toFixed(1)},${(-s*0.2).toFixed(1)} ${(s*0.8).toFixed(1)},${(s*0.6).toFixed(1)} 0,${(s*0.7).toFixed(1)} C ${(-s*0.8).toFixed(1)},${(s*0.6).toFixed(1)} ${(-s*0.8).toFixed(1)},${(-s*0.2).toFixed(1)} 0,${(-s).toFixed(1)} Z" fill="#3366CC"/>`;
+    case 'swamp':
+    case 'marsh': {
+      let out = '';
+      for (const ox of [-s*0.6, 0, s*0.6]) {
+        const x = ox.toFixed(1);
+        out += `<line x1="${x}" y1="${(s*0.5).toFixed(1)}" x2="${x}" y2="${(-s*0.5).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+        out += `<line x1="${x}" y1="${(-s*0.2).toFixed(1)}" x2="${(ox-s*0.35).toFixed(1)}" y2="${(-s*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+        out += `<line x1="${x}" y1="${(-s*0.2).toFixed(1)}" x2="${(ox+s*0.35).toFixed(1)}" y2="${(-s*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+      }
+      return out;
+    }
+    case 'forest':
+      // Green tree triangle — matches context-menu _drawTerrainIcon 'forest'
+      return `<polygon points="0,${(-s*1.2).toFixed(1)} ${(-s*1.0).toFixed(1)},${(s*0.5).toFixed(1)} ${(s*1.0).toFixed(1)},${(s*0.5).toFixed(1)}" fill="#2d7a2d"/>`;
+    case 'desert':
+      // Golden diamond — matches context-menu _drawTerrainIcon 'desert'
+      return `<polygon points="0,${(-s).toFixed(1)} ${(s*0.7).toFixed(1)},0 0,${s.toFixed(1)} ${(-s*0.7).toFixed(1)},0" fill="#C8A040"/>`;
+    case 'pass':
+      // Gray saddle (two peaks with a dip) — matches context-menu _drawTerrainIcon 'pass'
+      return `<polygon points="${(-s*1.2).toFixed(1)},${(s*0.6).toFixed(1)} ${(-s*0.3).toFixed(1)},${(-s*0.6).toFixed(1)} ${(s*0.3).toFixed(1)},${(-s*0.6).toFixed(1)} ${(s*1.2).toFixed(1)},${(s*0.6).toFixed(1)}" fill="#888"/>`;
+    default:
+      // Fallback: tan diamond
+      return `<polygon points="0,${(-s).toFixed(1)} ${(s*0.7).toFixed(1)},0 0,${s.toFixed(1)} ${(-s*0.7).toFixed(1)},0" fill="#AA8844"/>`;
+  }
 }
 
 // buildIconsSvg: resource icons (mine/port/factory) in hex-local world-unit coords.
@@ -608,14 +659,19 @@ function buildHexSvg(r, c, hex) {
   g += `<polygon points="${hexPts}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}"${strokeDash ? ` stroke-dasharray="${strokeDash}"` : ''}/>`;
 
   if (!hex?.killed) {
-    // Terrain icon (no tile)
+    // Determine whether this hex has a city/town/oo symbol that occupies hex centre.
+    // Used to collision-avoid terrain icon placement (see buildTerrainSvg).
+    const hasCityFeature = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities))
+      || !!hex?.city || !!hex?.town
+      || hex?.feature === 'city' || hex?.feature === 'oo'
+      || hex?.feature === 'town' || hex?.feature === 'dualTown';
+
+    // Terrain icon (no tile) — passes hasCityFeature for collision-safe layout
     if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
-      g += buildTerrainSvg(hex);
+      g += buildTerrainSvg(hex, hasCityFeature);
     }
 
     // City name (placed tile or DSL city/oo)
-    const hasCityFeature = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities))
-      || !!hex?.city || hex?.feature === 'city' || hex?.feature === 'oo';
     if (hex?.cityName && hasCityFeature) {
       g += `<text x="0" y="${(-sz*0.5).toFixed(1)}" font-family="Arial" font-size="9" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.85)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(hex.cityName)}</text>`;
     }
