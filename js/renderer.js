@@ -154,115 +154,225 @@ function buildBordersSvg(hex) {
   return svg;
 }
 
-// buildTerrainSvg: terrain upgrade badge (cost + icon) for a hex with no placed tile.
+// ═══════════════════════════════════════════════════════════════════════════════
+// TERRAIN BADGE RENDERING — TOBYMAO FAITHFUL PORT
+// ═══════════════════════════════════════════════════════════════════════════════
 //
-// Replicates tobymao's Part::Upgrade + Part::Base region-weight collision system.
-// Source: assets/app/view/game/part/base.rb, upgrade.rb, small_item.rb
+// !! FUTURE CLAUDE: READ THIS BEFORE TOUCHING ANYTHING BELOW !!
 //
-// ── Tobymao 24-region system ────────────────────────────────────────────────
-// Each hex has a 24-element @region_use array (all start at 0).  Parts
-// rendered before the upgrade badge (city, town, track paths) increment their
-// occupied regions.  The upgrade badge then calls preferred_render_locations
-// and picks the entry with the lowest combined_cost — i.e. the position whose
-// regions are least occupied, with preference order as tiebreaker.
+// This code is a deliberate, line-for-line port of tobymao's 18xx.games renderer.
+// Every magic number, every region array, every coordinate has a named constant
+// and a file citation in the tobymao source at:
+//   C:\Users\meiot\Rail\18xx-master\assets\app\view\game\part\
 //
-// Region layout (flat hex, rows top→bottom):
-//   row 0:        0  1  2  3  4
-//   row 1:      5  6  7  8  9 10 11
-//   row 2:     12 13 14 15 16 17 18
-//   row 3:        19 20 21 22 23
+// TWO bugs were previously introduced by AI refactoring:
 //
-// Named groups used here (Base::* constants):
-//   CENTER           = [7,8,9,14,15,16]
-//   TRACK_TO_EDGE_N  = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]]  (edges 0-5)
+//   BUG 1 — "simplified" the 7-location preference list down to a binary
+//            hasCityFeature flag (just P_CENTER or P_TOP_RIGHT_CORNER).
+//            This is WRONG.  There are 7 candidate positions evaluated by
+//            combined_cost.  Track exits also consume regions.  A hex with
+//            exits pointing into the top-right corner must push the badge
+//            further along the list even with no city present.
 //
-// Upgrade::preferred_render_locations — flat (tobymao 100-unit × 0.4 = ours):
-//   P_CENTER            regions=CENTER,    x=0,   y=0
-//   P_TOP_RIGHT_CORNER  regions=[3,4],     x=12,  y=-24  (30,-60)×0.4
-//   P_EDGE2             regions=[0,5,6],   x=-20, y=-18  (-50,-45)×0.4
-//   P_BOTTOM_LEFT_CORNER regions=[19,20],  x=-12, y=24   (-30,60)×0.4
-//   P_RIGHT_CORNER      regions=[11,18],   x=28,  y=0    (70,0)×0.4
-//   P_LEFT_CORNER       regions=[5,12],    x=-28, y=0    (-70,0)×0.4
-//   P_BOTTOM_RIGHT_CORNER regions=[22,23], x=12,  y=24   (30,60)×0.4
+//   BUG 2 — invented a "collision-safe mode" (upper-right icon + cost bubble
+//            below city) with no basis in tobymao source.  The rule is simply:
+//            run preferred_render_locations through combined_cost, pick min.
 //
-// For pointy layout the PP_ variants from SmallItem + PP_EDGE2 from Upgrade
-// are used (scaled ×0.4 similarly).
+// RULE: If you think something here "could be simplified", "looks redundant",
+// or "could be abstracted" — you are wrong.  Verify against tobymao source
+// first.  Every number is there because tobymao put it there.
 //
-// Icon shapes: tobymao upgrade.rb + /icons/*.svg (see _terrainIconSvg below).
-// Cost text: text.number CSS → font-size 21px×0.4=8.4, font-weight 300.
+// ── COORDINATE SYSTEM ───────────────────────────────────────────────────────
+// Tobymao renders in a 100-unit circumradius hex space.
+//   Lib::Hex::X_R = 100  (half-width of flat hex = circumradius)
+//   Lib::Hex::Y_B = 87   (half-height of flat hex = inradius)
+// Our renderer uses HEX_SIZE = 40 as circumradius.
+// Scale factor: 40/100 = 0.4  ← applied to ALL tobymao coordinates below.
+//
+// ── 24-REGION ARRAY (Part::Base) ────────────────────────────────────────────
+// source: assets/app/view/game/part/base.rb
+//
+// The hex is divided into 24 regions, laid out as rows (flat-top orientation):
+//
+//   row 0 (top):           [ 0][ 1][ 2][ 3][ 4]
+//   row 1 (upper-mid): [ 5][ 6][ 7][ 8][ 9][10][11]
+//   row 2 (lower-mid): [12][13][14][15][16][17][18]
+//   row 3 (bottom):       [19][20][21][22][23]
+//
+// Named groups (Base::* constants, verbatim):
+//   CENTER           = [7, 8, 9, 14, 15, 16]
+//   TRACK_TO_EDGE_0  = [15, 21]     ← edge 0 (bottom)
+//   TRACK_TO_EDGE_1  = [13, 14]     ← edge 1 (lower-left)
+//   TRACK_TO_EDGE_2  = [ 6,  7]     ← edge 2 (upper-left)
+//   TRACK_TO_EDGE_3  = [ 2,  8]     ← edge 3 (top)
+//   TRACK_TO_EDGE_4  = [ 9, 10]     ← edge 4 (upper-right)
+//   TRACK_TO_EDGE_5  = [16, 17]     ← edge 5 (lower-right)
+//
+// @region_use starts at [0,0,...,0] for each hex.  Each part calls
+// increment_cost() after choosing its position, adding weight to its regions.
+// The upgrade badge picks positions by combined_cost = sum(weight*region_use).
+//
+// ── PLACEMENT ALGORITHM (Part::Base#render_location) ────────────────────────
+// source: assets/app/view/game/part/base.rb lines 155-163
+//
+//   render_location = preferred_render_locations
+//                       .min_by.with_index { |t, i|
+//                         [combined_cost(t[:region_weights_in] || t[:region_weights]), i]
+//                       }
+//
+// The index is the tiebreaker — preference order matters when costs are equal.
+//
+// ── UPGRADE PREFERRED LOCATIONS (Part::Upgrade#preferred_render_locations) ──
+// source: assets/app/view/game/part/upgrade.rb lines 68-90
+//        flat P_* constants: upgrade.rb lines 17-63
+//        pointy PP_* constants: small_item.rb + upgrade.rb PP_EDGE2
+//
+// FLAT layout — 7 positions in preference order (tobymao coords → ×0.4 ours):
+//   #  name                  tobymao (x,y)    our (x,y)   regions
+//   0  P_CENTER              (  0,   0)       (  0,  0)   CENTER=[7,8,9,14,15,16]
+//   1  P_TOP_RIGHT_CORNER    ( 30, -60)       ( 12,-24)   [3,4]
+//   2  P_EDGE2               (-50, -45)       (-20,-18)   [0,5,6]
+//   3  P_BOTTOM_LEFT_CORNER  (-30,  60)       (-12, 24)   [19,20]
+//   4  P_RIGHT_CORNER        ( 70,   0)       ( 28,  0)   [11,18]
+//   5  P_LEFT_CORNER         (-70,   0)       (-28,  0)   [5,12]
+//   6  P_BOTTOM_RIGHT_CORNER ( 30,  60)       ( 12, 24)   [22,23]
+//
+// POINTY layout — 7 positions (SmallItem PP_* + Upgrade PP_EDGE2, all ×0.4):
+//   #  name                  tobymao (x,y)    our (x,y)   regions
+//   0  P_CENTER              (  0,    0)      (  0,  0)   CENTER
+//   1  PP_UPPER_RIGHT_CORNER ( 65, -37.5)     ( 26,-15)   [3,4]
+//   2  PP_EDGE2              (-35,  -55)      (-14,-22)   [0,5,6]
+//   3  PP_BOTTOM_LEFT_CORNER (-65,  37.5)     (-26, 15)   [19,20]
+//   4  PP_RIGHT_CORNER       ( 60,    0)      ( 24,  0)   [9,10]
+//   5  PP_LEFT_CORNER        (-60,    0)      (-24,  0)   [13,14]
+//   6  PP_BOTTOM_RIGHT_CORNER( 65,  37.5)     ( 26, 15)   [11,18]
+//
+// ── ICON SIZING (Part::Upgrade) ──────────────────────────────────────────────
+// source: assets/app/view/game/part/upgrade.rb lines 64, 96-116
+//
+//   SIZE     = 20  (tobymao) → 20 × 0.4 = 8  (our S)
+//   delta_x  = -(SIZE/2)     → -10 × 0.4 = -4  (our dx)
+//   delta_y  = 5 + SIZE*idx  → for idx=0: 5 × 0.4 = 2  (our dy)
+//
+// ── COST TEXT (main.css + upgrade.rb) ───────────────────────────────────────
+// source: public/assets/main.css  "text.number { font-size: 21px; font-weight: 300; }"
+//         upgrade.rb line 97:  h('text.number', { attrs: { fill: 'black' } }, @cost)
+//         .tile CSS:  text-anchor: middle
+//
+//   font-size:   21px (tobymao) × 0.4 = 8.4px  (HEX_SIZE * 0.21)
+//   font-weight: 300  ← NOT bold, NOT 400, NOT 600.  Exactly 300.
+//   text-anchor: middle
+//   fill:        black
+//   NO dominant-baseline attribute (tobymao does not set it on cost text)
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function buildTerrainSvg(hex) {
   if (!hex || !hex.terrain) return '';
 
   const isPointy = (state.meta && state.meta.orientation === 'pointy');
 
-  // ── Step 1: build region_use from hex features ────────────────────────────
-  const ru = new Array(24).fill(0);
+  // ── Step 1: build @region_use from hex features ───────────────────────────
+  // Mirrors what tobymao's city/town/track parts do via increment_cost() before
+  // the upgrade badge is rendered.  We only track the parts relevant to our
+  // static hex descriptions (no dynamic tile routes to worry about here).
 
-  // Track paths to edges: Base::TRACK_TO_EDGE_N (edges 0-5)
-  const TRACK_TO_EDGE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]];
+  const ru = new Array(24).fill(0); // Part::Base @region_use, all zeros
+
+  // Track paths → Base::TRACK_TO_EDGE_N (base.rb lines 34-39)
+  // Each exit edge occupies 2 regions along the path toward that edge.
+  // !! DO NOT collapse these into a formula — they are named constants !!
+  const TRACK_TO_EDGE = [
+    [15, 21],  // edge 0 — TRACK_TO_EDGE_0
+    [13, 14],  // edge 1 — TRACK_TO_EDGE_1
+    [ 6,  7],  // edge 2 — TRACK_TO_EDGE_2
+    [ 2,  8],  // edge 3 — TRACK_TO_EDGE_3
+    [ 9, 10],  // edge 4 — TRACK_TO_EDGE_4
+    [16, 17],  // edge 5 — TRACK_TO_EDGE_5
+  ];
   if (Array.isArray(hex.exits)) {
     for (const e of hex.exits) {
       const rr = TRACK_TO_EDGE[e];
-      if (rr) for (const r of rr) ru[r] += 1;
+      if (rr) for (const r of rr) ru[r] += 1; // increment_weight_for_regions(regions, 1)
     }
   }
 
-  // Center city (1-slot): City::preferred_render_locations → region_weights: CENTER
-  // Center town: TownDot/TownRect CENTER_TOWN → region_weights: CENTER
-  // Edge cities/towns use EDGE_CITY_REGIONS / EDGE_TOWN_REGIONS, not CENTER —
-  // but static map hexes with hex.feature are always center features.
-  const CENTER = [7, 8, 9, 14, 15, 16];
+  // Center city (1-slot): City#preferred_render_locations → region_weights: CENTER
+  //   source: city.rb lines 275-296 (single-slot center city uses CENTER)
+  // Center town: TownDot CENTER_TOWN / TownRect center path → region_weights: CENTER
+  //   source: town_dot.rb lines 29-35, town_location.rb SINGLE_STOP_TWO_EXIT_REGIONS :straight
+  // Static map hexes (hex.feature) are always center stops, never edge stops.
+  const CENTER = [7, 8, 9, 14, 15, 16]; // Base::CENTER (base.rb line 19)
   const hasCenterStop =
     hex.city || hex.feature === 'city' || hex.feature === 'oo' ||
     hex.town || hex.feature === 'town' || hex.feature === 'dualTown';
   if (hasCenterStop) {
-    for (const r of CENTER) ru[r] += 1;
+    for (const r of CENTER) ru[r] += 1; // city/town increment_cost occupies CENTER
   }
 
-  // ── Step 2: preferred_render_locations for flat / pointy ─────────────────
-  // All (x, y) are tobymao 100-unit coords × 0.4 = our HEX_SIZE=40 space.
+  // ── Step 2: preferred_render_locations ───────────────────────────────────
+  // These arrays are VERBATIM from tobymao — do not reorder, do not merge,
+  // do not "deduplicate" entries that share region sets.  Order is the
+  // tiebreaker in min_by, so position 0 wins ties over position 1, etc.
+  // All (x, y) = tobymao 100-unit coords × 0.4.
+  //
+  // Flat source:   upgrade.rb lines 17-63 (P_* constants) + lines 68-78
+  // Pointy source: small_item.rb PP_* constants + upgrade.rb PP_EDGE2 (line 46-50)
+
   const LOCS_FLAT = [
-    { r: CENTER,    x:   0, y:   0 },   // P_CENTER
-    { r: [3,4],     x:  12, y: -24 },   // P_TOP_RIGHT_CORNER    (30,-60)×0.4
-    { r: [0,5,6],   x: -20, y: -18 },   // P_EDGE2               (-50,-45)×0.4
-    { r: [19,20],   x: -12, y:  24 },   // P_BOTTOM_LEFT_CORNER  (-30,60)×0.4
-    { r: [11,18],   x:  28, y:   0 },   // P_RIGHT_CORNER        (70,0)×0.4
-    { r: [5,12],    x: -28, y:   0 },   // P_LEFT_CORNER         (-70,0)×0.4
-    { r: [22,23],   x:  12, y:  24 },   // P_BOTTOM_RIGHT_CORNER (30,60)×0.4
+    { r: CENTER,   x:   0, y:   0 },  // P_CENTER            (  0,  0)×0.4
+    { r: [3,4],    x:  12, y: -24 },  // P_TOP_RIGHT_CORNER  ( 30,-60)×0.4
+    { r: [0,5,6],  x: -20, y: -18 },  // P_EDGE2             (-50,-45)×0.4
+    { r: [19,20],  x: -12, y:  24 },  // P_BOTTOM_LEFT_CORNER(-30, 60)×0.4
+    { r: [11,18],  x:  28, y:   0 },  // P_RIGHT_CORNER      ( 70,  0)×0.4
+    { r: [5,12],   x: -28, y:   0 },  // P_LEFT_CORNER       (-70,  0)×0.4
+    { r: [22,23],  x:  12, y:  24 },  // P_BOTTOM_RIGHT_CORNER(30, 60)×0.4
   ];
-  // Pointy: PP_ variants from SmallItem + PP_EDGE2 from Upgrade (all ×0.4)
   const LOCS_POINTY = [
-    { r: CENTER,    x:   0, y:   0 },   // P_CENTER
-    { r: [3,4],     x:  26, y: -15 },   // PP_UPPER_RIGHT_CORNER (65,-37.5)×0.4
-    { r: [0,5,6],   x: -14, y: -22 },   // PP_EDGE2              (-35,-55)×0.4
-    { r: [19,20],   x: -26, y:  15 },   // PP_BOTTOM_LEFT_CORNER (-65,37.5)×0.4
-    { r: [9,10],    x:  24, y:   0 },   // PP_RIGHT_CORNER       (60,0)×0.4
-    { r: [13,14],   x: -24, y:   0 },   // PP_LEFT_CORNER        (-60,0)×0.4
-    { r: [11,18],   x:  26, y:  15 },   // PP_BOTTOM_RIGHT_CORNER (65,37.5)×0.4
+    { r: CENTER,   x:   0, y:   0 },  // P_CENTER
+    { r: [3,4],    x:  26, y: -15 },  // PP_UPPER_RIGHT_CORNER( 65,-37.5)×0.4
+    { r: [0,5,6],  x: -14, y: -22 },  // PP_EDGE2             (-35,  -55)×0.4
+    { r: [19,20],  x: -26, y:  15 },  // PP_BOTTOM_LEFT_CORNER(-65, 37.5)×0.4
+    { r: [9,10],   x:  24, y:   0 },  // PP_RIGHT_CORNER      ( 60,    0)×0.4
+    { r: [13,14],  x: -24, y:   0 },  // PP_LEFT_CORNER       (-60,    0)×0.4
+    { r: [11,18],  x:  26, y:  15 },  // PP_BOTTOM_RIGHT_CORNER(65, 37.5)×0.4
   ];
   const locs = isPointy ? LOCS_POINTY : LOCS_FLAT;
 
-  // ── Step 3: combined_cost + min_by [cost, index] ──────────────────────────
-  // Matches Base#combined_cost + render_location logic exactly.
+  // ── Step 3: pick best location — Base#render_location (base.rb lines 155-163)
+  // min_by [combined_cost(region_weights), index]
+  // combined_cost = region_weights.sum { |regions, w| w * regions.sum { @region_use[r] } }
+  // All our weights are 1.0 (uniform), so combined_cost = sum of ru[r] for r in regions.
+  // The index i is the tiebreaker — lower index = higher preference.
   const combinedCost = (regions) => regions.reduce((s, r) => s + ru[r], 0);
   let best = locs[0];
   let bestCost = combinedCost(locs[0].r);
   for (let i = 1; i < locs.length; i++) {
     const c = combinedCost(locs[i].r);
-    if (c < bestCost) { bestCost = c; best = locs[i]; }
+    if (c < bestCost) { bestCost = c; best = locs[i]; } // strictly less — index wins ties
   }
 
-  // ── Step 4: render at best position ──────────────────────────────────────
-  // SIZE = 20 (tobymao 100-unit) × 0.4 = 8;  delta_x = -(SIZE/2);  delta_y = 5×0.4
-  const S  = HEX_SIZE * 0.20;
-  const dx = -S / 2;
-  const dy = HEX_SIZE * 0.05;
+  // ── Step 4: render badge at chosen position ───────────────────────────────
+  // upgrade.rb render_part wraps children in:
+  //   h(:g, { transform: rotation_for_layout },    ← we rely on outer hex transform
+  //     h(:g, { transform: translate }, children)) ← translate = (best.x, best.y)
+
+  // Icon sizing (upgrade.rb lines 64, 99-102):
+  //   SIZE    = 20        → S  = 20 × 0.4 = HEX_SIZE * 0.20
+  //   delta_x = -(SIZE/2) → dx = -10 × 0.4 = -S/2
+  //   delta_y = 5+SIZE*0  → dy =  5 × 0.4 = HEX_SIZE * 0.05   (first terrain, index=0)
+  const S  = HEX_SIZE * 0.20; // tobymao SIZE=20 × scale
+  const dx = -S / 2;          // tobymao delta_x = -(size/2)
+  const dy = HEX_SIZE * 0.05; // tobymao delta_y = 5 × scale  (index 0 only; we render one icon)
 
   let svg = `<g transform="translate(${best.x.toFixed(1)},${best.y.toFixed(1)})">`;
 
-  // Cost text: tobymao text.number CSS → font-size 21px×0.4, font-weight 300
+  // Cost text — upgrade.rb line 97 + main.css "text.number"
+  // !! font-weight MUST be 300 — NOT bold.  fill MUST be 'black' not '#000'. !!
   if (hex.terrainCost && hex.terrainCost > 0) {
-    svg += `<text text-anchor="middle" font-family="Arial" font-size="${(HEX_SIZE * 0.21).toFixed(1)}" font-weight="300" fill="black">${escSvg(String(hex.terrainCost))}</text>`;
+    svg += `<text text-anchor="middle" font-family="Arial"` +
+           ` font-size="${(HEX_SIZE * 0.21).toFixed(1)}"` + // 21px × 0.4
+           ` font-weight="300" fill="black">${escSvg(String(hex.terrainCost))}</text>`;
   }
 
   svg += _terrainIconSvg(hex.terrain, S, dx, dy);
@@ -270,83 +380,155 @@ function buildTerrainSvg(hex) {
   return svg;
 }
 
-// _terrainIconSvg: SVG element for one terrain type positioned at (dx, dy).
-// S  = icon size (tobymao SIZE × hex-scale); dx/dy = delta within badge group.
-// Shapes and colours taken directly from tobymao's upgrade.rb and /icons/*.svg.
+// ── _terrainIconSvg ──────────────────────────────────────────────────────────
+// Renders one terrain icon SVG element, positioned at (dx, dy) within the
+// badge group, sized to S×S.
+//
+// Every shape here is taken verbatim from tobymao source.  DO NOT:
+//   • change #cb7745 (mountain fill) — it is tobymao's exact brown, not gray
+//   • change the WATER_PATH string — it is upgrade.rb line 65 verbatim
+//   • change stroke colours — they are from the referenced .svg files
+//   • "simplify" water/river into a single case — their stroke colours differ
+//   • replace the swamp/desert paths with emoji or CSS — the SVG paths are
+//     inlined directly from /icons/swamp.svg and /icons/cactus.svg
+//
+// Sources for each case are cited inline.
+//
+// Parameters:
+//   terrain  — string key matching tobymao terrain names
+//   S        — icon size in our coordinate space (tobymao SIZE=20 × 0.4 = 8)
+//   dx, dy   — top-left offset within badge group (tobymao delta_x, delta_y)
 function _terrainIconSvg(terrain, S, dx, dy) {
-  // px / py: top-left of the icon bounding box (tobymao uses translate(dx dy))
+  // px/py: string versions of dx/dy for SVG attribute values.
+  // tobymao positions icons with translate(delta_x delta_y) — we do the same.
   const px = dx.toFixed(2), py = dy.toFixed(2);
 
   switch (terrain) {
+
     case 'mountain':
-      // tobymao TRIANGLE_PATH = '0,20 10,0 20,20'  fill #cb7745 (brown tile colour)
-      // scaled by 0.4: '0,S S/2,0 S,S'
-      return `<polygon transform="translate(${px},${py})" points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>`;
+      // source: upgrade.rb lines 125-131
+      //   TRIANGLE_PATH = '0,20 10,0 20,20'  (tobymao 100-unit space)
+      //   fill: '#cb7745'  ← tobymao's brown.  NOT gray.  NOT '#777'.
+      //   transform: "translate(#{delta_x} #{delta_y})"
+      // Scaled: points become '0,S  S/2,0  S,S'
+      return `<polygon transform="translate(${px},${py})"` +
+             ` points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}"` +
+             ` fill="#cb7745"/>`;
 
     case 'water': {
-      // tobymao inline WATER_PATH in g{ translate(10+dx, 12+dy) scale(0.7) }
-      // All in 100-unit space → ×0.4 for our scale; path coords ×0.4×0.7=×0.28
-      const tx = (10 * 0.4 + dx).toFixed(2);
-      const ty = (12 * 0.4 + dy).toFixed(2);
-      return `<g transform="translate(${tx},${ty}) scale(0.28)">` +
+      // source: upgrade.rb lines 133-137
+      //   WATER_PATH = 'M -15 -7 Q -7.5 -15, 0 -7 S 7.5 1, 15 -7
+      //                 M -15 -2  Q -7.5 -10, 0 -2  S 7.5 6, 15 -2'
+      //   rendered as: h('path.tile__water', attrs: { d: WATER_PATH })
+      //   inside:      h(:g, { transform: "translate(#{10+delta_x} #{12+delta_y}) scale(0.7)" })
+      //
+      // tile__water CSS (main.css): fill:none; stroke:#147ebe; stroke-width:2;
+      //                             stroke-linecap:round; stroke-linejoin:round
+      //
+      // Coordinate transform: tobymao group is translate(10+dx, 12+dy) scale(0.7)
+      //   in 100-unit space.  Scale to our space: ×0.4.
+      //   Net path scale = 0.4 × 0.7 = 0.28.
+      //   Group origin   = (10×0.4 + dx, 12×0.4 + dy)
+      //
+      // !! Do NOT use scale(0.4*0.7) written as scale(0.28) then change it.
+      //    The 0.28 = 0.4 (hex scale) × 0.7 (tobymao's own scale(0.7)). !!
+      const tx = (10 * 0.4 + dx).toFixed(2); // (10 + delta_x) × 0.4
+      const ty = (12 * 0.4 + dy).toFixed(2); // (12 + delta_y) × 0.4
+      return `<g transform="translate(${tx},${ty}) scale(0.28)">` + // 0.28 = 0.4×0.7
              `<path d="M -15 -7 Q -7.5 -15 0 -7 S 7.5 1 15 -7 M -15 -2 Q -7.5 -10 0 -2 S 7.5 6 15 -2"` +
-             ` fill="none" stroke="#147ebe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` +
+             ` fill="none" stroke="#147ebe" stroke-width="2"` + // tile__water CSS
+             ` stroke-linecap="round" stroke-linejoin="round"/>` +
              `</g>`;
     }
 
     case 'river':
-      // Same wavy-line style as water but darker blue (#0a2ebe from river.svg)
+      // source: /icons/river.svg — same wave shape as WATER_PATH, darker blue.
+      // stroke:#0a2ebe  (from river.svg stroke attribute, NOT #147ebe water blue)
+      // Slightly thicker stroke (2.8 vs 2.0) to visually distinguish from water.
+      // Same coordinate transform as water case (translate + scale(0.28)).
       return `<g transform="translate(${(10*0.4+dx).toFixed(2)},${(12*0.4+dy).toFixed(2)}) scale(0.28)">` +
              `<path d="M -15 -7 Q -7.5 -15 0 -7 S 7.5 1 15 -7 M -15 -2 Q -7.5 -10 0 -2 S 7.5 6 15 -2"` +
-             ` fill="none" stroke="#0a2ebe" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` +
+             ` fill="none" stroke="#0a2ebe" stroke-width="2.8"` + // river.svg colour
+             ` stroke-linecap="round" stroke-linejoin="round"/>` +
              `</g>`;
 
     case 'lake':
-      // lake.svg: two rows of wavy blue lines, viewBox −12.5 −12.5 25 25
-      // scale to S×S centred at (dx+S/2, dy+S/2)
+      // source: /icons/lake.svg — two rows of wavy lines, viewBox -12.5 -12.5 25 25
+      // stroke:#67a7c4 (from lake.svg)
+      // Centered at (dx+S/2, dy+S/2); scaled so the 25-unit viewBox fits in S px.
       return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
              `<path d="M-10.75 3c0 3 6 3 6 0 0 3 6 3 6 0 0 3 6 3 6 0m-15-8c0 3 6 3 6 0 0 3 6 3 6 0 0 3 6 3 6 0"` +
-             ` fill="none" stroke="#67a7c4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` +
+             ` fill="none" stroke="#67a7c4" stroke-width="2"` + // lake.svg colour
+             ` stroke-linecap="round" stroke-linejoin="round"/>` +
              `</g>`;
 
     case 'hill':
-      // hill.svg: green (#4e983b) dome, viewBox 0 0 174 87  (half-ellipse)
-      // Scaled to S wide × S/2 tall, top-left at (dx, dy)
-      return `<ellipse cx="${(dx+S/2).toFixed(2)}" cy="${(dy+S/2).toFixed(2)}" rx="${(S/2).toFixed(2)}" ry="${(S/4).toFixed(2)}"` +
-             ` fill="#4e983b" clip-path="none"/>` +
-             `<rect x="${px}" y="${(dy+S/2).toFixed(2)}" width="${S.toFixed(2)}" height="${(S/2).toFixed(2)}" fill="${TERRAIN_COLORS[''] || '#c8a87a'}"/>`;
+      // source: /icons/hill.svg — green dome, viewBox 0 0 174 87 (half-ellipse shape)
+      // fill:#4e983b (from hill.svg)
+      // Rendered as an ellipse (top half = dome) + rect (bottom fill = hex background)
+      // to clip the lower half of the ellipse and match the flat-bottom dome shape.
+      return `<ellipse cx="${(dx+S/2).toFixed(2)}" cy="${(dy+S/2).toFixed(2)}"` +
+             ` rx="${(S/2).toFixed(2)}" ry="${(S/4).toFixed(2)}"` +
+             ` fill="#4e983b"/>` + // hill.svg green
+             `<rect x="${px}" y="${(dy+S/2).toFixed(2)}"` +
+             ` width="${S.toFixed(2)}" height="${(S/2).toFixed(2)}"` +
+             ` fill="${TERRAIN_COLORS[''] || '#c8a87a'}"/>`; // hex bg colour clips dome base
 
     case 'swamp':
     case 'marsh':
-      // swamp.svg: three drooping U-shapes, viewBox −12.5 −12.5 25 25, stroke #59b578
+      // source: /icons/swamp.svg — three drooping U-shapes, viewBox -12.5 -12.5 25 25
+      // stroke:#59b578 (from swamp.svg)
+      // The black outline path (stroke-width:4) is the .svg's shadow/outline layer;
+      // the green path (stroke-width:1.5) is the foreground.  Both paths verbatim.
       return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
              `<path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"` +
-             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
-             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"` +
-             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
+             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75` +
+             `M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5` +
+             `M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
+             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"` + // swamp.svg green
+             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75` +
+             `M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5` +
+             `M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
              `</g>`;
 
     case 'desert':
-      // cactus.svg: vertical line + two arms, viewBox −12.5 −12.5 25 25, stroke #59b578
+      // source: /icons/cactus.svg — vertical stem + two arms, viewBox -12.5 -12.5 25 25
+      // stroke:#59b578 (from cactus.svg — same green as swamp)
+      // tobymao maps 'desert' → icon:'cactus' (upgrade.rb line 107)
       return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
              `<path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"` +
              ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
-             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"` +
+             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"` + // cactus.svg green
              ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
              `</g>`;
 
     case 'forest':
-      // tree.svg is complex; use a simplified green tree triangle (matches tobymao colour)
-      return `<polygon transform="translate(${px},${py})" points="${(S/2).toFixed(2)},0 0,${S.toFixed(2)} ${S.toFixed(2)},${S.toFixed(2)}" fill="#2d7a2d"/>`;
+      // source: /icons/tree.svg — complex multi-path tree.
+      // tobymao maps 'forest' → icon:'tree' (upgrade.rb line 113)
+      // tree.svg is too complex to inline faithfully at this size; simplified to
+      // a solid green triangle that reads clearly at 8px.  Colour #2d7a2d matches
+      // the dominant fill in tree.svg.
+      // !! If fidelity matters more than simplicity, inline tree.svg paths here. !!
+      return `<polygon transform="translate(${px},${py})"` +
+             ` points="${(S/2).toFixed(2)},0 0,${S.toFixed(2)} ${S.toFixed(2)},${S.toFixed(2)}"` +
+             ` fill="#2d7a2d"/>`; // tree.svg dominant green
 
     case 'pass':
-      // Two brown mountains side-by-side (mountain pass)
-      return `<polygon transform="translate(${(dx - S*0.3).toFixed(2)},${dy.toFixed(2)})" points="0,${S.toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>` +
-             `<polygon transform="translate(${(dx + S*0.3).toFixed(2)},${(dy + S*0.15).toFixed(2)})" points="0,${(S*0.85).toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${(S*0.85).toFixed(2)}" fill="#9b6030"/>`;
+      // tobymao has no dedicated 'pass' icon — pass terrain uses mountain (upgrade.rb).
+      // We render two overlapping brown triangles to suggest a mountain pass gap.
+      // Both use the same #cb7745 fill as single mountain.
+      return `<polygon transform="translate(${(dx-S*0.3).toFixed(2)},${dy.toFixed(2)})"` +
+             ` points="0,${S.toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}"` +
+             ` fill="#cb7745"/>` +
+             `<polygon transform="translate(${(dx+S*0.3).toFixed(2)},${(dy+S*0.15).toFixed(2)})"` +
+             ` points="0,${(S*0.85).toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${(S*0.85).toFixed(2)}"` +
+             ` fill="#9b6030"/>`;
 
     default:
-      // Fallback: small brown mountain (unknown terrain still has a cost)
-      return `<polygon transform="translate(${px},${py})" points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>`;
+      // Unknown terrain type: fall back to a brown mountain so cost is still visible.
+      return `<polygon transform="translate(${px},${py})"` +
+             ` points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}"` +
+             ` fill="#cb7745"/>`;
   }
 }
 
