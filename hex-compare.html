@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>1830 DSL Hex — Canonical Geometry Reference</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 monospace; background: #1a1a1a; color: #ddd; padding: 16px; }
+  h1 { font: bold 16px sans-serif; color: #fff; margin-bottom: 16px; }
+  .section-head { font: bold 13px sans-serif; color: #aaa; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+  .card { background: #252525; border: 1px solid #333; border-radius: 4px; padding: 8px; width: 260px; }
+  .card-title { font: bold 11px sans-serif; color: #eee; margin-bottom: 4px; }
+  .card-dsl { font: 10px monospace; color: #888; margin-bottom: 6px; word-break: break-all; }
+  .card-body { display: flex; gap: 8px; align-items: flex-start; }
+  .hex-svg { flex-shrink: 0; }
+  .coords { font: 10px monospace; color: #9cf; line-height: 1.6; white-space: pre; }
+  .coords .label { color: #fc8; }
+  .coords .val   { color: #9cf; }
+  .coords .comment { color: #666; }
+</style>
+</head>
+<body>
+<h1>1830 — DSL Hex Canonical Geometry Reference</h1>
+<p style="color:#888;font-size:11px;margin-bottom:16px">
+  All geometry uses tobymao formulas at 50-unit scale (HEX_INRADIUS=43.5, SLOT_R=12.5, CITY_D=25, BAR=16×4, TRACK_W=5).
+  Coords column = exact numbers my code computes. Paste any row into the chat to verify.
+</p>
+
+<script>
+// ── Constants (tile-geometry.js values) ──────────────────────────────────────
+const HEX_R   = 50;    // circumradius (canvas drawing)
+const INRAD   = 43.5;  // apothem = track endpoint distance
+const SLOT_R  = 12.5;  // city/town circle radius
+const CITY_D  = 25;    // city center distance from center (tobymao distance=50/2)
+const TRACK_W = 5;
+const BAR_RW  = 16;
+const BAR_RH  = 4;
+
+const BG = {
+  white:  '#D4B483', yellow: '#F0D070', green:  '#71BF44',
+  gray:   '#BCBDC0', red:    '#E05050', blue:   '#35A7FF'
+};
+
+function ep(e) {
+  const a = e * Math.PI / 3;
+  return { x: -Math.sin(a) * INRAD, y: Math.cos(a) * INRAD };
+}
+function ced(e) {  // city edge pos
+  const a = e * Math.PI / 3;
+  return { x: -Math.sin(a) * CITY_D, y: Math.cos(a) * CITY_D };
+}
+function f1(n) { return n.toFixed(1); }
+function f2(n) { return n.toFixed(2); }
+
+// ── DSL Parser (mirrors parseDslHex in import-ruby.js) ───────────────────────
+function parseDsl(code, bg) {
+  const hex = {
+    bg, feature: bg === 'red' ? 'offboard' : 'none',
+    slots: 1, exits: [], pathPairs: [], exitPairs: [],
+    cityLocX: 0, cityLocY: 0, label: '', name: '',
+    phaseRevenue: {}, cityExitsByNode: null,
+  };
+  const parts = code.split(';').map(s => s.trim()).filter(Boolean);
+  let cityCount = 0, townCount = 0;
+  const exitSet = new Set();
+  const exitsByNode = {};
+  const pathPairs = [];
+  const cityRevs = [];
+
+  for (const part of parts) {
+    if (part === 'city' || part === 'city=') { cityCount++; continue; }
+    if (part === 'town' || part === 'town=') { townCount++; continue; }
+
+    if (part.startsWith('city=')) {
+      cityCount++;
+      const slots = parseInt((part.match(/slots:(\d+)/) || [])[1] || '1');
+      const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
+      if (cityCount === 1) {
+        hex.slots = slots;
+        const locStr = (part.match(/loc:([\d.]+)/) || [])[1];
+        if (locStr !== undefined) {
+          const f = parseFloat(locStr);
+          if (!isNaN(f)) {
+            const angle = f * Math.PI / 3;
+            hex.cityLocX = parseFloat((-Math.sin(angle) * CITY_D).toFixed(2));
+            hex.cityLocY = parseFloat(( Math.cos(angle) * CITY_D).toFixed(2));
+          }
+        }
+      }
+      cityRevs.push(revStr);
+    } else if (part.startsWith('offboard=')) {
+      const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
+      hex.feature = 'offboard';
+      hex.phaseRevenue = parseRevStr(revStr);
+    } else if (part.startsWith('town=')) {
+      townCount++;
+      const rev = parseInt((part.match(/revenue:(\d+)/) || [])[1] || '0');
+      if (townCount === 1) hex.townRevenue = rev;
+    } else if (part.startsWith('path=')) {
+      const toNode   = part.match(/a:(\d+),b:_(\d+)/);
+      const fromNode = part.match(/a:_(\d+),b:(\d+)/);
+      const edgePair = !toNode && !fromNode ? part.match(/^path=a:(\d+),b:(\d+)/) : null;
+      if (toNode) {
+        const edge = parseInt(toNode[1]), ni = parseInt(toNode[2]);
+        exitSet.add(edge);
+        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
+      } else if (fromNode) {
+        const ni = parseInt(fromNode[1]), edge = parseInt(fromNode[2]);
+        exitSet.add(edge);
+        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
+      } else if (edgePair) {
+        pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
+      }
+    } else if (part.startsWith('label=')) {
+      hex.label = part.slice(6).trim();
+    }
+  }
+
+  hex.exits = [...exitSet];
+  hex.pathPairs = pathPairs;
+
+  if (hex.feature !== 'offboard') {
+    if (cityCount >= 3) {
+      hex.feature = 'city'; hex.slots = cityCount;
+      hex.cityExitsByNode = { ...exitsByNode };
+    } else if (cityCount === 2) {
+      hex.feature = 'oo';
+      if (Object.keys(exitsByNode).length >= 1) {
+        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
+      } else if (exitSet.size === 2) {
+        const ex = [...exitSet];
+        hex.exitPairs = [[ex[0]], [ex[1]]];
+      } else {
+        hex.exitPairs = [[], []];
+      }
+    } else if (cityCount === 1) {
+      hex.feature = 'city';
+    } else if (townCount >= 2) {
+      hex.feature = 'dualTown';
+      if (Object.keys(exitsByNode).length >= 1)
+        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
+    } else if (townCount === 1) {
+      hex.feature = 'town';
+    }
+  }
+
+  if (cityRevs.length === 1) {
+    const v = parseRevStr(cityRevs[0]);
+    hex.phaseRevenue = v;
+  }
+
+  // Sync town revenue to phaseRevenue
+  if ((hex.feature === 'town' || hex.feature === 'dualTown') && hex.townRevenue > 0) {
+    const r = hex.townRevenue;
+    hex.phaseRevenue = { yellow: r, green: r, brown: r, gray: r };
+  }
+
+  return hex;
+}
+
+function parseRevStr(s) {
+  if (!s || !s.includes('_')) { const v = parseInt(s)||0; return {yellow:v,green:v,brown:v,gray:v}; }
+  const r = {yellow:0,green:0,brown:0,gray:0};
+  s.split('|').forEach(p => {
+    const m = p.trim().match(/^([a-z]+)_(\d+)$/);
+    if (m && r.hasOwnProperty(m[1])) r[m[1]] = parseInt(m[2]);
+  });
+  return r;
+}
+
+// ── Flat-top hex corners ──────────────────────────────────────────────────────
+function hexCorners(cx, cy, r) {
+  return Array.from({length:6}, (_,i) => {
+    const a = i * Math.PI / 3;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  });
+}
+
+// ── SVG inner geometry ────────────────────────────────────────────────────────
+function renderSvgInner(hex) {
+  let s = '';
+  const TW = TRACK_W;
+
+  const arc = (p1, p2) => {
+    const dist = Math.hypot(p1.x-p2.x, p1.y-p2.y);
+    const aB = Math.atan2(p1.y, -p1.x);
+    const aBE = Math.atan2(p1.y-p2.y, p2.x-p1.x);
+    let da = aB - aBE;
+    if (da < -Math.PI) da += 2*Math.PI;
+    else if (da > Math.PI) da -= 2*Math.PI;
+    const cosA = Math.cos(Math.PI/2 - Math.abs(da));
+    const radius = cosA < 0.001 ? 1e6 : dist/(2*cosA);
+    return { radius, sweep: da < 0 ? 0 : 1 };
+  };
+
+  const line = (p1, p2) => `<line x1="${f1(p1.x)}" y1="${f1(p1.y)}" x2="${f1(p2.x)}" y2="${f1(p2.y)}" stroke="#000" stroke-width="${TW}" stroke-linecap="round"/>`;
+  const arcPath = (p1, p2) => {
+    const a = arc(p1, p2);
+    return `<path d="M ${f1(p1.x)} ${f1(p1.y)} A ${f1(a.radius)} ${f1(a.radius)} 0 0 ${a.sweep} ${f1(p2.x)} ${f1(p2.y)}" stroke="#000" stroke-width="${TW}" stroke-linecap="round" fill="none"/>`;
+  };
+  const arcTo = (p1x, p1y, p2x, p2y) => {
+    const a = arc({x:p1x,y:p1y}, {x:p2x,y:p2y});
+    return `<path d="M ${f1(p1x)} ${f1(p1y)} A ${f1(a.radius)} ${f1(a.radius)} 0 0 ${a.sweep} ${f1(p2x)} ${f1(p2y)}" stroke="#000" stroke-width="${TW}" stroke-linecap="round" fill="none"/>`;
+  };
+  const seg = (e1, e2) => {
+    const p1 = ep(e1), p2 = ep(e2);
+    const d = Math.abs(e1-e2);
+    return (d===3||d===0) ? line(p1,p2) : arcPath(p1,p2);
+  };
+  // computeTownPos: port of tobymao town_location.rb#town_position (center_town? branch)
+  const computeTownPos = (exits) => {
+    if (!exits || exits.length === 0) return {x:0,y:0,angle:0};
+    if (exits.length === 1) {
+      const a = exits[0]*Math.PI/3;
+      return {x:+(-Math.sin(a)*25).toFixed(2), y:+(Math.cos(a)*25).toFixed(2), angle:exits[0]*60};
+    }
+    let ea=exits[0], eb=exits[1];
+    if (Math.abs(ea-eb)>3) { if(ea<eb) ea+=6; else eb+=6; }
+    const minEdge=Math.min(ea,eb), diff=Math.abs(ea-eb);
+    const type = diff===1?'sharp':diff===2?'gentle':'straight';
+    if (type==='straight') return {x:0,y:0,angle:minEdge*60};
+    if (type==='sharp') {
+      const a=(minEdge+0.5)*Math.PI/3;
+      return {x:+(-Math.sin(a)*25).toFixed(2),y:+(Math.cos(a)*25).toFixed(2),angle:(minEdge+2)*60};
+    }
+    const a=(minEdge+1)*Math.PI/3;
+    return {x:+(-Math.sin(a)*11.6).toFixed(2),y:+(Math.cos(a)*11.6).toFixed(2),angle:(minEdge*60)-30};
+  };
+  const isColinear = (x0,y0,x1,y1) => Math.abs(Math.atan2(y1-y0,x1-x0)-Math.atan2(-y0,-x0)) < 0.05;
+
+  if (hex.feature === 'town') {
+    const exits = hex.exits || [];
+    if (exits.length === 0) {
+      s += `<circle cx="0" cy="0" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
+    } else {
+      const tp = computeTownPos(exits);
+      const tx=tp.x, ty=tp.y;
+      for (const e of exits) {
+        const p=ep(e);
+        s += isColinear(p.x,p.y,tx,ty)
+          ? line(p,{x:tx,y:ty})
+          : arcTo(p.x,p.y,tx,ty);
+      }
+      s += `<g transform="translate(${f1(tx)},${f1(ty)}) rotate(${tp.angle})"><rect x="${-BAR_RW/2}" y="${-BAR_RH/2}" width="${BAR_RW}" height="${BAR_RH}" fill="black" rx="1"/></g>`;
+    }
+
+  } else if (hex.feature === 'city') {
+    if (hex.slots >= 3 && hex.cityExitsByNode) {
+      const ni = Object.keys(hex.cityExitsByNode).map(Number).sort((a,b)=>a-b);
+      const npm = {};
+      if (ni.length <= 2) { npm[ni[0]]={x:-CITY_D,y:0}; npm[ni[1]??1]={x:CITY_D,y:0}; }
+      else if (ni.length === 3) { npm[ni[0]]={x:0,y:-14.5}; npm[ni[1]]={x:12.55,y:7.25}; npm[ni[2]]={x:-12.55,y:7.25}; }
+      else { ni.forEach(n => { npm[n] = ced(n%6); }); }
+      for (const n of ni) {
+        const pos = npm[n]||{x:0,y:0};
+        for (const e of (hex.cityExitsByNode[n]||[])) { const p=ep(e); s+=line(p,pos); }
+      }
+      if (ni.length===3) s+=`<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>`;
+      else {
+        const xs=Object.values(npm).map(p=>p.x), ys=Object.values(npm).map(p=>p.y);
+        const bx=Math.min(...xs)-SLOT_R, by=Math.min(...ys)-SLOT_R;
+        s+=`<rect x="${f1(bx)}" y="${f1(by)}" width="${f1(Math.max(...xs)-Math.min(...xs)+2*SLOT_R)}" height="${f1(Math.max(...ys)-Math.min(...ys)+2*SLOT_R)}" fill="white" stroke="none" rx="${SLOT_R}"/>`;
+      }
+      for (const n of ni) { const pos=npm[n]||{x:0,y:0}; s+=`<circle cx="${f1(pos.x)}" cy="${f1(pos.y)}" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`; }
+
+    } else if (hex.slots >= 2) {
+      const cx=hex.cityLocX||0, cy2=hex.cityLocY||0;
+      for (const e of (hex.exits||[])) { const p=ep(e); s+=line(p,{x:cx,y:cy2}); }
+      const slots=hex.slots||2;
+      const offs = slots>=3 ? [{x:0,y:-14.5},{x:12.55,y:7.25},{x:-12.55,y:7.25}] : [{x:-SLOT_R,y:0},{x:SLOT_R,y:0}];
+      if (slots>=3) s+=`<g transform="translate(${f1(cx)},${f1(cy2)})"><polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/></g>`;
+      else s+=`<rect x="${f1(cx-SLOT_R)}" y="${f1(cy2-SLOT_R)}" width="${2*SLOT_R}" height="${2*SLOT_R}" fill="white" stroke="none"/>`;
+      for (const o of offs) s+=`<circle cx="${f1(cx+o.x)}" cy="${f1(cy2+o.y)}" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+
+    } else {
+      const lx=hex.cityLocX||0, ly=hex.cityLocY||0;
+      for (const [ea,eb] of (hex.pathPairs||[])) s+=seg(ea,eb);
+      for (const e of (hex.exits||[])) { const p=ep(e); s+=line(p,{x:lx,y:ly}); }
+      s+=`<circle cx="${f1(lx)}" cy="${f1(ly)}" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+    }
+
+  } else if (hex.feature === 'oo') {
+    const ep2 = hex.exitPairs || [];
+    const p0 = (ep2[0]&&ep2[0].length>0) ? ced(ep2[0][0]) : ced(0);
+    const p1 = (ep2[1]&&ep2[1].length>0) ? ced(ep2[1][0]) : ced(3);
+    for (const e of (ep2[0]||[])) { const p=ep(e); s+=line(p,p0); }
+    for (const e of (ep2[1]||[])) { const p=ep(e); s+=line(p,p1); }
+    // OO = two separate single-slot cities, no connecting rect
+    s+=`<circle cx="${f1(p0.x)}" cy="${f1(p0.y)}" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+    s+=`<circle cx="${f1(p1.x)}" cy="${f1(p1.y)}" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+
+  } else if (hex.feature === 'offboard') {
+    for (const e of (hex.exits||[])) {
+      const p=ep(e), len=Math.hypot(p.x,p.y);
+      const dx=p.x/len, dy=p.y/len, px=-dy, py=dx;
+      const depth=18, halfW=6;
+      const pts=[
+        `${f1(p.x+px*halfW)},${f1(p.y+py*halfW)}`,
+        `${f1(p.x-px*halfW)},${f1(p.y-py*halfW)}`,
+        `${f1(p.x-dx*depth)},${f1(p.y-dy*depth)}`,
+      ].join(' ');
+      s+=`<polygon points="${pts}" fill="#222"/>`;
+    }
+
+  } else if (hex.feature === 'dualTown') {
+    if ((!hex.exits||!hex.exits.length) && (!hex.exitPairs||hex.exitPairs.every(p=>!p.length))) {
+      s+=`<circle cx="${-SLOT_R}" cy="0" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
+      s+=`<circle cx="${SLOT_R}" cy="0" r="${SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
+    }
+    if (hex.exitPairs&&hex.exitPairs.length>=2) {
+      for (const pair of hex.exitPairs) {
+        if (pair.length>=2) s+=seg(pair[0],pair[1]);
+        else if (pair.length===1) { const p=ep(pair[0]); s+=line(p,{x:0,y:0}); }
+      }
+    } else {
+      const exits=hex.exits||[];
+      for (let i=0;i+1<exits.length;i+=2) s+=seg(exits[i],exits[i+1]);
+      if (exits.length%2===1) { const p=ep(exits[exits.length-1]); s+=line(p,{x:0,y:0}); }
+    }
+    for (const [ea,eb] of (hex.pathPairs||[])) s+=seg(ea,eb);
+
+  } else {
+    // pure path hex (no feature)
+    for (const [ea,eb] of (hex.pathPairs||[])) s+=seg(ea,eb);
+    for (let i=0;i+1<hex.exits.length;i+=2) s+=seg(hex.exits[i],hex.exits[i+1]);
+  }
+
+  return s;
+}
+
+// ── Coordinate description ────────────────────────────────────────────────────
+function describeHex(hex, dsl, coord) {
+  const lines = [];
+  lines.push(`coord:    ${coord}`);
+  lines.push(`bg:       ${hex.bg}`);
+  lines.push(`feature:  ${hex.feature}`);
+
+  if (hex.feature === 'city' || hex.feature === 'oo') {
+    if (hex.feature === 'oo') {
+      const ep2 = hex.exitPairs || [];
+      const p0 = (ep2[0]&&ep2[0].length>0) ? ced(ep2[0][0]) : ced(0);
+      const p1 = (ep2[1]&&ep2[1].length>0) ? ced(ep2[1][0]) : ced(3);
+      lines.push(`city0:    (${f2(p0.x)}, ${f2(p0.y)})  edge=${ep2[0]&&ep2[0][0]!==undefined?ep2[0][0]:'default→0'}`);
+      lines.push(`city1:    (${f2(p1.x)}, ${f2(p1.y)})  edge=${ep2[1]&&ep2[1][0]!==undefined?ep2[1][0]:'default→3'}`);
+    } else if (hex.slots === 1) {
+      lines.push(`city:     (${f2(hex.cityLocX)}, ${f2(hex.cityLocY)})  r=${SLOT_R}`);
+      if (hex.cityLocX !== 0 || hex.cityLocY !== 0) lines.push(`loc:      off-center`);
+    } else {
+      lines.push(`city ctr: (${f2(hex.cityLocX)}, ${f2(hex.cityLocY)})  slots=${hex.slots}`);
+    }
+  }
+
+  if (hex.exits && hex.exits.length) {
+    const epts = hex.exits.map(e => { const p=ep(e); return `${e}→(${f1(p.x)},${f1(p.y)})`; });
+    lines.push(`exits:    [${epts.join(', ')}]`);
+  }
+
+  if (hex.pathPairs && hex.pathPairs.length) {
+    lines.push(`bypass:   [${hex.pathPairs.map(([a,b])=>`${a}↔${b}`).join(', ')}]`);
+  }
+
+  if (hex.feature === 'oo' && hex.exitPairs) {
+    lines.push(`exitPairs:[${hex.exitPairs.map(p=>JSON.stringify(p)).join(', ')}]`);
+  }
+
+  const rev = hex.phaseRevenue;
+  if (rev && Object.values(rev).some(v=>v>0)) {
+    const vals = [rev.yellow, rev.green, rev.brown, rev.gray];
+    if (vals.every(v=>v===vals[0])) {
+      lines.push(`revenue:  ${vals[0]}`);
+    } else {
+      const phAbbr = { yellow:'Y', green:'Gn', brown:'B', gray:'Gy' };
+      lines.push(`revenue:  ${['yellow','green','brown','gray'].map(p=>`${phAbbr[p]}:${rev[p]||0}`).join(' ')}`);
+    }
+  }
+
+  if (hex.label) lines.push(`label:    ${hex.label}`);
+
+  return lines.join('\n');
+}
+
+// ── Render card ───────────────────────────────────────────────────────────────
+function makeCard(coord, color, dsl, name) {
+  const hex = parseDsl(dsl, color);
+  hex.name = name || '';
+
+  const CX = 60, CY = 60, R = 50;
+  const corners = hexCorners(CX, CY, R);
+  const pts = corners.map(p=>`${f1(p.x)},${f1(p.y)}`).join(' ');
+  const inner = renderSvgInner(hex);
+  const scale = R / 50;
+
+  // Revenue text for offboards / cities
+  let revSvg = '';
+  const rv = hex.phaseRevenue;
+  if (rv) {
+    const phaseEntries = [
+      {ph:'yellow',col:'#F0D070'},{ph:'green',col:'#71BF44'},
+      {ph:'brown',col:'#CB7745'},{ph:'gray',col:'#BCBDC0'}
+    ].filter(({ph}) => rv[ph] > 0);
+    const distinct = [...new Set(phaseEntries.map(e=>rv[e.ph]))];
+    if (distinct.length === 1) {
+      revSvg = `<circle cx="${CX}" cy="${CY+26}" r="7" fill="white" stroke="#777" stroke-width="1"/>
+                <text x="${CX}" y="${CY+26}" font-size="7" font-family="Arial" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${distinct[0]}</text>`;
+    } else if (phaseEntries.length > 1) {
+      const bw=13, bh=9, gap=1;
+      const tw = phaseEntries.length*bw+(phaseEntries.length-1)*gap;
+      let bx = CX - tw/2;
+      const by = CY+22;
+      for (const {ph,col} of phaseEntries) {
+        revSvg += `<rect x="${f1(bx)}" y="${f1(by)}" width="${bw}" height="${bh}" fill="${col}" stroke="rgba(0,0,0,.3)" stroke-width=".5"/>`;
+        revSvg += `<text x="${f1(bx+bw/2)}" y="${f1(by+bh/2)}" font-size="6" font-family="Arial" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${rv[ph]}</text>`;
+        bx += bw+gap;
+      }
+    }
+  }
+
+  // Label
+  let labelSvg = '';
+  if (hex.label) {
+    labelSvg = `<text x="${CX-R*0.62}" y="${CY-R*0.45}" font-size="7" font-family="Arial" font-weight="bold" fill="#111" dominant-baseline="middle">${hex.label}</text>`;
+  }
+
+  // Name
+  let nameSvg = '';
+  if (name) {
+    const ny = (hex.feature==='city') ? CY-R*0.42 : CY+R*0.58;
+    nameSvg = `<text x="${CX}" y="${ny}" font-size="6" font-family="Arial" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${name}</text>`;
+  }
+
+  const svgHtml = `<svg width="120" height="120" viewBox="0 0 120 120" class="hex-svg">
+    <polygon points="${pts}" fill="${BG[color]||'#eee'}" stroke="#555" stroke-width="1"/>
+    <g transform="translate(${CX},${CY}) scale(${scale})">${inner}</g>
+    ${revSvg}${labelSvg}${nameSvg}
+  </svg>`;
+
+  const coordTxt = describeHex(hex, dsl, coord);
+
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="card-title">${coord}${name ? ' — ' + name : ''}</div>
+    <div class="card-dsl">${dsl}</div>
+    <div class="card-body">
+      ${svgHtml}
+      <pre class="coords">${coordTxt}</pre>
+    </div>`;
+  return card;
+}
+
+// ── 1830 hex data ─────────────────────────────────────────────────────────────
+const HEXES_1830 = [
+  // Gray
+  {coord:'D2',  color:'gray',  name:'Lansing',    dsl:'city=revenue:20;path=a:5,b:_0;path=a:4,b:_0'},
+  {coord:'F6',  color:'gray',  name:'Cleveland',  dsl:'city=revenue:30;path=a:5,b:_0;path=a:0,b:_0'},
+  {coord:'E9',  color:'gray',  name:'',           dsl:'path=a:2,b:3'},
+  {coord:'H12', color:'gray',  name:'Altoona',    dsl:'city=revenue:10,loc:2.5;path=a:1,b:_0;path=a:4,b:_0;path=a:1,b:4'},
+  {coord:'D14', color:'gray',  name:'Rochester',  dsl:'city=revenue:20;path=a:1,b:_0;path=a:4,b:_0;path=a:0,b:_0'},
+  {coord:'C15', color:'gray',  name:'Kingston',   dsl:'town=revenue:10;path=a:1,b:_0;path=a:3,b:_0'},
+  {coord:'K15', color:'gray',  name:'Richmond',   dsl:'city=revenue:20;path=a:2,b:_0'},
+  {coord:'A17', color:'gray',  name:'',           dsl:'path=a:0,b:5'},
+  {coord:'A19', color:'gray',  name:'Montreal',   dsl:'city=revenue:40;path=a:5,b:_0;path=a:0,b:_0'},
+  {coord:'I19', color:'gray',  name:'Atl. City',  dsl:'town=revenue:10;path=a:1,b:_0;path=a:2,b:_0'},
+  {coord:'F24', color:'gray',  name:'Mansfield',  dsl:'town=revenue:10;path=a:1,b:_0;path=a:2,b:_0'},
+  {coord:'D24', color:'gray',  name:'',           dsl:'path=a:1,b:0'},
+  // Yellow
+  {coord:'E5',  color:'yellow', name:'Detroit & Windsor', dsl:'city=revenue:0;city=revenue:0;label=OO;upgrade=cost:80,terrain:water'},
+  {coord:'D10', color:'yellow', name:'Hamilton & Toronto', dsl:'city=revenue:0;city=revenue:0;label=OO;upgrade=cost:80,terrain:water'},
+  {coord:'E11', color:'yellow', name:'Dunkirk & Buffalo', dsl:'city=revenue:0;city=revenue:0;label=OO'},
+  {coord:'H18', color:'yellow', name:'Philadelphia & Trenton', dsl:'city=revenue:0;city=revenue:0;label=OO'},
+  {coord:'I15', color:'yellow', name:'Baltimore', dsl:'city=revenue:30;path=a:4,b:_0;path=a:0,b:_0;label=B'},
+  {coord:'G19', color:'yellow', name:'New York & Newark', dsl:'city=revenue:40;city=revenue:40;path=a:3,b:_0;path=a:0,b:_1;label=NY;upgrade=cost:80,terrain:water'},
+  {coord:'E23', color:'yellow', name:'Boston',    dsl:'city=revenue:30;path=a:3,b:_0;path=a:5,b:_0;label=B'},
+  // Red offboards
+  {coord:'F2',  color:'red',   name:'Chicago',    dsl:'offboard=revenue:yellow_40|brown_70;path=a:3,b:_0;path=a:4,b:_0;path=a:5,b:_0'},
+  {coord:'J2',  color:'red',   name:'Gulf',       dsl:'offboard=revenue:yellow_30|brown_60;path=a:3,b:_0;path=a:4,b:_0'},
+  {coord:'A11', color:'red',   name:'Cdn. West',  dsl:'offboard=revenue:yellow_30|brown_50;path=a:5,b:_0;path=a:0,b:_0'},
+  {coord:'K13', color:'red',   name:'Deep South', dsl:'offboard=revenue:yellow_30|brown_40;path=a:2,b:_0;path=a:3,b:_0'},
+  {coord:'B24', color:'red',   name:'Maritime',   dsl:'offboard=revenue:yellow_20|brown_30;path=a:1,b:_0;path=a:0,b:_0'},
+  // White with content
+  {coord:'F4/J14/F22', color:'white', name:'Toledo/Wash/Prov', dsl:'city=revenue:0;upgrade=cost:80,terrain:water'},
+  {coord:'E7',  color:'white', name:'London',     dsl:'town=revenue:0;border=edge:5,type:impassable'},
+  {coord:'B16', color:'white', name:'Ottawa',     dsl:'city=revenue:0;border=edge:5,type:impassable'},
+  {coord:'D4/F10/B20', color:'white', name:'Flint/Erie/Burling.', dsl:'town'},
+  {coord:'E19/H4/B10/H10/H16', color:'white', name:'Albany/Columbus/Barrie/Pitt/Lanc.', dsl:'city'},
+  {coord:'F16', color:'white', name:'Scranton',   dsl:'city=revenue:0;upgrade=cost:120,terrain:mountain'},
+  {coord:'G7/G17/F20', color:'white', name:'Akron/Reading/NewHav.', dsl:'town=revenue:0;town=revenue:0'},
+];
+
+// ── Build page ────────────────────────────────────────────────────────────────
+const byColor = {
+  'Gray (fixed)'  : HEXES_1830.filter(h => h.color === 'gray'),
+  'Yellow (placed)': HEXES_1830.filter(h => h.color === 'yellow'),
+  'Red (offboard)': HEXES_1830.filter(h => h.color === 'red'),
+  'White (content)': HEXES_1830.filter(h => h.color === 'white'),
+};
+
+const body = document.body;
+for (const [section, hexes] of Object.entries(byColor)) {
+  const hdr = document.createElement('div');
+  hdr.className = 'section-head';
+  hdr.textContent = section + ` (${hexes.length})`;
+  body.appendChild(hdr);
+
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  for (const {coord, color, dsl, name} of hexes) {
+    grid.appendChild(makeCard(coord, color, dsl, name));
+  }
+  body.appendChild(grid);
+}
+</script>
+</body>
+</html>
