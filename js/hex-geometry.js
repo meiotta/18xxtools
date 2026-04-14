@@ -168,4 +168,15 @@ function trackPath(e1, e2) {
     const cy2 = p2.y * 0.3;
     return `M ${p1.x},${p1.y} C ${cx1},${cy1} ${cx2},${cy2} ${p2.x},${p2.y}`;
   } else {
-    // Sha
+    // Sharp curve: quadratic bezier around the shared corner vertex.
+    // The corner between e1 and e2 (going the short way) has index:
+    //   diff=1: corner = (max(e1,e2) + 1) % 6
+    //   diff=5: corner = (min(e1,e2) + 1) % 6  (wrap case: e.g. e1=5, e2=0)
+    const later = (diff === 1) ? Math.max(e1, e2) : Math.min(e1, e2);
+    const ci = (later + 1) % 6;
+    const R = 50; // circumradius of tile hex (50-unit tile space)
+    const cpx = R * Math.cos(ci * Math.PI / 3);
+    const cpy = R * Math.sin(ci * Math.PI / 3);
+    return `M ${p1.x},${p1.y} Q ${cpx},${cpy} ${p2.x},${p2.y}`;
+  }
+}

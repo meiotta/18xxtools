@@ -800,4 +800,70 @@ function parseDSL(dslString, color) {
       // label=label:OO or label=label:Chi
       if (labelStr === null && kv['label']) labelStr = kv['label'];
 
-    } else if (type === 'upgrade') {
+    } else if (type === 'upgrade') {
+      // upgrade component tells us tile color transitions — we don't need it
+      // for rendering. Skip silently.
+    }
+    // border, icon, frame, junction, halt: silently ignored
+  }
+
+  const result = { color: color || 'yellow', nodes, paths };
+  if (labelStr) result.label = labelStr;
+  return result;
+}
+
+// Parse a phase-variable or simple revenue string.
+// 'yellow_10|green_20|brown_30' → 10 (take first/yellow value)
+// '20' → 20
+// 'E' → 'E' (for offboard variable revenues — keep as string)
+function parseRevenue(str) {
+  if (!str) return undefined;
+  // Phase-variable: yellow_N|green_M|...
+  if (str.includes('|')) {
+    const first = str.split('|')[0];
+    const colIdx = first.indexOf('_');
+    if (colIdx !== -1) return parseRevValue(first.slice(colIdx + 1));
+  }
+  return parseRevValue(str);
+}
+function parseRevValue(s) {
+  const n = parseInt(s, 10);
+  return isNaN(n) ? s : n;
+}
+
+// Convert a DSL path endpoint string to our format.
+// '0'..'5' → integer edge index
+// '_0'..'_N' → { node: N }
+function parsePathEndpoint(str) {
+  if (str === undefined || str === null) return null;
+  str = str.trim();
+  if (str.startsWith('_')) {
+    const n = parseInt(str.slice(1), 10);
+    return isNaN(n) ? null : { node: n };
+  }
+  const n = parseInt(str, 10);
+  return isNaN(n) ? null : n;
+}
+
+// Convert a DSL loc: value to {x, y} in tile-local coordinates.
+// Integer N → midpoint biased halfway between center and edge (canonical town loc).
+// N.5 → corner vertex between edges N and N+1 at circumradius.
+// 'center' → {0, 0}
+// In 18xx.games, loc:N for a city/town is the edge midpoint scaled to ~50%
+// inradius — but checking actual tile definitions, most non-center locs use
+// the edge midpoint exactly (for off-center towns). We use full inradius here
+// to match the engine's positioning; callers can override with explicit x/y.
+function locToPos(loc) {
+  if (loc === 'center' || loc === undefined) return { x: 0, y: 0 };
+  const f = parseFloat(loc);
+  if (isNaN(f)) return { x: 0, y: 0 };
+  // N.5 = corner between edges N and N+1
+  if (!Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5) {
+    return cornerPosition(f);
+  }
+  // Integer: edge midpoint
+  return edgeMidpoint(Math.round(f));
+}
+
+return { normalizeTileDef, parseDSL, computeCityTownEdges, townPosition, SLOT_RADIUS, BAR_RW, BAR_RH };
+})();

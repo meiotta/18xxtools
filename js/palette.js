@@ -5,26 +5,18 @@
 // buildPalette() — called once on startup and after terrain costs change.
 // makeTileSwatchSvg(tileId) — returns SVG string for a tile swatch.
 // updateStatus(text) — sets the status bar text.
-
-
 // ── Tile swatch SVG generation ───────────────────────────────────────────────
-
 function makeTileSwatchSvg(tileId) {
   const td = TileRegistry.getTileDef(tileId);
   if (!td) return '';
-
   const normColor = td.color === 'gray' ? 'grey' : td.color;
   const hexColor = TILE_HEX_COLORS[normColor] || '#c8a87a';
-
   let inner = '';
-
   // Hex background
   inner += `<polygon points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
-
   // Track + station geometry via canonical hexToSvgInner — same pipeline and constants
   // as the canvas renderer (track.rb:16 width=9→DSL_TRACK_W; city.rb:14 SLOT_RADIUS=25→DSL_SLOT_R)
   inner += hexToSvgInner(null, td);
-
   // Revenue bubble(s) — positions from tileDef (canonical tobymao revenue placement)
   if (td.revenue && td.revenue.v !== 0) {
     const rv = td.revenue;
@@ -38,27 +30,21 @@ function makeTileSwatchSvg(tileId) {
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
     }
   }
-
   // Tile label (Y / T / OO etc.) — shown as a small badge in the bottom-right corner,
   // outside the rotated group so it stays upright
   const labelBadge = td.tileLabel
     ? `<text x="36" y="44" font-size="8" fill="rgba(255,255,255,0.55)" font-weight="bold" text-anchor="end" dominant-baseline="auto">${td.tileLabel}</text>`
     : '';
-
   // Tile number — small badge bottom-right, semi-transparent, doesn't rotate
   const numBadge = `<text x="46" y="44" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end" dominant-baseline="auto">#${tileId}</text>`;
-
   // Rotate entire hex + track for pointy-top orientation (30° = flat→pointy)
   const isPointy = (state.meta && state.meta.orientation === 'pointy');
   const hexGroup = isPointy
     ? `<g transform="rotate(30)">${inner}</g>`
     : inner;
-
   return `<svg viewBox="-50 -50 100 100" width="90" height="90">${hexGroup}${labelBadge}${numBadge}</svg>`;
 }
-
 // ── Palette builder ──────────────────────────────────────────────────────────
-
 function buildPalette() {
   // Initialize enabledPacks to defaults if not set
   if (!state.enabledPacks) {
@@ -66,18 +52,14 @@ function buildPalette() {
       ? Object.assign({}, DEFAULT_ENABLED_PACKS)
       : {};
   }
-
   // ── Tile swatches — dynamic from TileRegistry ─────────────────────────────
   const container = document.getElementById('starterTilesGrid');
   container.innerHTML = '';
-
   const colorOrder = ['white', 'yellow', 'green', 'brown', 'grey'];
   const colorLabels = { white: 'White Tiles', yellow: 'Yellow Tiles', green: 'Green Tiles', brown: 'Brown Tiles', grey: 'Grey Tiles' };
-
   // Group tile IDs by color, sorted: numeric IDs first (ascending), then X-IDs (ascending by number)
   const groups = {};
   for (const color of colorOrder) groups[color] = [];
-
   // Precompute tile → pack name map for reliable filtering (avoids per-tile nested loops)
   const tilePackMap = {};
   if (typeof TILE_PACK_ORDER !== 'undefined' && typeof TILE_PACKS !== 'undefined') {
@@ -90,25 +72,20 @@ function buildPalette() {
       }
     }
   }
-
   const enabledPacks = state.enabledPacks;
-
   for (const [id, td] of Object.entries(TileRegistry.getAllTileDefs())) {
     // X tiles are manifest-only — skip them in the map palette
     if (/^X/i.test(id)) continue;
-
     // Pack filtering: skip tiles whose pack is disabled.
     // Tiles with no pack classification are always shown.
     if (enabledPacks) {
       const pn = tilePackMap[id];
       if (pn !== undefined && !enabledPacks[pn]) continue;
     }
-
     // Normalise 'gray' → 'grey' for DSL-injected tiles
     const color = td.color === 'gray' ? 'grey' : td.color;
     if (groups[color]) groups[color].push(id);
   }
-
   // Empty-state message when all packs are disabled
   const totalTiles = colorOrder.reduce((n, c) => n + groups[c].length, 0);
   if (totalTiles === 0) {
@@ -118,18 +95,15 @@ function buildPalette() {
     container.appendChild(msg);
     return;
   }
-
   function sortTileIds(ids) {
     const numeric = ids.filter(id => /^\d+$/.test(id)).sort((a, b) => parseInt(a) - parseInt(b));
     const xIds    = ids.filter(id => /^X\d+$/.test(id)).sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
     const other   = ids.filter(id => !/^\d+$/.test(id) && !/^X\d+$/.test(id)).sort();
     return [...numeric, ...xIds, ...other];
   }
-
   for (const color of colorOrder) {
     const ids = sortTileIds(groups[color]);
     if (!ids.length) continue;
-
     // Section header (collapsible)
     const header = document.createElement('div');
     header.className = 'palette-header';
@@ -140,18 +114,15 @@ function buildPalette() {
       if (grid) grid.classList.toggle('collapsed');
     });
     container.appendChild(header);
-
     const grid = document.createElement('div');
     grid.className = 'tile-swatches-grid';
     container.appendChild(grid);
-
     for (const id of ids) {
       const swatch = document.createElement('div');
       swatch.className = 'tile-swatch';
       swatch.setAttribute('data-tile', id);
       swatch.draggable = true;
       swatch.innerHTML = makeTileSwatchSvg(id); // tile number rendered as SVG badge inside hex
-
       swatch.addEventListener('click', () => {
         activeTool = 'tile';
         activeTile = /^\d+$/.test(id) ? parseInt(id) : id;
@@ -159,35 +130,28 @@ function buildPalette() {
         swatch.classList.add('selected');
         updateStatus(`Tool: Tile #${id}`);
       });
-
       swatch.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('text/plain', id);
         e.dataTransfer.effectAllowed = 'copy';
       });
-
       grid.appendChild(swatch);
     }
   }
 }
-
 function updateStatus(text) {
   document.getElementById('statusBar').textContent = text;
 }
-
 document.getElementById('labelApplyBtn').addEventListener('click', () => {
   activeLabel = document.getElementById('labelInput').value;
   activeTool = 'label';
   updateStatus(`Tool: Label "${activeLabel}"`);
 });
-
 document.getElementById('eraseBtn').addEventListener('click', () => {
   activeTool = 'erase';
   document.getElementById('eraseBtn').style.background = '#a00000';
   updateStatus('Tool: Erase');
 });
-
 // ── Terrain brush buttons ─────────────────────────────────────────────────────
-
 // clearAllToolHighlights defined below (also clears terrain brushes)
 function clearAllToolHighlights() {
   document.querySelectorAll('.palette-item').forEach(p => p.classList.remove('active'));
@@ -196,7 +160,6 @@ function clearAllToolHighlights() {
   document.querySelectorAll('.terrain-brush-btn').forEach(b => b.classList.remove('tb-active'));
   document.querySelectorAll('.edge-tool-btn').forEach(b => { b.style.outline = ''; b.style.background = ''; });
 }
-
 document.querySelectorAll('.terrain-brush-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const terrain = btn.dataset.terrain; // '' = clear terrain
@@ -224,20 +187,15 @@ document.querySelectorAll('.terrain-brush-btn').forEach(btn => {
     }
   });
 });
-
 // ── White tile buttons ────────────────────────────────────────────────────────
-
 // White tile buttons removed — white tiles are now regular tile-pack swatches.
-
 // ── Edge tool buttons ────────────────────────────────────────────────────────
-
 function clearEdgeToolActive() {
   document.querySelectorAll('.edge-tool-btn').forEach(b => {
     b.style.outline = '';
     b.style.background = '';
   });
 }
-
 document.getElementById('edgeImpassableBtn').addEventListener('click', () => {
   activeTool = 'impassable';
   clearAllToolHighlights();
@@ -245,7 +203,6 @@ document.getElementById('edgeImpassableBtn').addEventListener('click', () => {
   document.getElementById('edgeImpassableBtn').style.background = 'rgba(255,215,0,0.15)';
   updateStatus('Tool: Impassable Edge — click an edge on the map');
 });
-
 document.getElementById('edgeWaterBtn').addEventListener('click', () => {
   if (activeTool === 'water-crossing') {
     activeTool = null;
@@ -259,4 +216,3 @@ document.getElementById('edgeWaterBtn').addEventListener('click', () => {
   document.getElementById('edgeWaterBtn').style.background = 'rgba(255,215,0,0.15)';
   updateStatus('Tool: Water Crossing — click an edge on the map');
 });
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               

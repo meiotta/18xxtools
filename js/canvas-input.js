@@ -1,20 +1,15 @@
 // ─── CANVAS INPUT ─────────────────────────────────────────────────────────────
 // Mouse/wheel event handlers for the SVG map element, plus applyTool/ensureHex.
 // Load order: FIFTH — after renderer.js.
-
 // Last-placed tile stamp (shift+click to repeat)
 let _stampTile = null;
 let _stampRotation = 0;
-
 // Hex under cursor during a drag — used by renderer for drop-target highlight
 let dragOverHex = null;
-
 // Lasso selection — stored in WORLD coordinates (same space as getHexCenter output)
 let _lasso = null;               // {startX, startY, endX, endY} in world coords
 let _lassoJustCompleted = false; // suppress the click that fires after mouseup
-
 // ── Coordinate helpers ────────────────────────────────────────────────────────
-
 // clientToWorld: converts a browser clientX/clientY to world coordinates.
 // Uses the mapViewport's screen CTM inverse — no manual pan/zoom/LABEL_PAD math.
 function clientToWorld(clientX, clientY) {
@@ -25,7 +20,6 @@ function clientToWorld(clientX, clientY) {
   pt.y = clientY;
   return pt.matrixTransform(vp.getScreenCTM().inverse());
 }
-
 // _updateLassoSvg: syncs the #mapLasso rect to current _lasso world coords.
 // The lassoLayer follows the same transform as mapViewport, so the rect is in world units.
 function _updateLassoSvg() {
@@ -38,7 +32,6 @@ function _updateLassoSvg() {
   el.setAttribute('height', Math.abs(_lasso.endY - _lasso.startY).toFixed(1));
   el.setAttribute('display', '');
 }
-
 // Returns the index (0–5) of the hex edge midpoint closest to world point (wx, wy).
 // Uses edgePos() (renderer convention: edge 0=bottom, 1=lower-left, …) to match
 // how border.edge is used throughout the renderer.
@@ -58,7 +51,6 @@ function findNearestEdge(row, col, wx, wy) {
   }
   return nearest;
 }
-
 // Returns {row, col} of the hex sharing edge `edge` with hex (row, col).
 // edge convention: 0=bottom, 1=lower-left, 2=upper-left, 3=top, 4=upper-right, 5=lower-right.
 // Returns null if the neighbor would be off the grid (col < 0 or row < 0).
@@ -98,7 +90,6 @@ function getNeighborHex(row, col, edge) {
   if (nr < 0 || nc < 0) return null;
   return { row: nr, col: nc };
 }
-
 // ── Lasso selection (plain left-button drag) ──────────────────────────────────
 // mousemove and mouseup are registered on document during a drag so they fire
 // even when the pointer leaves the SVG element mid-drag.
@@ -108,12 +99,10 @@ function _lassoMove(e) {
   _lasso.endY = wp.y;
   _updateLassoSvg();  // update lasso rect only — no full content rebuild
 }
-
 function _lassoUp(e) {
   if (e.button !== 0) return;
   document.removeEventListener('mousemove', _lassoMove);
   document.removeEventListener('mouseup',   _lassoUp);
-
   // Threshold: 3 screen pixels mapped to world units
   const wasDrag = Math.hypot(_lasso.endX - _lasso.startX, _lasso.endY - _lasso.startY) > 3 / zoom;
   if (wasDrag) {
@@ -122,7 +111,6 @@ function _lassoUp(e) {
     const wy1 = Math.min(_lasso.startY, _lasso.endY);
     const wx2 = Math.max(_lasso.startX, _lasso.endX);
     const wy2 = Math.max(_lasso.startY, _lasso.endY);
-
     selectedHexes.clear();
     let lastId = null;
     for (let r = 0; r < state.meta.rows; r++) {
@@ -141,7 +129,6 @@ function _lassoUp(e) {
   _updateLassoSvg();
   render();
 }
-
 mapSvg.addEventListener('mousedown', (e) => {
   if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
     // preventDefault stops the browser from firing dragstart on a real drag,
@@ -153,27 +140,23 @@ mapSvg.addEventListener('mousedown', (e) => {
     document.addEventListener('mouseup',   _lassoUp);
   }
 });
-
 mapSvg.addEventListener('click', (e) => {
   // Placement Mode Intercept
   if (isPlacementMode && pendingMinorIndex !== null) {
     const wp = clientToWorld(e.clientX, e.clientY);
     const hex = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
     const id = hexId(hex.row, hex.col);
-
     state.minors[pendingMinorIndex].homeHex = id;
     renderMinorsTable();
     autosave();
     exitPlacementMode();
     return;
   }
-
   // Suppress click that fires immediately after a completed lasso drag
   if (_lassoJustCompleted) { _lassoJustCompleted = false; return; }
   const wp2 = clientToWorld(e.clientX, e.clientY);
   const hex = pixelToHex(wp2.x, wp2.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hex.row, hex.col);
-
   if (e.button === 0) {
     // ── Edge tools: detect which edge was clicked ──────────────────────────
     if (activeTool === 'impassable' || activeTool === 'water-crossing') {
@@ -183,7 +166,6 @@ mapSvg.addEventListener('click', (e) => {
       const h = state.hexes[id];
       if (!h.borders) h.borders = [];
       const type = activeTool === 'impassable' ? 'impassable' : 'water';
-
       // Determine the border object first (need cost for water before applying)
       const existingIdx = h.borders.findIndex(b => b.edge === edgeNum);
       let removing = existingIdx >= 0 && h.borders[existingIdx].type === type;
@@ -194,7 +176,6 @@ mapSvg.addEventListener('click', (e) => {
           border.cost = (state.terrainCosts && state.terrainCosts.water) || 40;
         }
       }
-
       // Apply to primary hex
       if (removing) {
         h.borders.splice(existingIdx, 1);
@@ -203,7 +184,6 @@ mapSvg.addEventListener('click', (e) => {
       } else {
         h.borders.push(border);
       }
-
       // Apply mirror border to adjacent hex (same edge between the two hexes)
       const neighbor = getNeighborHex(hex.row, hex.col, edgeNum);
       if (neighbor) {
@@ -225,13 +205,11 @@ mapSvg.addEventListener('click', (e) => {
           }
         }
       }
-
       updateHexPanel(id);
       render();
       autosave();
       return;
     }
-
     // Ctrl/Cmd+click → toggle multi-select
     if (e.ctrlKey || e.metaKey) {
       if (selectedHexes.has(id)) {
@@ -243,7 +221,6 @@ mapSvg.addEventListener('click', (e) => {
       render();
       return;
     }
-
     // Shift+click → add hex to multi-select
     if (e.shiftKey) {
       if (selectedHex && !selectedHexes.has(selectedHex)) selectedHexes.add(selectedHex);
@@ -252,11 +229,9 @@ mapSvg.addEventListener('click', (e) => {
       render();
       return;
     }
-
     // Plain click → clear multi-select, select this hex
     selectedHexes.clear();
     selectedHex = id;
-
     // Switch right panel to HEX tab whenever user clicks a hex on the map
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -264,7 +239,6 @@ mapSvg.addEventListener('click', (e) => {
     if (hexTabBtn) hexTabBtn.classList.add('active');
     const hexTab = document.getElementById('hexTab');
     if (hexTab) hexTab.classList.add('active');
-
     const existingHex = state.hexes[id];
     if (activeTool === 'tile' && activeTile) {
       // DROP: place tile, applyTool handles deselect
@@ -284,7 +258,6 @@ mapSvg.addEventListener('click', (e) => {
     render();
   }
 });
-
 mapSvg.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   const wp = clientToWorld(e.clientX, e.clientY);
@@ -297,7 +270,6 @@ mapSvg.addEventListener('contextmenu', (e) => {
     showContextMenu(e.clientX, e.clientY, id);
   }
 });
-
 mapSvg.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (e.ctrlKey || e.metaKey) {
@@ -312,7 +284,6 @@ mapSvg.addEventListener('wheel', (e) => {
   }
   updateViewport();  // transform-only update — no content rebuild
 }, { passive: false });
-
 // Apply the currently active tool to the given hex coordinate string.
 // Mutates state.hexes[hexId] and calls autosave().
 function applyTool(hexId) {
@@ -325,10 +296,8 @@ function applyTool(hexId) {
     activeTool === 'erase' ||
     activeTool === 'river-edge';
   if (!willChange) return;
-
   if (!state.hexes[hexId]) state.hexes[hexId] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: false, label: '', upgradesTo: [], overrideUpgrades: false, riverEdges: [] };
   const hex = state.hexes[hexId];
-
   if (activeTool === 'terrain' && activeTerrainType) {
     hex.terrain = activeTerrainType;
     hex.terrainCost = terrainCost(activeTerrainType);
@@ -361,15 +330,12 @@ function applyTool(hexId) {
   }
   autosave();
 }
-
 // ── SVG map drag-and-drop tile placement ─────────────────────────────────────
 // Allows dragging a tile swatch from the palette and dropping it on the map.
-
 mapSvg.addEventListener('dragover', (e) => {
   if (!e.dataTransfer.types.includes('text/plain')) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
-
   // Track which hex the drag is over and re-render for highlight feedback
   const wp = clientToWorld(e.clientX, e.clientY);
   const hc = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
@@ -379,24 +345,19 @@ mapSvg.addEventListener('dragover', (e) => {
     render();
   }
 });
-
 mapSvg.addEventListener('dragleave', (e) => {
   if (dragOverHex !== null) { dragOverHex = null; render(); }
 });
-
 mapSvg.addEventListener('drop', (e) => {
   const payload = e.dataTransfer.getData('text/plain');
   if (!payload) return;
   e.preventDefault();
-
   const wp = clientToWorld(e.clientX, e.clientY);
   const hexCoord = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hexCoord.row, hexCoord.col);
   if (!id) return;
   ensureHex(id);
-
   dragOverHex = null; // clear highlight before re-render
-
   if (TileRegistry.getTileDef(payload)) {
     // ── Numbered tile drop ───────────────────────────────────────────────────
     const parsedId = /^\d+$/.test(payload) ? parseInt(payload) : payload;
@@ -410,7 +371,6 @@ mapSvg.addEventListener('drop', (e) => {
     updateStatus(`Placed tile #${payload} on ${id}`);
   }
 });
-
 // Ensure a hex entry exists at the given coordinate ID.
 // Creates a default blank hex if none exists yet, so callers can safely mutate.
 function ensureHex(id) {
@@ -422,4 +382,3 @@ function ensureHex(id) {
     };
   }
 }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    

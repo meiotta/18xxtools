@@ -128,4 +128,159 @@ const TileRegistry = (() => {
     // city nodes use tileDef.cities (not tileDef.oo) so the renderer can
     // draw each circle independently, without a connecting rect.
     // tileDef.oo is reserved exclusively for a single city with 2+ slots
-    // (the standard OO "double
+    // (the standard OO "double bubble" with the white background rect).
+    if (_rawCityCount >= 2 && tileDef.oo && tileDef.cityPositions) {
+      tileDef.cities = tileDef.cityPositions;
+      delete tileDef.oo;
+      delete tileDef.cityPositions;
+    }
+
+    // Ruby town.rect? = exits.size == 2 (bar). 0 exits or 3+ exits = dot.
+    // tile-geometry.js uses isBar = pathCount < 3, which incorrectly makes
+    // 0-exit unconnected towns into bars. Fix: convert 0-exit bar entries to dots.
+    if (tileDef.townPositions && Array.isArray(tileDef.townPositions)) {
+      tileDef.townPositions = tileDef.townPositions.map(p =>
+        (!p.dot && p.rw > 0 && !tileDef.svgPath)
+          ? { x: p.x, y: p.y, dot: true }
+          : p
+      );
+    }
+    if (tileDef.townAt && !tileDef.svgPath) {
+      // Single unconnected town — should be a center dot, not a positioned bar
+      tileDef.town = true;
+      delete tileDef.townAt;
+    }
+
+    // Spread overlapping town dots (e.g. dual-town with no exits: both land at 0,0).
+    if (tileDef.townPositions && tileDef.townPositions.length >= 2) {
+      const first = tileDef.townPositions[0];
+      const allSame = tileDef.townPositions.every(
+        p => Math.abs(p.x - first.x) < 1 && Math.abs(p.y - first.y) < 1
+      );
+      if (allSame) {
+        const n = tileDef.townPositions.length;
+        tileDef.townPositions = tileDef.townPositions.map((p, i) => ({
+          ...p, x: (i - (n - 1) / 2) * 28, y: 0
+        }));
+      }
+    }
+
+    return tileDef;
+  }
+
+  // ── Register a single tile (id + entry) ──────────────────────────────────
+  function _register(id, entry) {
+    if (_cache[id]) return; // first wins
+    const td = _processEntry(entry);
+    if (td) _cache[id] = td;
+  }
+
+  // ── Iterate a pack and register all its tiles ─────────────────────────────
+  // Handles both nested { color: { id: entry } } and flat { id: entry } formats.
+  function _registerPack(pack) {
+    for (const [key, val] of Object.entries(pack)) {
+      if (COLOR_KEYS.has(key) && val && typeof val === 'object' && !Array.isArray(val)) {
+        // Nested color group: key is a color name, val is { id: entry, ... }
+        for (const [id, entry] of Object.entries(val)) {
+          _register(id, entry);
+        }
+      } else {
+        // Flat format: key is tile id, val is the entry
+        _register(key, val);
+      }
+    }
+  }
+
+  // ── rebuildRegistry ───────────────────────────────────────────────────────
+  function rebuildRegistry() {
+    _cache = {};
+
+    // 1. Built-in packs (in TILE_PACK_ORDER)
+    if (typeof TILE_PACKS !== 'undefined') {
+      const order = (typeof TILE_PACK_ORDER !== 'undefined')
+        ? TILE_PACK_ORDER
+        : Object.keys(TILE_PACKS);
+      for (const packName of order) {
+        const pack = TILE_PACKS[packName];
+        if (!pack) continue;
+        _registerPack(pack);
+      }
+    }
+
+    // 2. User custom pack from localStorage
+    try {
+      const raw = localStorage.getItem(CUSTOM_LS_KEY);
+      if (raw) {
+        const customPack = JSON.parse(raw);
+        for (const [id, entry] of Object.entries(customPack)) {
+          _register(id, entry);
+        }
+      }
+    } catch (_) { /* ignore localStorage errors */ }
+
+    // 3. Map-embedded tiles
+    for (const [id, entry] of Object.entries(_embeddedTiles)) {
+      _register(id, entry);
+    }
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  function getTileDef(id) {
+    if (id === null || id === undefined || id === 0 || id === '' || id === '0') return null;
+    return _cache[String(id)] || null;
+  }
+
+  function getAllTileDefs() {
+    return Object.assign({}, _cache);
+  }
+
+  function setEmbeddedTiles(tiles) {
+    _embeddedTiles = tiles || {};
+    rebuildRegistry();
+  }
+
+  function addCustomTile(id, dsl, color) {
+    try {
+      const raw = localStorage.getItem(CUSTOM_LS_KEY);
+      const pack = raw ? JSON.parse(raw) : {};
+      pack[String(id)] = { dsl, color };
+      localStorage.setItem(CUSTOM_LS_KEY, JSON.stringify(pack));
+    } catch (_) { /* ignore */ }
+    rebuildRegistry();
+  }
+
+  function nextCustomId() {
+    const ids = Object.keys(_cache)
+      .map(id => parseInt(id, 10))
+      .filter(n => !isNaN(n) && n >= 9000);
+    return String(ids.length === 0 ? 9001 : Math.max(...ids) + 1);
+  }
+
+  function exportCustomPack() {
+    try { return localStorage.getItem(CUSTOM_LS_KEY) || '{}'; }
+    catch (_) { return '{}'; }
+  }
+
+  function importCustomPack(jsonString) {
+    try {
+      const incoming = JSON.parse(jsonString);
+      const raw = localStorage.getItem(CUSTOM_LS_KEY);
+      const existing = raw ? JSON.parse(raw) : {};
+      Object.assign(existing, incoming);
+      localStorage.setItem(CUSTOM_LS_KEY, JSON.stringify(existing));
+    } catch (_) { /* ignore */ }
+    rebuildRegistry();
+  }
+
+  return {
+    getTileDef,
+    getAllTileDefs,
+    rebuildRegistry,
+    addCustomTile,
+    setEmbeddedTiles,
+    nextCustomId,
+    exportCustomPack,
+    importCustomPack,
+  };
+})();
