@@ -154,96 +154,129 @@ function buildBordersSvg(hex) {
   return svg;
 }
 
-// buildTerrainSvg: terrain icon + cost for a hex with no placed tile.
-// Coordinates in hex-local world-unit space (centered at 0,0).
+// buildTerrainSvg: terrain upgrade badge (cost + icon) for a hex with no placed tile.
 //
-// hasCityFeature: when true (city/town/oo also on this hex) the full icon
-// is rendered in the upper-right corner at small scale to avoid colliding
-// with city circles.  When false (terrain-only hex) the icon is centred
-// slightly below the hex centre with the cost underneath.
+// Replicates tobymao's Part::Upgrade rendering (assets/app/view/game/part/upgrade.rb).
+//
+// Placement (simplified tobymao region system):
+//   The upgrade part iterates preferred_render_locations and picks the one with the
+//   lowest combined region-use cost.  For flat-top layout the preference order is:
+//     P_CENTER (0,0)  →  P_TOP_RIGHT_CORNER (30,−60)  →  P_EDGE2 (−50,−45)  →  …
+//   (all in tobymao's 100-unit hex space; scaled ×0.4 for our HEX_SIZE=40 space).
+//   A city/town occupies the CENTER regions, so when one is present the upgrade
+//   badge falls through to P_TOP_RIGHT_CORNER.
+//
+// Icon shapes match tobymao's upgrade.rb:
+//   mountain — inline brown (#cb7745) triangle  TRIANGLE_PATH scaled ×0.4
+//   water    — inline WATER_PATH wavy lines,  stroke #147ebe
+//   hill/swamp/desert/lake/river/forest — inlined from /icons/*.svg
+//
+// Cost text: tobymao text.number CSS → font-size 21px×0.4=8.4, font-weight 300,
+//   text-anchor middle, fill black, at the badge origin.  Icon below at delta_y=2.
 function buildTerrainSvg(hex, hasCityFeature) {
   if (!hex || !hex.terrain) return '';
-  const terrain = hex.terrain;
-  const sz = HEX_SIZE;
-  let svg = '';
 
-  if (hasCityFeature) {
-    // ── Collision-safe mode: small icon + cost badge at bottom of hex ──────
-    // The city circle occupies roughly y ∈ [-14, +14]; we place the terrain
-    // badge below it so they never overlap.
-    const costY = sz * 0.58;   // below city circle
-    const is    = 5;           // smaller scale so it fits
+  // ── Tobymao preferred_render_locations (flat, scaled to 40-unit space) ──────
+  // P_TOP_RIGHT_CORNER = (30,−60) × 0.4 = (12,−24)
+  const bx = hasCityFeature ? HEX_SIZE * 0.30 : 0;
+  const by = hasCityFeature ? HEX_SIZE * -0.60 : 0;
 
-    svg += `<g transform="translate(${(sz * 0.45).toFixed(1)},${(-(sz * 0.55)).toFixed(1)})">`;
-    svg += _terrainIconSvg(terrain, is);
-    svg += '</g>';
+  // ── Tobymao SIZE = 20 (100-unit space) × 0.4 = 8 ──────────────────────────
+  const S  = HEX_SIZE * 0.20;   // = 8
+  const dx = -S / 2;             // = −4   (delta_x = −SIZE/2)
+  const dy = HEX_SIZE * 0.05;   // = 2    (delta_y = 5 × 0.4)
 
-    if (hex.terrainCost && hex.terrainCost > 0) {
-      // Revenue-style bubble: white circle + bold cost number
-      svg += `<circle cx="0" cy="${costY.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-      svg += `<text x="0" y="${costY.toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
-    }
-  } else {
-    // ── Normal mode: full centred icon + cost text below ──────────────────
-    const iy = sz * 0.22;   // icon group centre-Y (below hex centre)
-    const is = 8;
+  let svg = `<g transform="translate(${bx.toFixed(1)},${by.toFixed(1)})">`;
 
-    svg += `<g transform="translate(0,${iy.toFixed(1)})">`;
-    svg += _terrainIconSvg(terrain, is);
-    svg += '</g>';
-
-    // Supplemental water indicator beside main icon (compound terrain)
-    if (hex.terrainHasWater && terrain !== 'water' && terrain !== 'river' && terrain !== 'lake') {
-      const ws = 5;
-      svg += `<g transform="translate(${(is * 1.5).toFixed(1)},${(iy - is * 0.5).toFixed(1)})">`;
-      svg += _terrainIconSvg('water', ws);
-      svg += '</g>';
-    }
-
-    if (hex.terrainCost && hex.terrainCost > 0) {
-      svg += `<text x="0" y="${(iy + is * 1.4).toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
-    }
+  // Cost number — tobymao text.number: font-size 21×0.4, font-weight 300, text-anchor middle
+  if (hex.terrainCost && hex.terrainCost > 0) {
+    svg += `<text text-anchor="middle" font-family="Arial" font-size="${(HEX_SIZE * 0.21).toFixed(1)}" font-weight="300" fill="black">${escSvg(String(hex.terrainCost))}</text>`;
   }
+
+  // Terrain icon below cost, at (dx, dy) relative to badge origin
+  svg += _terrainIconSvg(hex.terrain, S, dx, dy);
+
+  svg += '</g>';
   return svg;
 }
 
-// _terrainIconSvg: pure SVG shapes for a terrain type, centred at (0,0).
-// Scale parameter `s` is the icon half-size in world units (like canvas `is`).
-// Matches the icon shapes drawn by context-menu.js _drawTerrainIcon exactly.
-function _terrainIconSvg(terrain, s) {
+// _terrainIconSvg: SVG element for one terrain type positioned at (dx, dy).
+// S  = icon size (tobymao SIZE × hex-scale); dx/dy = delta within badge group.
+// Shapes and colours taken directly from tobymao's upgrade.rb and /icons/*.svg.
+function _terrainIconSvg(terrain, S, dx, dy) {
+  // px / py: top-left of the icon bounding box (tobymao uses translate(dx dy))
+  const px = dx.toFixed(2), py = dy.toFixed(2);
+
   switch (terrain) {
     case 'mountain':
-      return `<polygon points="0,${(-s*1.4).toFixed(1)} ${(-s*1.2).toFixed(1)},${(s*0.6).toFixed(1)} ${(s*1.2).toFixed(1)},${(s*0.6).toFixed(1)}" fill="#777"/>` +
-             `<polygon points="0,${(-s*1.4).toFixed(1)} ${(-s*0.4).toFixed(1)},${(-s*0.5).toFixed(1)} ${(s*0.4).toFixed(1)},${(-s*0.5).toFixed(1)}" fill="white"/>`;
-    case 'hill':
-      return `<path d="M ${(-s*0.9).toFixed(1)},${(s*0.2).toFixed(1)} A ${(s*0.9).toFixed(1)},${(s*0.9).toFixed(1)} 0 0 1 ${(s*0.9).toFixed(1)},${(s*0.2).toFixed(1)} Z" fill="#8B7355"/>`;
-    case 'water':
-    case 'river':
-    case 'lake':
-      return `<path d="M 0,${(-s).toFixed(1)} C ${(s*0.8).toFixed(1)},${(-s*0.2).toFixed(1)} ${(s*0.8).toFixed(1)},${(s*0.6).toFixed(1)} 0,${(s*0.7).toFixed(1)} C ${(-s*0.8).toFixed(1)},${(s*0.6).toFixed(1)} ${(-s*0.8).toFixed(1)},${(-s*0.2).toFixed(1)} 0,${(-s).toFixed(1)} Z" fill="#3366CC"/>`;
-    case 'swamp':
-    case 'marsh': {
-      let out = '';
-      for (const ox of [-s*0.6, 0, s*0.6]) {
-        const x = ox.toFixed(1);
-        out += `<line x1="${x}" y1="${(s*0.5).toFixed(1)}" x2="${x}" y2="${(-s*0.5).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
-        out += `<line x1="${x}" y1="${(-s*0.2).toFixed(1)}" x2="${(ox-s*0.35).toFixed(1)}" y2="${(-s*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
-        out += `<line x1="${x}" y1="${(-s*0.2).toFixed(1)}" x2="${(ox+s*0.35).toFixed(1)}" y2="${(-s*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
-      }
-      return out;
+      // tobymao TRIANGLE_PATH = '0,20 10,0 20,20'  fill #cb7745 (brown tile colour)
+      // scaled by 0.4: '0,S S/2,0 S,S'
+      return `<polygon transform="translate(${px},${py})" points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>`;
+
+    case 'water': {
+      // tobymao inline WATER_PATH in g{ translate(10+dx, 12+dy) scale(0.7) }
+      // All in 100-unit space → ×0.4 for our scale; path coords ×0.4×0.7=×0.28
+      const tx = (10 * 0.4 + dx).toFixed(2);
+      const ty = (12 * 0.4 + dy).toFixed(2);
+      return `<g transform="translate(${tx},${ty}) scale(0.28)">` +
+             `<path d="M -15 -7 Q -7.5 -15 0 -7 S 7.5 1 15 -7 M -15 -2 Q -7.5 -10 0 -2 S 7.5 6 15 -2"` +
+             ` fill="none" stroke="#147ebe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` +
+             `</g>`;
     }
-    case 'forest':
-      // Green tree triangle — matches context-menu _drawTerrainIcon 'forest'
-      return `<polygon points="0,${(-s*1.2).toFixed(1)} ${(-s*1.0).toFixed(1)},${(s*0.5).toFixed(1)} ${(s*1.0).toFixed(1)},${(s*0.5).toFixed(1)}" fill="#2d7a2d"/>`;
+
+    case 'river':
+      // Same wavy-line style as water but darker blue (#0a2ebe from river.svg)
+      return `<g transform="translate(${(10*0.4+dx).toFixed(2)},${(12*0.4+dy).toFixed(2)}) scale(0.28)">` +
+             `<path d="M -15 -7 Q -7.5 -15 0 -7 S 7.5 1 15 -7 M -15 -2 Q -7.5 -10 0 -2 S 7.5 6 15 -2"` +
+             ` fill="none" stroke="#0a2ebe" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>` +
+             `</g>`;
+
+    case 'lake':
+      // lake.svg: two rows of wavy blue lines, viewBox −12.5 −12.5 25 25
+      // scale to S×S centred at (dx+S/2, dy+S/2)
+      return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
+             `<path d="M-10.75 3c0 3 6 3 6 0 0 3 6 3 6 0 0 3 6 3 6 0m-15-8c0 3 6 3 6 0 0 3 6 3 6 0 0 3 6 3 6 0"` +
+             ` fill="none" stroke="#67a7c4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` +
+             `</g>`;
+
+    case 'hill':
+      // hill.svg: green (#4e983b) dome, viewBox 0 0 174 87  (half-ellipse)
+      // Scaled to S wide × S/2 tall, top-left at (dx, dy)
+      return `<ellipse cx="${(dx+S/2).toFixed(2)}" cy="${(dy+S/2).toFixed(2)}" rx="${(S/2).toFixed(2)}" ry="${(S/4).toFixed(2)}"` +
+             ` fill="#4e983b" clip-path="none"/>` +
+             `<rect x="${px}" y="${(dy+S/2).toFixed(2)}" width="${S.toFixed(2)}" height="${(S/2).toFixed(2)}" fill="${TERRAIN_COLORS[''] || '#c8a87a'}"/>`;
+
+    case 'swamp':
+    case 'marsh':
+      // swamp.svg: three drooping U-shapes, viewBox −12.5 −12.5 25 25, stroke #59b578
+      return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
+             `<path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"` +
+             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
+             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"` +
+             ` d="M-7.5 3q0-3.75-3.75-3.75M-7.5 3q0-3.75 3.75-3.75M0-.75Q0-4.5-3.75-4.5M0-.75Q0-4.5 3.75-4.5M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
+             `</g>`;
+
     case 'desert':
-      // Golden diamond — matches context-menu _drawTerrainIcon 'desert'
-      return `<polygon points="0,${(-s).toFixed(1)} ${(s*0.7).toFixed(1)},0 0,${s.toFixed(1)} ${(-s*0.7).toFixed(1)},0" fill="#C8A040"/>`;
+      // cactus.svg: vertical line + two arms, viewBox −12.5 −12.5 25 25, stroke #59b578
+      return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
+             `<path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"` +
+             ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
+             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"` +
+             ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
+             `</g>`;
+
+    case 'forest':
+      // tree.svg is complex; use a simplified green tree triangle (matches tobymao colour)
+      return `<polygon transform="translate(${px},${py})" points="${(S/2).toFixed(2)},0 0,${S.toFixed(2)} ${S.toFixed(2)},${S.toFixed(2)}" fill="#2d7a2d"/>`;
+
     case 'pass':
-      // Gray saddle (two peaks with a dip) — matches context-menu _drawTerrainIcon 'pass'
-      return `<polygon points="${(-s*1.2).toFixed(1)},${(s*0.6).toFixed(1)} ${(-s*0.3).toFixed(1)},${(-s*0.6).toFixed(1)} ${(s*0.3).toFixed(1)},${(-s*0.6).toFixed(1)} ${(s*1.2).toFixed(1)},${(s*0.6).toFixed(1)}" fill="#888"/>`;
+      // Two brown mountains side-by-side (mountain pass)
+      return `<polygon transform="translate(${(dx - S*0.3).toFixed(2)},${dy.toFixed(2)})" points="0,${S.toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>` +
+             `<polygon transform="translate(${(dx + S*0.3).toFixed(2)},${(dy + S*0.15).toFixed(2)})" points="0,${(S*0.85).toFixed(2)} ${(S*0.5).toFixed(2)},0 ${S.toFixed(2)},${(S*0.85).toFixed(2)}" fill="#9b6030"/>`;
+
     default:
-      // Fallback: tan diamond
-      return `<polygon points="0,${(-s).toFixed(1)} ${(s*0.7).toFixed(1)},0 0,${s.toFixed(1)} ${(-s*0.7).toFixed(1)},0" fill="#AA8844"/>`;
+      // Fallback: small brown mountain (unknown terrain still has a cost)
+      return `<polygon transform="translate(${px},${py})" points="0,${S.toFixed(2)} ${(S/2).toFixed(2)},0 ${S.toFixed(2)},${S.toFixed(2)}" fill="#cb7745"/>`;
   }
 }
 
