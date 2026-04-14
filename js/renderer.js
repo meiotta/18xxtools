@@ -156,46 +156,116 @@ function buildBordersSvg(hex) {
 
 // buildTerrainSvg: terrain upgrade badge (cost + icon) for a hex with no placed tile.
 //
-// Replicates tobymao's Part::Upgrade rendering (assets/app/view/game/part/upgrade.rb).
+// Replicates tobymao's Part::Upgrade + Part::Base region-weight collision system.
+// Source: assets/app/view/game/part/base.rb, upgrade.rb, small_item.rb
 //
-// Placement (simplified tobymao region system):
-//   The upgrade part iterates preferred_render_locations and picks the one with the
-//   lowest combined region-use cost.  For flat-top layout the preference order is:
-//     P_CENTER (0,0)  →  P_TOP_RIGHT_CORNER (30,−60)  →  P_EDGE2 (−50,−45)  →  …
-//   (all in tobymao's 100-unit hex space; scaled ×0.4 for our HEX_SIZE=40 space).
-//   A city/town occupies the CENTER regions, so when one is present the upgrade
-//   badge falls through to P_TOP_RIGHT_CORNER.
+// ── Tobymao 24-region system ────────────────────────────────────────────────
+// Each hex has a 24-element @region_use array (all start at 0).  Parts
+// rendered before the upgrade badge (city, town, track paths) increment their
+// occupied regions.  The upgrade badge then calls preferred_render_locations
+// and picks the entry with the lowest combined_cost — i.e. the position whose
+// regions are least occupied, with preference order as tiebreaker.
 //
-// Icon shapes match tobymao's upgrade.rb:
-//   mountain — inline brown (#cb7745) triangle  TRIANGLE_PATH scaled ×0.4
-//   water    — inline WATER_PATH wavy lines,  stroke #147ebe
-//   hill/swamp/desert/lake/river/forest — inlined from /icons/*.svg
+// Region layout (flat hex, rows top→bottom):
+//   row 0:        0  1  2  3  4
+//   row 1:      5  6  7  8  9 10 11
+//   row 2:     12 13 14 15 16 17 18
+//   row 3:        19 20 21 22 23
 //
-// Cost text: tobymao text.number CSS → font-size 21px×0.4=8.4, font-weight 300,
-//   text-anchor middle, fill black, at the badge origin.  Icon below at delta_y=2.
-function buildTerrainSvg(hex, hasCityFeature) {
+// Named groups used here (Base::* constants):
+//   CENTER           = [7,8,9,14,15,16]
+//   TRACK_TO_EDGE_N  = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]]  (edges 0-5)
+//
+// Upgrade::preferred_render_locations — flat (tobymao 100-unit × 0.4 = ours):
+//   P_CENTER            regions=CENTER,    x=0,   y=0
+//   P_TOP_RIGHT_CORNER  regions=[3,4],     x=12,  y=-24  (30,-60)×0.4
+//   P_EDGE2             regions=[0,5,6],   x=-20, y=-18  (-50,-45)×0.4
+//   P_BOTTOM_LEFT_CORNER regions=[19,20],  x=-12, y=24   (-30,60)×0.4
+//   P_RIGHT_CORNER      regions=[11,18],   x=28,  y=0    (70,0)×0.4
+//   P_LEFT_CORNER       regions=[5,12],    x=-28, y=0    (-70,0)×0.4
+//   P_BOTTOM_RIGHT_CORNER regions=[22,23], x=12,  y=24   (30,60)×0.4
+//
+// For pointy layout the PP_ variants from SmallItem + PP_EDGE2 from Upgrade
+// are used (scaled ×0.4 similarly).
+//
+// Icon shapes: tobymao upgrade.rb + /icons/*.svg (see _terrainIconSvg below).
+// Cost text: text.number CSS → font-size 21px×0.4=8.4, font-weight 300.
+function buildTerrainSvg(hex) {
   if (!hex || !hex.terrain) return '';
 
-  // ── Tobymao preferred_render_locations (flat, scaled to 40-unit space) ──────
-  // P_TOP_RIGHT_CORNER = (30,−60) × 0.4 = (12,−24)
-  const bx = hasCityFeature ? HEX_SIZE * 0.30 : 0;
-  const by = hasCityFeature ? HEX_SIZE * -0.60 : 0;
+  const isPointy = (state.meta && state.meta.orientation === 'pointy');
 
-  // ── Tobymao SIZE = 20 (100-unit space) × 0.4 = 8 ──────────────────────────
-  const S  = HEX_SIZE * 0.20;   // = 8
-  const dx = -S / 2;             // = −4   (delta_x = −SIZE/2)
-  const dy = HEX_SIZE * 0.05;   // = 2    (delta_y = 5 × 0.4)
+  // ── Step 1: build region_use from hex features ────────────────────────────
+  const ru = new Array(24).fill(0);
 
-  let svg = `<g transform="translate(${bx.toFixed(1)},${by.toFixed(1)})">`;
+  // Track paths to edges: Base::TRACK_TO_EDGE_N (edges 0-5)
+  const TRACK_TO_EDGE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]];
+  if (Array.isArray(hex.exits)) {
+    for (const e of hex.exits) {
+      const rr = TRACK_TO_EDGE[e];
+      if (rr) for (const r of rr) ru[r] += 1;
+    }
+  }
 
-  // Cost number — tobymao text.number: font-size 21×0.4, font-weight 300, text-anchor middle
+  // Center city (1-slot): City::preferred_render_locations → region_weights: CENTER
+  // Center town: TownDot/TownRect CENTER_TOWN → region_weights: CENTER
+  // Edge cities/towns use EDGE_CITY_REGIONS / EDGE_TOWN_REGIONS, not CENTER —
+  // but static map hexes with hex.feature are always center features.
+  const CENTER = [7, 8, 9, 14, 15, 16];
+  const hasCenterStop =
+    hex.city || hex.feature === 'city' || hex.feature === 'oo' ||
+    hex.town || hex.feature === 'town' || hex.feature === 'dualTown';
+  if (hasCenterStop) {
+    for (const r of CENTER) ru[r] += 1;
+  }
+
+  // ── Step 2: preferred_render_locations for flat / pointy ─────────────────
+  // All (x, y) are tobymao 100-unit coords × 0.4 = our HEX_SIZE=40 space.
+  const LOCS_FLAT = [
+    { r: CENTER,    x:   0, y:   0 },   // P_CENTER
+    { r: [3,4],     x:  12, y: -24 },   // P_TOP_RIGHT_CORNER    (30,-60)×0.4
+    { r: [0,5,6],   x: -20, y: -18 },   // P_EDGE2               (-50,-45)×0.4
+    { r: [19,20],   x: -12, y:  24 },   // P_BOTTOM_LEFT_CORNER  (-30,60)×0.4
+    { r: [11,18],   x:  28, y:   0 },   // P_RIGHT_CORNER        (70,0)×0.4
+    { r: [5,12],    x: -28, y:   0 },   // P_LEFT_CORNER         (-70,0)×0.4
+    { r: [22,23],   x:  12, y:  24 },   // P_BOTTOM_RIGHT_CORNER (30,60)×0.4
+  ];
+  // Pointy: PP_ variants from SmallItem + PP_EDGE2 from Upgrade (all ×0.4)
+  const LOCS_POINTY = [
+    { r: CENTER,    x:   0, y:   0 },   // P_CENTER
+    { r: [3,4],     x:  26, y: -15 },   // PP_UPPER_RIGHT_CORNER (65,-37.5)×0.4
+    { r: [0,5,6],   x: -14, y: -22 },   // PP_EDGE2              (-35,-55)×0.4
+    { r: [19,20],   x: -26, y:  15 },   // PP_BOTTOM_LEFT_CORNER (-65,37.5)×0.4
+    { r: [9,10],    x:  24, y:   0 },   // PP_RIGHT_CORNER       (60,0)×0.4
+    { r: [13,14],   x: -24, y:   0 },   // PP_LEFT_CORNER        (-60,0)×0.4
+    { r: [11,18],   x:  26, y:  15 },   // PP_BOTTOM_RIGHT_CORNER (65,37.5)×0.4
+  ];
+  const locs = isPointy ? LOCS_POINTY : LOCS_FLAT;
+
+  // ── Step 3: combined_cost + min_by [cost, index] ──────────────────────────
+  // Matches Base#combined_cost + render_location logic exactly.
+  const combinedCost = (regions) => regions.reduce((s, r) => s + ru[r], 0);
+  let best = locs[0];
+  let bestCost = combinedCost(locs[0].r);
+  for (let i = 1; i < locs.length; i++) {
+    const c = combinedCost(locs[i].r);
+    if (c < bestCost) { bestCost = c; best = locs[i]; }
+  }
+
+  // ── Step 4: render at best position ──────────────────────────────────────
+  // SIZE = 20 (tobymao 100-unit) × 0.4 = 8;  delta_x = -(SIZE/2);  delta_y = 5×0.4
+  const S  = HEX_SIZE * 0.20;
+  const dx = -S / 2;
+  const dy = HEX_SIZE * 0.05;
+
+  let svg = `<g transform="translate(${best.x.toFixed(1)},${best.y.toFixed(1)})">`;
+
+  // Cost text: tobymao text.number CSS → font-size 21px×0.4, font-weight 300
   if (hex.terrainCost && hex.terrainCost > 0) {
     svg += `<text text-anchor="middle" font-family="Arial" font-size="${(HEX_SIZE * 0.21).toFixed(1)}" font-weight="300" fill="black">${escSvg(String(hex.terrainCost))}</text>`;
   }
 
-  // Terrain icon below cost, at (dx, dy) relative to badge origin
   svg += _terrainIconSvg(hex.terrain, S, dx, dy);
-
   svg += '</g>';
   return svg;
 }
@@ -699,9 +769,10 @@ function buildHexSvg(r, c, hex) {
       || hex?.feature === 'city' || hex?.feature === 'oo'
       || hex?.feature === 'town' || hex?.feature === 'dualTown';
 
-    // Terrain icon (no tile) — passes hasCityFeature for collision-safe layout
+    // Terrain icon (no tile placed) — buildTerrainSvg runs full 24-region
+    // collision resolution internally from hex.exits / hex.feature.
     if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
-      g += buildTerrainSvg(hex, hasCityFeature);
+      g += buildTerrainSvg(hex);
     }
 
     // City name (placed tile or DSL city/oo)
