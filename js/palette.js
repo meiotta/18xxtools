@@ -12,135 +12,29 @@
 function makeTileSwatchSvg(tileId) {
   const td = TileRegistry.getTileDef(tileId);
   if (!td) return '';
-  // Geometry constants (sourced from TILE_GEO to avoid duplication)
-  const SLOT_RADIUS = TILE_GEO.SLOT_RADIUS; // 12.5 at scale 50
-  const BAR_RW = TILE_GEO.BAR_RW;           // 16
-  const BAR_RH = TILE_GEO.BAR_RH;           // 4
 
   const normColor = td.color === 'gray' ? 'grey' : td.color;
   const hexColor = TILE_HEX_COLORS[normColor] || '#c8a87a';
-  const trackStroke = '#222';
-  const labelColor  = td.color === 'brown' ? '#111' : '#555';
 
   let inner = '';
 
   // Hex background
   inner += `<polygon points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
 
-  // Track paths — each M...segment as a separate <path>
-  if (td.svgPath) {
-    const segments = td.svgPath.split(/(?=M )/).map(s => s.trim()).filter(Boolean);
-    for (const seg of segments) {
-      inner += `<path d="${seg}" stroke="${trackStroke}" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    }
+  // Track + station geometry via canonical hexToSvgInner — same pipeline and constants
+  // as the canvas renderer (track.rb:16 width=9→DSL_TRACK_W; city.rb:14 SLOT_RADIUS=25→DSL_SLOT_R)
+  inner += hexToSvgInner(null, td);
+
+  // Revenue bubble(s) — positions from tileDef (canonical tobymao revenue placement)
+  if (td.revenue && td.revenue.v !== 0) {
+    const rv = td.revenue;
+    inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
+    inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
   }
-
-  // Station graphics
-  if (td.oo) {
-    // City slot layout from city.rb:
-    //   BOX_ATTRS[2] = white rect, SLOT_DIAMETER×SLOT_DIAMETER at (-SLOT_RADIUS,-SLOT_RADIUS), NO stroke
-    //   CitySlot: white circle r=SLOT_RADIUS, NO stroke
-    // At scale 50: SLOT_RADIUS=12.5, box 25×25 at (-12.5,-12.5)
-    const ooPositions = (td.cityPositions && td.cityPositions.length >= 2)
-      ? td.cityPositions
-      : [{ x: -SLOT_RADIUS, y: 0 }, { x: SLOT_RADIUS, y: 0 }];
-    if (ooPositions.length === 2) {
-      // Standard OO: connecting white background rect between the two circles
-      const xs = ooPositions.map(p => p.x);
-      const ys = ooPositions.map(p => p.y);
-      const bx = Math.min(...xs) - SLOT_RADIUS, by = Math.min(...ys) - SLOT_RADIUS;
-      const bw = Math.max(...xs) - Math.min(...xs) + 2 * SLOT_RADIUS;
-      const bh = Math.max(...ys) - Math.min(...ys) + 2 * SLOT_RADIUS;
-      inner += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
-    }
-    // Slot circles (2 for OO, 3 for triangle 3-slot city)
-    for (const pos of ooPositions) {
-      inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white" stroke="#333" stroke-width="1.5"/>`;
-    }
-    // Revenue
-    if (td.revenue && td.revenue.v !== 0) {
-      const rv = td.revenue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
-    }
-    // OO label removed — the two city circles already identify the tile type
-
-  } else if (td.cities && td.cities.length) {
-    // Multi-city tile (e.g. 457-464): separate 1-slot city nodes, each at its
-    // topology-computed position. Render each independently — no connecting rect.
-    for (const pos of td.cities) {
-      inner += `<circle cx="${pos.x}" cy="${pos.y}" r="${SLOT_RADIUS}" fill="white" stroke="#333" stroke-width="1.5"/>`;
-    }
-    if (td.revenue && td.revenue.v !== 0) {
-      const rv = td.revenue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
-    }
-
-  } else if (td.city) {
-    const slots = td.slots || 1;
-    if (slots >= 3) {
-      // Triangle formation — three circles, no bounding box
-      for (const [cx2, cy2] of [[0, -16], [-16, 10], [16, 10]]) {
-        inner += `<circle cx="${cx2}" cy="${cy2}" r="10" fill="white" stroke="#333" stroke-width="1.5"/>`;
-      }
-    } else if (slots >= 2) {
-      // Two circles side by side — no bounding box
-      for (const ox of [-13, 13]) {
-        inner += `<circle cx="${ox}" cy="0" r="11" fill="white" stroke="#333" stroke-width="1.5"/>`;
-      }
-    } else {
-      // Single city circle
-      inner += `<circle cx="0" cy="0" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
-    }
-    if (td.revenue && td.revenue.v !== 0) {
-      const rv = td.revenue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
-    }
-
-  } else if (td.dualTown) {
-    // Dual town: two bars (town_rect.rb render_part: black rect, no stroke for normal towns)
-    // Fallback positions for tiles whose townPositions is absent or empty []
-    const positions = (td.townPositions && td.townPositions.length)
-      ? td.townPositions
-      : [{ x: -10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH },
-         { x:  10, y: 0, rot: 0, rw: BAR_RW, rh: BAR_RH }];
-    for (const pos of positions) {
-      if (pos.dot) {
-        // 3+-exit junction town → dot
-        inner += `<circle cx="${pos.x}" cy="${pos.y}" r="5" fill="black"/>`;
-      } else {
-        const rw = pos.rw || BAR_RW, rh = pos.rh || BAR_RH;
-        inner += `<g transform="translate(${pos.x},${pos.y}) rotate(${pos.rot || 0})">` +
-                 `<rect x="${-rw/2}" y="${-rh/2}" width="${rw}" height="${rh}" fill="black"/>` +
-                 `</g>`;
-      }
-    }
-    if (td.revenues) {
-      for (const rv of td.revenues) {
-        if (rv.v === 0) continue;
-        inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7" fill="white" stroke="#777" stroke-width="1"/>`;
-        inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
-      }
-    }
-
-  } else if (td.town) {
-    // Single town dit — small black dot
-    inner += `<circle cx="0" cy="0" r="5" fill="black"/>`;
-    if (td.revenue && td.revenue.v !== 0) {
-      const rv = td.revenue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
-    }
-
-  } else if (td.townAt) {
-    // Off-center town bar
-    const t = td.townAt;
-    inner += `<g transform="translate(${t.x},${t.y}) rotate(${t.rot})"><rect x="${-t.rw / 2}" y="${-t.rh / 2}" width="${t.rw}" height="${t.rh}" fill="#000"/></g>`;
-    if (td.revenue && td.revenue.v !== 0) {
-      const rv = td.revenue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
+  if (td.revenues) {
+    for (const rv of td.revenues) {
+      if (rv.v === 0) continue;
+      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7" fill="white" stroke="#777" stroke-width="1"/>`;
       inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
     }
   }

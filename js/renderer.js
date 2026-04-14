@@ -523,12 +523,14 @@ function hexToSvgInner(hex, tileDef) {
   // For placed tiles: use tileDef geometry
   if (tileDef) {
     if (tileDef.svgPath) {
-      svg += `<path d="${tileDef.svgPath}" stroke="#222" stroke-width="8" stroke-linecap="round" fill="none"/>`;
+      // Track stroke-width from tobymao track.rb:16 — width:9 at scale 100 → DSL_TRACK_W (5) at scale 50
+      svg += `<path d="${tileDef.svgPath}" stroke="#222" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
     }
 
     if (tileDef.city) {
       const cix = tileDef.cityX || 0, ciy = tileDef.cityY || 0;
-      svg += `<circle cx="${cix}" cy="${ciy}" r="14" fill="white" stroke="#333" stroke-width="2"/>`;
+      // City radius from tobymao city.rb:14 — SLOT_RADIUS=25 at scale 100 → DSL_SLOT_R (12.5) at scale 50
+      svg += `<circle cx="${cix}" cy="${ciy}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
 
     } else if (tileDef.oo) {
       const SR = 12.5;
