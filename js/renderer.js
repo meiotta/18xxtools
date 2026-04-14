@@ -1,18 +1,17 @@
 // ─── RENDERER ─────────────────────────────────────────────────────────────────
-// Canvas drawing functions.
+// SVG map drawing functions.
 // Load order: FOURTH — after hex-geometry.js.
 //
-// drawHex(row, col, hex)  — renders a single hex cell with terrain, tile, city, etc.
-// render()                — clears canvas and redraws all hexes + coordinate labels
-// resizeCanvas()          — called on window resize; sets canvas size then re-renders
+// render()          — rebuilds all hex SVG content and updates viewport transform
+// updateViewport()  — updates viewport transform only (pan/zoom, no content rebuild)
+// resizeCanvas()    — legacy name; calls render() for compat with setup.js/io.js
+// buildHexSvg(r,c,hex) — returns SVG string for one hex group
+// hexToSvgInner(hex,tileDef) — inner track/city/town geometry (shared with swatches)
 
-const RENDERER_VERSION = '2026-04-13-london-nobg';
+const RENDERER_VERSION = '2026-04-14-pure-svg';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
 
 // ── Debug: inspect a hex by grid key or by clicking ──────────────────────────
-// Usage in console:
-//   debugHex('r3_c5')          — dump hex object + what SVG hexToSvgInner would produce
-//   debugHex()                 — dump all DSL hexes with feature, exits, bg
 window.debugHex = function(key) {
   if (typeof state === 'undefined' || !state.hexes) { console.warn('[debugHex] no state'); return; }
   if (key) {
@@ -45,7 +44,6 @@ window.debugHex = function(key) {
 };
 
 // ─── DSL HEX COLORS ───────────────────────────────────────────────────────────
-// Background colors for DSL hexes keyed by hex.bg (set at import time).
 const STATIC_BG_COLORS = {
   white:  '#D4B483',
   yellow: '#F0D070',
@@ -64,18 +62,12 @@ const STATIC_PHASE_COLORS = {
 };
 
 // ─── EDGE POSITION HELPERS ────────────────────────────────────────────────────
-// edgePos: returns {x,y} (relative to hex center) for 18xx edge number e.
-//   18xx edge 0 = bottom (flat-top), 1 = lower-left, 2 = upper-left, 3 = top,
-//                4 = upper-right, 5 = lower-right.
-//   For pointy-top games the whole hex is rotated 30°, so we rotate edge positions too.
-//   dist defaults to 43.3 (apothem of a 50-unit hex).
 function edgePos(edge, dist) {
   if (dist === undefined) dist = 43.3;
   const a = edge * Math.PI / 3;
   const x0 = -Math.sin(a) * dist;
   const y0 =  Math.cos(a) * dist;
   if (state && state.meta && state.meta.orientation === 'pointy') {
-    // Rotate 30° clockwise in SVG space to align with pointy-top hex shape
     const R = Math.PI / 6;
     const cosR = Math.cos(R), sinR = Math.sin(R);
     return { x: x0 * cosR - y0 * sinR, y: x0 * sinR + y0 * cosR };
@@ -83,8 +75,6 @@ function edgePos(edge, dist) {
   return { x: x0, y: y0 };
 }
 
-// rotateLocPos: apply the same 30° pointy-top rotation as edgePos to a
-// tile-space (x,y) position (e.g. cityLocX/Y from a loc: value).
 function rotateLocPos(x, y) {
   if (state && state.meta && state.meta.orientation === 'pointy') {
     const R = Math.PI / 6;
@@ -94,52 +84,37 @@ function rotateLocPos(x, y) {
   return { x, y };
 }
 
-// computeTownPos: port of tobymao town_location.rb#town_position + town_rotation_angles.
-// Returns {x, y, angle} for the town rectangle in 50-unit tile space.
-// All formulas are verbatim from tobymao source, scaled by 0.5 (100→50 unit space).
 function computeTownPos(exits) {
   if (!exits || exits.length === 0) return { x: 0, y: 0, angle: 0 };
 
   if (exits.length === 1) {
-    // Single-exit town: position=50 (our 25), angle=edge*60. From town_position elsif edge_a branch.
     const a = exits[0] * Math.PI / 3;
     return { x: +(-Math.sin(a) * 25).toFixed(2), y: +(Math.cos(a) * 25).toFixed(2), angle: exits[0] * 60 };
   }
 
-  // 2-exit: normalized_edges — ensure |ea-eb| <= 3
   let ea = exits[0], eb = exits[1];
   if (Math.abs(ea - eb) > 3) { if (ea < eb) ea += 6; else eb += 6; }
   const minEdge = Math.min(ea, eb);
   const diff    = Math.abs(ea - eb);
   const type    = diff === 1 ? 'sharp' : diff === 2 ? 'gentle' : 'straight';
 
-  // center_town? is true for feature='town' DSL hexes with exactly 2 exits
-  // (tile.exits.size == 2). From town_location.rb center_town?().
   if (type === 'straight') {
-    // positions=[0] → (0,0); rotation = min_edge*60
     return { x: 0, y: 0, angle: minEdge * 60 };
   } else if (type === 'sharp') {
-    // angle=(min_edge+0.5)*60, dist=50 (→25); rotation=(min_edge+2)*60
     const a = (minEdge + 0.5) * Math.PI / 3;
     return { x: +(-Math.sin(a) * 25).toFixed(2), y: +(Math.cos(a) * 25).toFixed(2), angle: (minEdge + 2) * 60 };
   } else {
-    // gentle: angle=(min_edge+1)*60, dist=23.2 (→11.6); rotation=(min_edge*60)-30
     const a = (minEdge + 1) * Math.PI / 3;
     return { x: +(-Math.sin(a) * 11.6).toFixed(2), y: +(Math.cos(a) * 11.6).toFixed(2), angle: (minEdge * 60) - 30 };
   }
 }
 
-// checkColinear: port of tobymao track_node_path.rb#colinear?().
-// True when the line from (x0,y0) to (x1,y1) passes through hex center (0,0).
 function checkColinear(x0, y0, x1, y1) {
   const angleBE     = Math.atan2(y1 - y0, x1 - x0);
   const angleBCenter = Math.atan2(-y0, -x0);
   return Math.abs(angleBE - angleBCenter) < 0.05;
 }
 
-// calcArc: given start/end positions relative to hex center (canvas scale),
-// returns {radius, sweep} for SVG arc  "A r r 0 0 sweep ex ey".
-// Translated from 18xx.games track_node_path.rb.
 function calcArc(bx, by, ex, ey) {
   const dist   = Math.hypot(bx - ex, by - ey);
   const angleBo = Math.atan2(by, -bx);
@@ -152,335 +127,115 @@ function calcArc(bx, by, ex, ey) {
   return { radius, sweep: da < 0 ? 0 : 1 };
 }
 
-// Draw impassable / water-crossing border markers for a hex.
-// Called at the end of drawHex.
-function drawBorders(hex, cx, cy, size) {
-  if (!hex || !hex.borders || hex.borders.length === 0) return;
-  const sc = size / 50;
+// ─── SVG BUILD HELPERS ─────────────────────────────────────────────────────────
+// buildBordersSvg: border markers (impassable/water) in hex-local world-unit coords.
+// All positions relative to hex center (0,0).
+function buildBordersSvg(hex) {
+  if (!hex || !hex.borders || hex.borders.length === 0) return '';
+  const sc = HEX_SIZE / 50;  // 50-unit edgePos space → world-unit scale
+  let svg = '';
   for (const border of hex.borders) {
-    const mp = edgePos(border.edge);
-    const len = Math.hypot(mp.x, mp.y);
-    // Direction along the hex side (perpendicular to radial)
-    const edgeDx = -mp.y / len;
-    const edgeDy =  mp.x / len;
-    const bx = cx + mp.x * sc;
-    const by = cy + mp.y * sc;
+    const mp = edgePos(border.edge);         // orientation-aware midpoint in 43.3-unit space
+    const bx = mp.x * sc, by = mp.y * sc;   // world space
+    const len = Math.hypot(bx, by);
+    const edgeDx = -by / len, edgeDy = bx / len;
     const halfLen = 11 * sc;
-
-    ctx.save();
-    ctx.lineCap = 'round';
     if (border.type === 'impassable') {
-      ctx.strokeStyle = '#8b0000';
-      ctx.lineWidth = Math.max(2, 4 * zoom);
-      ctx.beginPath();
-      ctx.moveTo(bx - edgeDx * halfLen, by - edgeDy * halfLen);
-      ctx.lineTo(bx + edgeDx * halfLen, by + edgeDy * halfLen);
-      ctx.stroke();
+      svg += `<line x1="${(bx-edgeDx*halfLen).toFixed(2)}" y1="${(by-edgeDy*halfLen).toFixed(2)}" x2="${(bx+edgeDx*halfLen).toFixed(2)}" y2="${(by+edgeDy*halfLen).toFixed(2)}" stroke="#8b0000" stroke-width="4" stroke-linecap="round"/>`;
     } else if (border.type === 'water' || border.type === 'mountain') {
-      ctx.strokeStyle = border.type === 'water' ? '#2266cc' : '#8B6914';
-      ctx.lineWidth = Math.max(1.5, 3 * zoom);
-      ctx.beginPath();
-      ctx.moveTo(bx - edgeDx * halfLen, by - edgeDy * halfLen);
-      ctx.lineTo(bx + edgeDx * halfLen, by + edgeDy * halfLen);
-      ctx.stroke();
+      const col = border.type === 'water' ? '#2266cc' : '#8B6914';
+      svg += `<line x1="${(bx-edgeDx*halfLen).toFixed(2)}" y1="${(by-edgeDy*halfLen).toFixed(2)}" x2="${(bx+edgeDx*halfLen).toFixed(2)}" y2="${(by+edgeDy*halfLen).toFixed(2)}" stroke="${col}" stroke-width="3" stroke-linecap="round"/>`;
       if (border.cost) {
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.font = `bold ${Math.max(6, Math.round(7 * zoom))}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const radDx = mp.x / len, radDy = mp.y / len;
-        ctx.fillText(String(border.cost), bx - radDx * 8 * sc, by - radDy * 8 * sc);
+        const radDx = bx / len, radDy = by / len;
+        svg += `<text x="${(bx-radDx*8*sc).toFixed(2)}" y="${(by-radDy*8*sc).toFixed(2)}" font-family="Arial" font-size="7" font-weight="bold" fill="${col}" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
       }
     }
-    ctx.restore();
   }
+  return svg;
 }
 
+// buildTerrainSvg: terrain icon for a hex with no placed tile.
+// Coordinates in hex-local world-unit space (centered at 0,0).
+function buildTerrainSvg(hex) {
+  if (!hex || !hex.terrain) return '';
+  const terrain = hex.terrain;
+  const iy = HEX_SIZE * 0.22;  // icon center y-offset from hex center
+  const is = 8;                 // icon half-scale (world units ≈ 8px at zoom=1)
+  let svg = '';
 
-function drawHex(row, col, hex = null) {
-  const center = getHexCenter(row, col, HEX_SIZE, state.meta.orientation);
-  const cx = (center.x + panX) * zoom + LABEL_PAD;
-  const cy = (center.y + panY) * zoom + LABEL_PAD;
-  const size = HEX_SIZE * zoom;
-
-  const terrain = hex?.terrain || '';
-  const tileDef = hex?.tile ? TileRegistry.getTileDef(hex.tile) : null;
-  // Normalise 'gray' → 'grey' to match TILE_HEX_COLORS key (tile-packs.js uses American spelling)
-  const _tileColor = tileDef ? (tileDef.color === 'gray' ? 'grey' : tileDef.color) : null;
-  // Color priority: placed tile color > static hex bg color > terrain/default
-  const color = _tileColor
-    ? (TILE_HEX_COLORS[_tileColor] || TERRAIN_COLORS[''])
-    : (hex?.bg ? (STATIC_BG_COLORS[hex.bg] || TERRAIN_COLORS['']) : (TERRAIN_COLORS[terrain] || TERRAIN_COLORS['']));
-
-  const corners = hexCorners(cx, cy, size, state.meta.orientation);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(corners[0].x, corners[0].y);
-  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
-  ctx.closePath();
-  ctx.fill();
-
-  const _thisId = hexId(row, col);
-  const _inMulti = selectedHexes && selectedHexes.has(_thisId);
-  const _isDragTarget = (typeof dragOverHex !== 'undefined') && dragOverHex === _thisId;
-  if (_isDragTarget) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 3 * zoom;
-    ctx.setLineDash([5 * zoom, 3 * zoom]);
-  } else if (_inMulti) {
-    ctx.strokeStyle = '#00ccff';
-    ctx.lineWidth   = 2 * zoom;
-    ctx.setLineDash([4 * zoom, 3 * zoom]);
+  svg += `<g transform="translate(0,${iy.toFixed(1)})">`;
+  if (terrain === 'mountain') {
+    svg += `<polygon points="0,${(-is*1.4).toFixed(1)} ${(-is*1.2).toFixed(1)},${(is*0.6).toFixed(1)} ${(is*1.2).toFixed(1)},${(is*0.6).toFixed(1)}" fill="#777"/>`;
+    svg += `<polygon points="0,${(-is*1.4).toFixed(1)} ${(-is*0.4).toFixed(1)},${(-is*0.5).toFixed(1)} ${(is*0.4).toFixed(1)},${(-is*0.5).toFixed(1)}" fill="white"/>`;
+  } else if (terrain === 'hill') {
+    svg += `<path d="M ${(-is*0.9).toFixed(1)},${(is*0.2).toFixed(1)} A ${(is*0.9).toFixed(1)},${(is*0.9).toFixed(1)} 0 0 1 ${(is*0.9).toFixed(1)},${(is*0.2).toFixed(1)} Z" fill="#8B7355"/>`;
+  } else if (terrain === 'water') {
+    svg += `<path d="M 0,${(-is).toFixed(1)} C ${(is*0.8).toFixed(1)},${(-is*0.2).toFixed(1)} ${(is*0.8).toFixed(1)},${(is*0.6).toFixed(1)} 0,${(is*0.7).toFixed(1)} C ${(-is*0.8).toFixed(1)},${(is*0.6).toFixed(1)} ${(-is*0.8).toFixed(1)},${(-is*0.2).toFixed(1)} 0,${(-is).toFixed(1)} Z" fill="#3366CC"/>`;
+  } else if (terrain === 'swamp' || terrain === 'marsh') {
+    for (const ox of [-is*0.6, 0, is*0.6]) {
+      const x = ox.toFixed(1);
+      svg += `<line x1="${x}" y1="${(is*0.5).toFixed(1)}" x2="${x}" y2="${(-is*0.5).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+      svg += `<line x1="${x}" y1="${(-is*0.2).toFixed(1)}" x2="${(ox-is*0.35).toFixed(1)}" y2="${(-is*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+      svg += `<line x1="${x}" y1="${(-is*0.2).toFixed(1)}" x2="${(ox+is*0.35).toFixed(1)}" y2="${(-is*0.8).toFixed(1)}" stroke="#4A7A4A" stroke-width="1.5" stroke-linecap="round"/>`;
+    }
   } else {
-    ctx.strokeStyle = selectedHex === _thisId ? '#ffd700' : '#666';
-    ctx.lineWidth   = selectedHex === _thisId ? 2 * zoom : 1;
-    ctx.setLineDash([]);
+    svg += `<polygon points="0,${(-is).toFixed(1)} ${(is*0.7).toFixed(1)},0 0,${is.toFixed(1)} ${(-is*0.7).toFixed(1)},0" fill="#AA8844"/>`;
   }
-  ctx.stroke();
-  ctx.setLineDash([]);
+  svg += '</g>';
 
-  // Terrain icon — show whenever terrain type is set and no tile placed
-  if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
-    const iconX = cx;
-    const iconY = cy + size * 0.22;
-    const is = Math.max(6, Math.round(8 * zoom));  // icon scale
-    ctx.save();
-    ctx.translate(iconX, iconY);
+  if (hex.terrainHasWater && terrain !== 'water') {
+    const ws = 5, wx = is * 1.5, wy_off = iy - is * 0.5;
+    svg += `<g transform="translate(${wx.toFixed(1)},${wy_off.toFixed(1)})">`;
+    svg += `<path d="M 0,${(-ws).toFixed(1)} C ${(ws*0.8).toFixed(1)},${(-ws*0.2).toFixed(1)} ${(ws*0.8).toFixed(1)},${(ws*0.6).toFixed(1)} 0,${(ws*0.7).toFixed(1)} C ${(-ws*0.8).toFixed(1)},${(ws*0.6).toFixed(1)} ${(-ws*0.8).toFixed(1)},${(-ws*0.2).toFixed(1)} 0,${(-ws).toFixed(1)} Z" fill="#3366CC"/>`;
+    svg += '</g>';
+  }
 
-    if (terrain === 'mountain') {
-      // Large triangle (snow-capped)
-      ctx.beginPath();
-      ctx.moveTo(0, -is * 1.4);
-      ctx.lineTo(-is * 1.2, is * 0.6);
-      ctx.lineTo( is * 1.2, is * 0.6);
-      ctx.closePath();
-      ctx.fillStyle = '#777';
-      ctx.fill();
-      // Snow cap
-      ctx.beginPath();
-      ctx.moveTo(0, -is * 1.4);
-      ctx.lineTo(-is * 0.4, -is * 0.5);
-      ctx.lineTo( is * 0.4, -is * 0.5);
-      ctx.closePath();
-      ctx.fillStyle = 'white';
-      ctx.fill();
-    } else if (terrain === 'hill') {
-      // Smaller rounded hill bump
-      ctx.beginPath();
-      ctx.arc(0, is * 0.2, is * 0.9, Math.PI, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#8B7355';
-      ctx.fill();
-    } else if (terrain === 'water') {
-      // Water drop / wave
-      ctx.beginPath();
-      ctx.moveTo(0, -is);
-      ctx.bezierCurveTo(is * 0.8, -is * 0.2, is * 0.8, is * 0.6, 0, is * 0.7);
-      ctx.bezierCurveTo(-is * 0.8, is * 0.6, -is * 0.8, -is * 0.2, 0, -is);
-      ctx.fillStyle = '#3366CC';
-      ctx.fill();
-    } else if (terrain === 'swamp' || terrain === 'marsh') {
-      // Three vertical grass tufts
-      ctx.strokeStyle = '#4A7A4A';
-      ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
-      ctx.lineCap = 'round';
-      for (const ox of [-is * 0.6, 0, is * 0.6]) {
-        ctx.beginPath();
-        ctx.moveTo(ox, is * 0.5);
-        ctx.lineTo(ox, -is * 0.5);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(ox, -is * 0.2);
-        ctx.lineTo(ox - is * 0.35, -is * 0.8);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(ox, -is * 0.2);
-        ctx.lineTo(ox + is * 0.35, -is * 0.8);
-        ctx.stroke();
-      }
+  if (hex.terrainCost && hex.terrainCost > 0) {
+    svg += `<text x="0" y="${(iy + is*1.2).toFixed(1)}" font-family="Arial" font-size="7" font-weight="bold" fill="#222" text-anchor="middle" dominant-baseline="middle">${escSvg(String(hex.terrainCost))}</text>`;
+  }
+  return svg;
+}
+
+// buildIconsSvg: resource icons (mine/port/factory) in hex-local world-unit coords.
+function buildIconsSvg(hex) {
+  if (!hex.icons || hex.icons.length === 0) return '';
+  const s   = 7;
+  const ox0 = HEX_SIZE * 0.32;
+  const oy  = HEX_SIZE * 0.28;
+  const gap = s * 1.6;
+  const n   = hex.icons.length;
+  let svg = '';
+  hex.icons.forEach((icon, idx) => {
+    const ix = ox0 + (idx - (n - 1) / 2) * gap;
+    svg += `<g transform="translate(${ix.toFixed(1)},${oy.toFixed(1)})">`;
+    if (icon.image === 'mine') {
+      const d = (s*0.7).toFixed(2), r = (s*0.22).toFixed(2);
+      svg += `<line x1="${-d}" y1="${-d}" x2="${d}" y2="${d}" stroke="#5a3e1b" stroke-width="1.5" stroke-linecap="round"/>`;
+      svg += `<line x1="${d}" y1="${-d}" x2="${-d}" y2="${d}" stroke="#5a3e1b" stroke-width="1.5" stroke-linecap="round"/>`;
+      svg += `<circle cx="${-d}" cy="${-d}" r="${r}" fill="#8B6914"/>`;
+      svg += `<circle cx="${d}" cy="${-d}" r="${r}" fill="#8B6914"/>`;
+    } else if (icon.image === 'port') {
+      const shaft = (s*0.75).toFixed(2), bar = (s*0.42).toFixed(2), ring = (s*0.16).toFixed(2);
+      const cr = s*0.65, cy_a = s*0.05;
+      const ax1 = (Math.cos(0.2)*cr).toFixed(2),  ay  = (cy_a+Math.sin(0.2)*cr).toFixed(2);
+      const ax2 = (Math.cos(Math.PI-0.2)*cr).toFixed(2);
+      svg += `<line x1="0" y1="${-shaft}" x2="0" y2="${shaft}" stroke="#1a3a7a" stroke-width="1.2" stroke-linecap="round"/>`;
+      svg += `<line x1="${-bar}" y1="${-bar}" x2="${bar}" y2="${-bar}" stroke="#1a3a7a" stroke-width="1.2" stroke-linecap="round"/>`;
+      svg += `<circle cx="0" cy="${-shaft}" r="${ring}" fill="#1a3a7a"/>`;
+      svg += `<path d="M ${ax1},${ay} A ${cr.toFixed(2)},${cr.toFixed(2)} 0 0 0 ${ax2},${ay}" stroke="#1a3a7a" stroke-width="1.2" fill="none" stroke-linecap="round"/>`;
+      svg += `<circle cx="${ax1}" cy="${ay}" r="${(s*0.13).toFixed(2)}" fill="#1a3a7a"/>`;
+      svg += `<circle cx="${ax2}" cy="${ay}" r="${(s*0.13).toFixed(2)}" fill="#1a3a7a"/>`;
+    } else if (icon.image === 'factory') {
+      svg += `<rect x="${(-s*0.7).toFixed(2)}" y="${(-s*0.2).toFixed(2)}" width="${(s*1.4).toFixed(2)}" height="${s.toFixed(2)}" fill="#555"/>`;
+      svg += `<rect x="${(-s*0.45).toFixed(2)}" y="${(-s*0.9).toFixed(2)}" width="${(s*0.28).toFixed(2)}" height="${(s*0.7).toFixed(2)}" fill="#555"/>`;
+      svg += `<rect x="${(s*0.17).toFixed(2)}" y="${(-s*0.75).toFixed(2)}" width="${(s*0.28).toFixed(2)}" height="${(s*0.55).toFixed(2)}" fill="#555"/>`;
+      svg += `<rect x="${(-s*0.2).toFixed(2)}" y="0" width="${(s*0.4).toFixed(2)}" height="${(s*0.3).toFixed(2)}" fill="#aaddff"/>`;
     } else {
-      // Generic: small diamond
-      ctx.beginPath();
-      ctx.moveTo(0, -is); ctx.lineTo(is * 0.7, 0); ctx.lineTo(0, is); ctx.lineTo(-is * 0.7, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#AA8844';
-      ctx.fill();
+      svg += `<circle r="${(s*0.5).toFixed(2)}" fill="#888"/>`;
     }
-
-    ctx.restore();
-
-    // Supplemental water indicator: small blue drop beside the main terrain icon.
-    // Shown when a hex has compound terrain like water|mountain (water crossing cost
-    // stacks with the other terrain cost — both are shown visually).
-    if (hex?.terrainHasWater && terrain !== 'water') {
-      const ws = Math.max(4, Math.round(5 * zoom));
-      ctx.save();
-      ctx.translate(iconX + is * 1.5, iconY - is * 0.5);
-      ctx.beginPath();
-      ctx.moveTo(0, -ws);
-      ctx.bezierCurveTo(ws * 0.8, -ws * 0.2, ws * 0.8, ws * 0.6, 0, ws * 0.7);
-      ctx.bezierCurveTo(-ws * 0.8, ws * 0.6, -ws * 0.8, -ws * 0.2, 0, -ws);
-      ctx.fillStyle = '#3366CC';
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Cost number below icon — only when cost is explicitly set and > 0
-    if (hex.terrainCost && hex.terrainCost > 0) {
-      const fs = Math.max(6, Math.round(7 * zoom));
-      ctx.font = `bold ${fs}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#222';
-      ctx.fillText(String(hex.terrainCost), cx, iconY + is * 1.2);
-    }
-  }
-
-
-
-  // City name for placed tiles (city:true or oo:true) AND for feature-schema city/oo hexes
-  const hasCityOrOo = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities)) || !!hex?.city
-    || hex?.feature === 'city' || hex?.feature === 'oo';
-  if (hex?.cityName && hasCityOrOo) {
-    const name = hex.cityName;
-    ctx.font = `bold ${9 * zoom}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const tw = ctx.measureText(name).width;
-    const bw = tw + 10 * zoom;
-    const bh = 13 * zoom;
-    const bx = cx - bw / 2;
-    const by = cy - size * 0.5 - bh / 2;
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.fillStyle = '#111';
-    ctx.fillText(name, cx, by + bh / 2);
-  }
-
-  // City circles, OO circles, tracks, and town dots are all rendered in SVG via renderTilesSVG().
-  // drawHex handles background fill, border, terrain icons, names, and coordinate labels only.
-
-  // Location name for unplaced city/town hexes (below the feature)
-  {
-    const locName = !hex ? '' :
-                    (hex.city && !hex.tile) ? (hex.city.name || '') :
-                    (hex.town && !hex.tile) ? (hex.town.name  || '') :
-                    (!hex.tile) ? (hex.featureName || hex.name || '') : '';
-    if (locName) {
-      // Name position matches tobymao convention:
-      //   city → top of hex (above the circle)
-      //   OO / dualTown → bottom (below the circles)
-      //   town / offboard / other → bottom
-      const feat = hex ? hex.feature : '';
-      const ny = (feat === 'city')
-        ? cy - size * 0.42
-        : cy + size * 0.58;
-      ctx.font = `bold ${Math.max(7, Math.round(8 * zoom))}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-      ctx.lineWidth = 2.5;
-      ctx.strokeText(locName, cx, ny);
-      ctx.fillStyle = '#111';
-      ctx.fillText(locName, cx, ny);
-    }
-  }
-
-  // Resource icons (mine, port, factory) — drawn in lower-right cluster.
-  // iconSize is kept intentionally small so icons don't obscure city/town markers.
-  if (hex?.icons && hex.icons.length > 0 && !hex?.tile) {
-    const iconSize = Math.max(6, Math.round(7 * zoom));
-    const startX = cx + size * 0.32;
-    const startY = cy + size * 0.28;
-    const gap = iconSize * 1.6;
-    hex.icons.forEach((icon, idx) => {
-      const ix = startX + (idx - (hex.icons.length - 1) / 2) * gap;
-      const iy = startY;
-      ctx.save();
-      ctx.translate(ix, iy);
-      const s = iconSize;
-      if (icon.image === 'mine') {
-        // Crossed pick axes (two diagonal strokes forming an X, with a dot shaft end)
-        ctx.strokeStyle = '#5a3e1b';
-        ctx.lineWidth = Math.max(1.5, 1.5 * zoom);
-        ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(-s * 0.7, -s * 0.7); ctx.lineTo(s * 0.7,  s * 0.7); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo( s * 0.7, -s * 0.7); ctx.lineTo(-s * 0.7, s * 0.7); ctx.stroke();
-        // Pick head at top-left of each stroke
-        ctx.beginPath(); ctx.arc(-s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
-        ctx.fillStyle = '#8B6914'; ctx.fill();
-        ctx.beginPath(); ctx.arc( s * 0.7, -s * 0.7, s * 0.22, 0, Math.PI * 2);
-        ctx.fillStyle = '#8B6914'; ctx.fill();
-      } else if (icon.image === 'port') {
-        // Small anchor icon. No large badge circle — just the anchor outline so it
-        // doesn't block city/town markers.  Dark blue on land, lighter on water.
-        const isWaterHex = (hex.bg === 'blue') || (hex.terrain === 'water' || hex.terrain === 'lake' || hex.terrain === 'river');
-        const aStroke = isWaterHex ? '#cce0ff' : '#1a3a7a';
-        ctx.strokeStyle = aStroke;
-        ctx.lineWidth = Math.max(1, 1.2 * zoom);
-        ctx.lineCap = 'round';
-        // Vertical shaft
-        ctx.beginPath(); ctx.moveTo(0, -s * 0.75); ctx.lineTo(0, s * 0.75); ctx.stroke();
-        // Top crossbar
-        ctx.beginPath(); ctx.moveTo(-s * 0.42, -s * 0.42); ctx.lineTo(s * 0.42, -s * 0.42); ctx.stroke();
-        // Top ring
-        ctx.beginPath(); ctx.arc(0, -s * 0.75, s * 0.16, 0, Math.PI * 2);
-        ctx.fillStyle = aStroke; ctx.fill();
-        // Bottom arc
-        ctx.beginPath(); ctx.arc(0, s * 0.05, s * 0.65, 0.2, Math.PI - 0.2);
-        ctx.strokeStyle = aStroke; ctx.stroke();
-        // Bottom endpoints (small dots)
-        ctx.beginPath(); ctx.arc(-s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
-        ctx.fillStyle = aStroke; ctx.fill();
-        ctx.beginPath(); ctx.arc( s * 0.60, s * 0.18, s * 0.13, 0, Math.PI * 2);
-        ctx.fillStyle = aStroke; ctx.fill();
-      } else if (icon.image === 'factory') {
-        // Simple factory silhouette: base rectangle + two chimneys
-        ctx.fillStyle = '#555';
-        // Building body
-        ctx.fillRect(-s * 0.7, -s * 0.2, s * 1.4, s * 1.0);
-        // Left chimney
-        ctx.fillRect(-s * 0.45, -s * 0.9, s * 0.28, s * 0.7);
-        // Right chimney
-        ctx.fillRect( s * 0.17, -s * 0.75, s * 0.28, s * 0.55);
-        // Window
-        ctx.fillStyle = '#aaddff';
-        ctx.fillRect(-s * 0.2, s * 0.0, s * 0.4, s * 0.3);
-      } else {
-        // Unknown icon: small circle
-        ctx.beginPath(); ctx.arc(0, 0, s * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#888'; ctx.fill();
-      }
-      ctx.restore();
-    });
-  }
-
-  // Killed hex — dark overlay so it reads as out-of-bounds
-  if (hex?.killed) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Hex label (label= field) is rendered by the SVG layer (hexToSvgInner) for
-  // all DSL hexes — the hasDslContent gate now includes hex.label. Removed the
-  // canvas fallback here to prevent double-rendering on OO/NY/label-only hexes.
-
-  // Border markers (impassable / water crossing)
-  drawBorders(hex, cx, cy, size);
-
-  // Coordinate ID — small label near top of each hex
-  const coordLabel = hexId(row, col);
-  ctx.font = `${Math.max(6, Math.round(7 * zoom))}px Arial`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(140,140,140,0.7)';
-  ctx.fillText(coordLabel, cx, cy - size * 0.62);
+    svg += '</g>';
+  });
+  return svg;
 }
 
 // ─── EDGE POSITION HELPERS FOR SVG (flat-top unrotated, 50-unit space) ───────
@@ -506,7 +261,6 @@ function ep(edge) {
 }
 
 // cityEdgePos: city center when placed at an edge (distance DSL_CITY_D=25).
-// x = -sin(edge*60°)*25, y = cos(edge*60°)*25  (tobymao city.rb distance=50, halved).
 function cityEdgePos(edge) {
   const a = edge * Math.PI / 3;
   return { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D };
@@ -811,255 +565,227 @@ function hexToSvgInner(hex, tileDef) {
   return svg;
 }
 
-
-// ─── SVG TILE OVERLAY ─────────────────────────────────────────────────────────
-// renderTilesSVG() writes placed-tile content (tracks, city/town symbols,
-// revenue bubbles) into the <svg id="tileSvg"> element overlaid on the canvas.
-// SVG transforms handle rotation and orientation correctly by construction —
-// no manual trigonometry needed per symbol type.
-
 function escSvg(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function renderTilesSVG() {
-  const svgEl = document.getElementById('tileSvg');
-  if (!svgEl) return;
-
-  const w = canvas.clientWidth || 800;
-  const h = canvas.clientHeight || 600;
-  svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
-
+// ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
+// buildHexSvg: returns complete SVG <g> element for one hex.
+// Coordinate space: hex-local world units centered at (0,0), group translated to hex center.
+// Uses shared clip path #tile-clip (updated by render() in mapDefs).
+function buildHexSvg(r, c, hex) {
+  const id      = hexId(r, c);
+  const center  = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
+  const tileDef = hex?.tile ? TileRegistry.getTileDef(hex.tile) : null;
   const isPointy = state.meta.orientation === 'pointy';
-  const orientDeg = isPointy ? 30 : 0;
-  const size = HEX_SIZE * zoom; // canvas-space circumradius
-  const sc = size / 50;         // scale: tile-SVG-units → canvas-pixels
+  const orientOff = isPointy ? 30 : 0;
+  const sc  = HEX_SIZE / 50;
+  const sz  = HEX_SIZE;
 
-  // Shared clip path: hex boundary in canvas-space centered at (0,0).
-  // orientDeg rotates the polygon to match the visual hex for the current orientation.
-  const clipPts = Array.from({ length: 6 }, (_, n) => {
-    const a = (orientDeg + n * 60) * Math.PI / 180;
-    return `${(size * Math.cos(a)).toFixed(1)},${(size * Math.sin(a)).toFixed(1)}`;
+  // Background color
+  const _tc = tileDef ? (tileDef.color === 'gray' ? 'grey' : tileDef.color) : null;
+  const color = _tc
+    ? (TILE_HEX_COLORS[_tc] || TERRAIN_COLORS[''])
+    : (hex?.bg ? (STATIC_BG_COLORS[hex.bg] || TERRAIN_COLORS[''])
+               : (TERRAIN_COLORS[hex?.terrain || ''] || TERRAIN_COLORS['']));
+
+  // Hex polygon corners (local coords, centered at 0,0)
+  const hexPts = Array.from({length: 6}, (_, i) => {
+    const a = (orientOff + i * 60) * Math.PI / 180;
+    return `${(sz * Math.cos(a)).toFixed(2)},${(sz * Math.sin(a)).toFixed(2)}`;
   }).join(' ');
 
-  let defs = `<clipPath id="tile-clip"><polygon points="${clipPts}"/></clipPath>`;
-  let content = '';
+  // Selection / drag stroke
+  const _isSel   = selectedHex === id;
+  const _isMulti = selectedHexes && selectedHexes.has(id);
+  const _isDrag  = (typeof dragOverHex !== 'undefined') && dragOverHex === id;
+  let strokeColor = '#666', strokeWidth = 1, strokeDash = '';
+  if (_isDrag)        { strokeColor = '#ffffff'; strokeWidth = 3; strokeDash = '5,3'; }
+  else if (_isMulti)  { strokeColor = '#00ccff'; strokeWidth = 2; strokeDash = '4,3'; }
+  else if (_isSel)    { strokeColor = '#ffd700'; strokeWidth = 2; }
 
-  for (let r = 0; r < state.meta.rows; r++) {
-    for (let c = 0; c < state.meta.cols; c++) {
-      const id = hexId(r, c);
-      const hex = state.hexes[id] || null;
-      if (!hex) continue;
+  let g = `<g id="hex_${r}_${c}" data-id="${escSvg(id)}" transform="translate(${center.x.toFixed(2)},${center.y.toFixed(2)})">`;
+  g += `<polygon points="${hexPts}" fill="${color}" stroke="${strokeColor}" stroke-width="${strokeWidth}"${strokeDash ? ` stroke-dasharray="${strokeDash}"` : ''}/>`;
 
-      // Determine if this hex has anything to render in SVG
-      const tileDef = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
-      const hasDslContent = !hex.tile && (
-        (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
-        (hex.exits && hex.exits.length > 0) ||
-        (hex.pathPairs && hex.pathPairs.length > 0) ||
-        (hex.exitPairs && hex.exitPairs.length > 0) ||
-        (hex.label && hex.label !== '')
-      );
-      if (!tileDef && !hasDslContent) continue;
+  if (!hex?.killed) {
+    // Terrain icon (no tile)
+    if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
+      g += buildTerrainSvg(hex);
+    }
 
-      // Use HEX_SIZE (not pre-scaled) — same formula as drawHex so SVG aligns with canvas
-      const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
-      const cx = (center.x + panX) * zoom + LABEL_PAD;
-      const cy = (center.y + panY) * zoom + LABEL_PAD;
-      const tileDeg = (hex.rotation || 0) * 60;
-      const totalDeg = orientDeg + tileDeg;
+    // City name (placed tile or DSL city/oo)
+    const hasCityFeature = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities))
+      || !!hex?.city || hex?.feature === 'city' || hex?.feature === 'oo';
+    if (hex?.cityName && hasCityFeature) {
+      g += `<text x="0" y="${(-sz*0.5).toFixed(1)}" font-family="Arial" font-size="9" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.85)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(hex.cityName)}</text>`;
+    }
 
-      // ── Rotated content (tracks + city/town symbols) ──
-      const inner = hexToSvgInner(hex, tileDef);
+    // Location name (unplaced hexes)
+    const locName = !hex ? '' :
+      (hex.city  && !hex.tile) ? (hex.city.name  || '') :
+      (hex.town  && !hex.tile) ? (hex.town.name  || '') :
+      (!hex.tile) ? (hex.featureName || hex.name || '') : '';
+    if (locName) {
+      const ny = (hex?.feature === 'city') ? -sz * 0.42 : sz * 0.58;
+      g += `<text x="0" y="${ny.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.75)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(locName)}</text>`;
+    }
 
-      // Tile group: translate to hex center; clip to hex; rotate+scale tile content
-      content += `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)})">`;
-      content += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
+    // Resource icons
+    if (hex?.icons && hex.icons.length > 0 && !hex?.tile) {
+      g += buildIconsSvg(hex);
+    }
 
-      // ── Upright content (stays level regardless of tile rotation) ──
+    // Tile / DSL geometry
+    const hasDslContent = !hex?.tile && hex && (
+      (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
+      (hex.exits  && hex.exits.length  > 0) ||
+      (hex.pathPairs  && hex.pathPairs.length  > 0) ||
+      (hex.exitPairs  && hex.exitPairs.length  > 0) ||
+      (hex.label  && hex.label !== '')
+    );
 
-      if (tileDef) {
-      // Tile label (Y, T, OO …) — left of center, same position as canvas version
-      if (tileDef.tileLabel) {
-        const fs = Math.max(8, Math.round(9 * zoom));
-        content += `<text x="${(-size * 0.62).toFixed(1)}" y="0" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
+    if (tileDef || hasDslContent) {
+      const tileDeg  = (hex?.rotation || 0) * 60;
+      const totalDeg = orientOff + tileDeg;
+      const inner    = hexToSvgInner(hex, tileDef);
+
+      // Clipped rotated tile content — uses shared #tile-clip from mapDefs
+      g += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
+
+      // Tile label (upright)
+      if (tileDef?.tileLabel) {
+        g += `<text x="${(-sz*0.62).toFixed(1)}" y="0" font-family="Arial" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
       }
 
-      // Revenue bubbles — position orbits with tile rotation, text stays upright
-      const revList = tileDef.revenues || (tileDef.revenue ? [tileDef.revenue] : []);
-      const revRotRad = tileDeg * Math.PI / 180 + (isPointy ? Math.PI / 6 : 0);
-      const cosR = Math.cos(revRotRad), sinR = Math.sin(revRotRad);
-
-      for (const rev of revList) {
-        if (!rev || rev.v === 0) continue;
-        const rx = (rev.x * cosR - rev.y * sinR) * sc;
-        const ry = (rev.x * sinR + rev.y * cosR) * sc;
-
-        if (rev.phases) {
-          const segs = rev.phases.split('|').map(s => {
-            const u = s.indexOf('_');
-            return u < 0 ? null : { ph: s.slice(0, u) === 'gray' ? 'grey' : s.slice(0, u), val: +s.slice(u + 1) };
-          }).filter(Boolean);
-          if (segs.length) {
-            const bw = 13 * sc, bh = 9 * sc, gap = 1 * sc;
-            const tw = segs.length * bw + (segs.length - 1) * gap;
-            let bx = rx - tw / 2;
-            const by = ry - bh / 2;
-            const fs = Math.max(5, Math.round(6 * zoom));
-            for (const { ph, val } of segs) {
-              const col = TILE_HEX_COLORS[ph] || '#ccc';
-              content += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-              content += `<text x="${(bx + bw / 2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
-              bx += bw + gap;
+      // Revenue bubbles (orbit with tile rotation, text stays upright)
+      const revList = tileDef?.revenues || (tileDef?.revenue ? [tileDef.revenue] : []);
+      if (revList.length > 0) {
+        const revRotRad = tileDeg * Math.PI / 180 + (isPointy ? Math.PI / 6 : 0);
+        const cosR = Math.cos(revRotRad), sinR = Math.sin(revRotRad);
+        for (const rev of revList) {
+          if (!rev || rev.v === 0) continue;
+          const rx = (rev.x * cosR - rev.y * sinR) * sc;
+          const ry = (rev.x * sinR + rev.y * cosR) * sc;
+          if (rev.phases) {
+            const segs = rev.phases.split('|').map(s => {
+              const u = s.indexOf('_');
+              return u < 0 ? null : { ph: s.slice(0,u) === 'gray' ? 'grey' : s.slice(0,u), val: +s.slice(u+1) };
+            }).filter(Boolean);
+            if (segs.length) {
+              const bw = 13*sc, bh = 9*sc, gapW = sc;
+              const tw = segs.length * bw + (segs.length - 1) * gapW;
+              let bx = rx - tw / 2;
+              const byp = ry - bh / 2;
+              for (const { ph, val } of segs) {
+                const pc = TILE_HEX_COLORS[ph] || '#ccc';
+                g += `<rect x="${bx.toFixed(1)}" y="${byp.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${pc}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
+                g += `<text x="${(bx+bw/2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
+                bx += bw + gapW;
+              }
             }
+          } else {
+            g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+            g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
           }
-        } else {
-          const rr = Math.max(7, Math.round(7.5 * zoom));
-          const fs = Math.max(6, Math.round(8 * zoom));
-          content += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="${rr}" fill="white" stroke="#777" stroke-width="1"/>`;
-          content += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
         }
       }
-      } // end if (tileDef)
 
-      // DSL hex label (OO, B, NY, etc.) — upper-left, same position as tile labels
-      if (!tileDef && hex.label && hex.label !== '') {
-        const fs = Math.max(8, Math.round(9 * zoom));
-        content += `<text x="${(-size * 0.62).toFixed(1)}" y="${(-size * 0.45).toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
+      // DSL hex label (OO, NY, etc.)
+      if (!tileDef && hex?.label && hex.label !== '') {
+        g += `<text x="${(-sz*0.62).toFixed(1)}" y="${(-sz*0.45).toFixed(1)}" font-family="Arial" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
       }
 
-      // DSL hex revenue (for non-tile hexes: offboards, gray cities, etc.)
-      if (!tileDef && hex.phaseRevenue) {
+      // DSL phase revenue (offboards, gray cities, etc.)
+      if (!tileDef && hex?.phaseRevenue) {
         const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
-        const activePhases = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
-        if (activePhases.length > 0) {
-          const revVals = activePhases.map(p => hex.phaseRevenue[p] || 0);
+        const activeP = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
+        if (activeP.length > 0) {
+          const revVals = activeP.map(p => hex.phaseRevenue[p] || 0);
           const allSame = revVals.every(v => v === revVals[0]);
-          const ry = size * 0.44;
+          const ryn = sz * 0.44;
           if (allSame && revVals[0] > 0) {
-            const rr = Math.max(7, Math.round(7.5 * zoom));
-            const fs = Math.max(6, Math.round(8 * zoom));
-            content += `<circle cx="0" cy="${ry.toFixed(1)}" r="${rr}" fill="white" stroke="#777" stroke-width="1"/>`;
-            content += `<text x="0" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
+            g += `<circle cx="0" cy="${ryn.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+            g += `<text x="0" y="${ryn.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
           } else if (!allSame) {
-            const bw = 13 * sc, bh = 9 * sc, gap = sc;
-            const tw = activePhases.length * bw + (activePhases.length - 1) * gap;
-            let bx = -tw / 2;
-            const by_pos = ry - bh / 2;
-            const fs = Math.max(5, Math.round(6 * zoom));
-            for (const ph of activePhases) {
-              const col = TILE_HEX_COLORS[ph] || '#ccc';
-              content += `<rect x="${bx.toFixed(1)}" y="${by_pos.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-              content += `<text x="${(bx + bw/2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="${fs}" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
-              bx += bw + gap;
+            const bw2 = 13*sc, bh2 = 9*sc, gapW2 = sc;
+            const tw2 = activeP.length * bw2 + (activeP.length - 1) * gapW2;
+            let bx2 = -tw2 / 2;
+            const byp2 = ryn - bh2 / 2;
+            for (const ph of activeP) {
+              const pc2 = TILE_HEX_COLORS[ph] || '#ccc';
+              g += `<rect x="${bx2.toFixed(1)}" y="${byp2.toFixed(1)}" width="${bw2.toFixed(1)}" height="${bh2.toFixed(1)}" fill="${pc2}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
+              g += `<text x="${(bx2+bw2/2).toFixed(1)}" y="${ryn.toFixed(1)}" font-family="Arial" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
+              bx2 += bw2 + gapW2;
             }
           }
         }
       }
-
-      content += '</g>'; // close translate group
     }
   }
 
-  svgEl.innerHTML = `<defs>${defs}</defs>${content}`;
+  // Killed hex overlay
+  if (hex?.killed) {
+    g += `<polygon points="${hexPts}" fill="rgba(0,0,0,0.55)"/>`;
+  }
+
+  // Border markers
+  g += buildBordersSvg(hex);
+
+  // Coordinate label
+  g += `<text x="0" y="${(-sz*0.62).toFixed(1)}" font-family="Arial" font-size="7" fill="rgba(140,140,140,0.7)" text-anchor="middle" dominant-baseline="middle">${escSvg(id)}</text>`;
+
+  g += '</g>';
+  return g;
 }
 
-// ─── RENDER ───────────────────────────────────────────────────────────────────
-// Clears the canvas and redraws all hex cells, then overlays SVG tile content.
+// ─── SVG VIEWPORT UPDATE ─────────────────────────────────────────────────────
+// Update the mapViewport (and lassoLayer) transform for current pan/zoom.
+// Call instead of render() for pan/zoom-only changes — no content rebuild.
+function updateViewport() {
+  const t = `scale(${zoom}) translate(${panX},${panY})`;
+  const vp = document.getElementById('mapViewport');
+  const ll = document.getElementById('lassoLayer');
+  if (vp) vp.setAttribute('transform', t);
+  if (ll) ll.setAttribute('transform', t);
+}
 
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+// Rebuilds all hex SVG content in mapViewport, then applies viewport transform.
 function render() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // Iterate the full bounding box — killed hexes exist in state.hexes for every
-  // position that has no live hex, so drawHex must be called for all (r,c).
-  // Do NOT gate on maxRowPerCol here; that caused corner killed hexes to be skipped.
+  const vp = document.getElementById('mapViewport');
+  if (!vp) return;
+
+  const isPointy = state.meta.orientation === 'pointy';
+  const orientOff = isPointy ? 30 : 0;
+  const sz = HEX_SIZE;
+
+  // Rebuild shared clip path in defs (hexagonal polygon in hex-local coords)
+  const defsEl = document.getElementById('mapDefs');
+  if (defsEl) {
+    const clipPts = Array.from({length: 6}, (_, n) => {
+      const a = (orientOff + n * 60) * Math.PI / 180;
+      return `${(sz * Math.cos(a)).toFixed(1)},${(sz * Math.sin(a)).toFixed(1)}`;
+    }).join(' ');
+    defsEl.innerHTML = `<clipPath id="tile-clip"><polygon points="${clipPts}"/></clipPath>`;
+  }
+
+  let content = '';
   for (let r = 0; r < state.meta.rows; r++) {
     for (let c = 0; c < state.meta.cols; c++) {
-      drawHex(r, c, state.hexes[hexId(r, c)] || null);
+      content += buildHexSvg(r, c, state.hexes[hexId(r, c)] || null);
     }
   }
-  // Lasso selection rectangle overlay
-  if (typeof _lasso !== 'undefined' && _lasso) {
-    const lx = Math.min(_lasso.startX, _lasso.endX);
-    const ly = Math.min(_lasso.startY, _lasso.endY);
-    const lw = Math.abs(_lasso.endX - _lasso.startX);
-    const lh = Math.abs(_lasso.endY - _lasso.startY);
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,204,255,0.07)';
-    ctx.fillRect(lx, ly, lw, lh);
-    ctx.strokeStyle = '#00ccff';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 3]);
-    ctx.strokeRect(lx, ly, lw, lh);
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-  // Render placed tile content (tracks, symbols, revenue) as crisp SVG
-  renderTilesSVG();
+  vp.innerHTML = content;
+
+  // Update lasso visibility if active
+  if (typeof _updateLassoSvg === 'function') _updateLassoSvg();
+
+  updateViewport();
 }
 
-// ─── RESIZE CANVAS ────────────────────────────────────────────────────────────
-// Matches canvas and SVG overlay to the container size; applies HiDPI scaling.
-
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+// resizeCanvas: legacy name kept for compatibility with setup.js and io.js.
+// SVG fills container automatically; just re-render on resize.
 function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = container.clientWidth || 800;
-  const h = container.clientHeight || 600;
-  canvas.width  = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width  = w + 'px';
-  canvas.style.height = h + 'px';
-  const svgEl = document.getElementById('tileSvg');
-  if (svgEl) {
-    svgEl.style.width  = w + 'px';
-    svgEl.style.height = h + 'px';
-  }
-  ctx.scale(dpr, dpr);
   render();
-}
-
-// ── Wizard preview adapter ───────────────────────────────────────────────────
-// Called by static-hex-builder.js to render a wizard hex using the canonical
-// canvas renderer rather than duplicating logic in SVG.
-function renderStaticHexPreview(previewCanvas, hexData, previewSize) {
-  previewSize = previewSize || 170;
-  previewCanvas.width  = previewSize;
-  previewCanvas.height = previewSize;
-  const ctx2 = previewCanvas.getContext('2d');
-  ctx2.clearRect(0, 0, previewSize, previewSize);
-
-  const hs = previewSize * 0.45;
-  const orientation = 'flat';
-  const center = getHexCenter(0, 0, hs, orientation);
-
-  const savedCtx         = window.ctx;
-  const savedZoom        = window.zoom;
-  const savedPanX        = window.panX;
-  const savedPanY        = window.panY;
-  const savedHexSize     = window.HEX_SIZE;
-  const savedLabelPad    = window.LABEL_PAD;
-  const savedSelectedHex = window.selectedHex;
-  const savedOrientation = state.meta.orientation;
-
-  window.ctx              = ctx2;
-  window.zoom             = 1;
-  window.LABEL_PAD        = 0;
-  window.HEX_SIZE         = hs;
-  window.panX             = previewSize / 2 - center.x;
-  window.panY             = previewSize / 2 - center.y;
-  window.selectedHex      = null;
-  state.meta.orientation  = orientation;
-
-  try {
-    // Static hex wizard removed — preview no longer available
-    void hexData;
-  } finally {
-    window.ctx             = savedCtx;
-    window.zoom            = savedZoom;
-    window.panX            = savedPanX;
-    window.panY            = savedPanY;
-    window.HEX_SIZE        = savedHexSize;
-    window.LABEL_PAD       = savedLabelPad;
-    window.selectedHex     = savedSelectedHex;
-    state.meta.orientation = savedOrientation;
-  }
 }

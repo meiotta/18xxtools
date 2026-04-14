@@ -1,19 +1,43 @@
 // ─── CANVAS INPUT ─────────────────────────────────────────────────────────────
-// Mouse/wheel event handlers for the canvas element, plus applyTool/ensureHex.
+// Mouse/wheel event handlers for the SVG map element, plus applyTool/ensureHex.
 // Load order: FIFTH — after renderer.js.
 
 // Last-placed tile stamp (shift+click to repeat)
 let _stampTile = null;
 let _stampRotation = 0;
 
-// Clear the active white-tile tool and its button highlight after a one-shot apply
-
 // Hex under cursor during a drag — used by renderer for drop-target highlight
 let dragOverHex = null;
 
-// Shift+drag lasso selection
-let _lasso = null;               // {startX, startY, endX, endY} in canvas pixel coords
+// Lasso selection — stored in WORLD coordinates (same space as getHexCenter output)
+let _lasso = null;               // {startX, startY, endX, endY} in world coords
 let _lassoJustCompleted = false; // suppress the click that fires after mouseup
+
+// ── Coordinate helpers ────────────────────────────────────────────────────────
+
+// clientToWorld: converts a browser clientX/clientY to world coordinates.
+// Uses the mapViewport's screen CTM inverse — no manual pan/zoom/LABEL_PAD math.
+function clientToWorld(clientX, clientY) {
+  const vp = document.getElementById('mapViewport');
+  if (!vp) return { x: 0, y: 0 };
+  const pt = mapSvg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  return pt.matrixTransform(vp.getScreenCTM().inverse());
+}
+
+// _updateLassoSvg: syncs the #mapLasso rect to current _lasso world coords.
+// The lassoLayer follows the same transform as mapViewport, so the rect is in world units.
+function _updateLassoSvg() {
+  const el = document.getElementById('mapLasso');
+  if (!el) return;
+  if (!_lasso) { el.setAttribute('display', 'none'); return; }
+  el.setAttribute('x',      Math.min(_lasso.startX, _lasso.endX).toFixed(1));
+  el.setAttribute('y',      Math.min(_lasso.startY, _lasso.endY).toFixed(1));
+  el.setAttribute('width',  Math.abs(_lasso.endX - _lasso.startX).toFixed(1));
+  el.setAttribute('height', Math.abs(_lasso.endY - _lasso.startY).toFixed(1));
+  el.setAttribute('display', '');
+}
 
 // Returns the index (0–5) of the hex edge midpoint closest to world point (wx, wy).
 // Uses edgePos() (renderer convention: edge 0=bottom, 1=lower-left, …) to match
@@ -77,14 +101,12 @@ function getNeighborHex(row, col, edge) {
 
 // ── Lasso selection (plain left-button drag) ──────────────────────────────────
 // mousemove and mouseup are registered on document during a drag so they fire
-// even when the pointer leaves the canvas element mid-drag.
+// even when the pointer leaves the SVG element mid-drag.
 function _lassoMove(e) {
-  // clientX/Y are viewport-relative; subtract canvas bounding rect to get
-  // canvas-relative pixel coords (same coordinate space the renderer uses).
-  const rect = canvas.getBoundingClientRect();
-  _lasso.endX = e.clientX - rect.left;
-  _lasso.endY = e.clientY - rect.top;
-  render();
+  const wp = clientToWorld(e.clientX, e.clientY);
+  _lasso.endX = wp.x;
+  _lasso.endY = wp.y;
+  _updateLassoSvg();  // update lasso rect only — no full content rebuild
 }
 
 function _lassoUp(e) {
@@ -92,26 +114,21 @@ function _lassoUp(e) {
   document.removeEventListener('mousemove', _lassoMove);
   document.removeEventListener('mouseup',   _lassoUp);
 
-  const wasDrag = Math.abs(_lasso.endX - _lasso.startX) > 3 ||
-                  Math.abs(_lasso.endY - _lasso.startY) > 3;
+  // Threshold: 3 screen pixels mapped to world units
+  const wasDrag = Math.hypot(_lasso.endX - _lasso.startX, _lasso.endY - _lasso.startY) > 3 / zoom;
   if (wasDrag) {
-    // Lasso rect in canvas pixel coords (same space as renderer output).
-    const px1 = Math.min(_lasso.startX, _lasso.endX);
-    const py1 = Math.min(_lasso.startY, _lasso.endY);
-    const px2 = Math.max(_lasso.startX, _lasso.endX);
-    const py2 = Math.max(_lasso.startY, _lasso.endY);
+    // Lasso corners in world coords — compare directly with hex centers.
+    const wx1 = Math.min(_lasso.startX, _lasso.endX);
+    const wy1 = Math.min(_lasso.startY, _lasso.endY);
+    const wx2 = Math.max(_lasso.startX, _lasso.endX);
+    const wy2 = Math.max(_lasso.startY, _lasso.endY);
 
-    // For each grid position, convert the hex center to canvas pixels using
-    // the SAME formula the renderer uses: cx = (world + pan) * zoom + LABEL_PAD.
-    // Comparing canvas pixels to canvas pixels avoids any inverse-transform error.
     selectedHexes.clear();
     let lastId = null;
     for (let r = 0; r < state.meta.rows; r++) {
       for (let c = 0; c < state.meta.cols; c++) {
         const center = getHexCenter(r, c, HEX_SIZE, state.meta.orientation);
-        const cx = (center.x + panX) * zoom + LABEL_PAD;
-        const cy = (center.y + panY) * zoom + LABEL_PAD;
-        if (cx >= px1 && cx <= px2 && cy >= py1 && cy <= py2) {
+        if (center.x >= wx1 && center.x <= wx2 && center.y >= wy1 && center.y <= wy2) {
           lastId = hexId(r, c);
           selectedHexes.add(lastId);
         }
@@ -121,35 +138,27 @@ function _lassoUp(e) {
     _lassoJustCompleted = true;
   }
   _lasso = null;
+  _updateLassoSvg();
   render();
 }
 
-canvas.addEventListener('mousedown', (e) => {
+mapSvg.addEventListener('mousedown', (e) => {
   if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
     // preventDefault stops the browser from firing dragstart on a real drag,
     // which would swallow subsequent mousemove events and break lasso.
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    _lasso = {
-      startX: e.clientX - rect.left,
-      startY: e.clientY - rect.top,
-      endX:   e.clientX - rect.left,
-      endY:   e.clientY - rect.top,
-    };
+    const wp = clientToWorld(e.clientX, e.clientY);
+    _lasso = { startX: wp.x, startY: wp.y, endX: wp.x, endY: wp.y };
     document.addEventListener('mousemove', _lassoMove);
     document.addEventListener('mouseup',   _lassoUp);
   }
 });
 
-canvas.addEventListener('click', (e) => {
+mapSvg.addEventListener('click', (e) => {
   // Placement Mode Intercept
   if (isPlacementMode && pendingMinorIndex !== null) {
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    const wx = (px - LABEL_PAD) / zoom - panX;
-    const wy = (py - LABEL_PAD) / zoom - panY;
-    const hex = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+    const wp = clientToWorld(e.clientX, e.clientY);
+    const hex = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
     const id = hexId(hex.row, hex.col);
 
     state.minors[pendingMinorIndex].homeHex = id;
@@ -161,12 +170,8 @@ canvas.addEventListener('click', (e) => {
 
   // Suppress click that fires immediately after a completed lasso drag
   if (_lassoJustCompleted) { _lassoJustCompleted = false; return; }
-  const rect = canvas.getBoundingClientRect();
-  const px = e.clientX - rect.left;
-  const py = e.clientY - rect.top;
-  const wx = (px - LABEL_PAD) / zoom - panX;
-  const wy = (py - LABEL_PAD) / zoom - panY;
-  const hex = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const wp2 = clientToWorld(e.clientX, e.clientY);
+  const hex = pixelToHex(wp2.x, wp2.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hex.row, hex.col);
 
   if (e.button === 0) {
@@ -280,12 +285,10 @@ canvas.addEventListener('click', (e) => {
   }
 });
 
-canvas.addEventListener('contextmenu', (e) => {
+mapSvg.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const px = e.clientX - rect.left;
-  const py = e.clientY - rect.top;
-  const hex = pixelToHex(((px - LABEL_PAD) / zoom - panX), ((py - LABEL_PAD) / zoom - panY), HEX_SIZE, state.meta.orientation);
+  const wp = clientToWorld(e.clientX, e.clientY);
+  const hex = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hex.row, hex.col);
   // If right-clicking inside an existing multi-selection (2+ hexes), show multi-menu
   if (selectedHexes.size >= 2 && selectedHexes.has(id)) {
@@ -295,7 +298,7 @@ canvas.addEventListener('contextmenu', (e) => {
   }
 });
 
-canvas.addEventListener('wheel', (e) => {
+mapSvg.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (e.ctrlKey || e.metaKey) {
     // Ctrl/Cmd + scroll → zoom
@@ -307,8 +310,8 @@ canvas.addEventListener('wheel', (e) => {
     // Plain scroll → pan vertically
     panY -= e.deltaY / zoom * 0.5;
   }
-  render();
-});
+  updateViewport();  // transform-only update — no content rebuild
+}, { passive: false });
 
 // Apply the currently active tool to the given hex coordinate string.
 // Mutates state.hexes[hexId] and calls autosave().
@@ -359,19 +362,17 @@ function applyTool(hexId) {
   autosave();
 }
 
-// ── Canvas drag-and-drop tile placement ──────────────────────────────────────
+// ── SVG map drag-and-drop tile placement ─────────────────────────────────────
 // Allows dragging a tile swatch from the palette and dropping it on the map.
 
-canvas.addEventListener('dragover', (e) => {
+mapSvg.addEventListener('dragover', (e) => {
   if (!e.dataTransfer.types.includes('text/plain')) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'copy';
 
   // Track which hex the drag is over and re-render for highlight feedback
-  const rect = canvas.getBoundingClientRect();
-  const wx = ((e.clientX - rect.left) - LABEL_PAD) / zoom - panX;
-  const wy = ((e.clientY - rect.top)  - LABEL_PAD) / zoom - panY;
-  const hc = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const wp = clientToWorld(e.clientX, e.clientY);
+  const hc = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
   const newId = hexId(hc.row, hc.col);
   if (newId !== dragOverHex) {
     dragOverHex = newId;
@@ -379,24 +380,17 @@ canvas.addEventListener('dragover', (e) => {
   }
 });
 
-canvas.addEventListener('dragleave', (e) => {
+mapSvg.addEventListener('dragleave', (e) => {
   if (dragOverHex !== null) { dragOverHex = null; render(); }
 });
 
-// (White tiles now go through the standard tile drop path below)
-
-canvas.addEventListener('drop', (e) => {
+mapSvg.addEventListener('drop', (e) => {
   const payload = e.dataTransfer.getData('text/plain');
   if (!payload) return;
   e.preventDefault();
 
-  // Convert drop position to world coordinates
-  const rect = canvas.getBoundingClientRect();
-  const px = e.clientX - rect.left;
-  const py = e.clientY - rect.top;
-  const wx = (px - LABEL_PAD) / zoom - panX;
-  const wy = (py - LABEL_PAD) / zoom - panY;
-  const hexCoord = pixelToHex(wx, wy, HEX_SIZE, state.meta.orientation);
+  const wp = clientToWorld(e.clientX, e.clientY);
+  const hexCoord = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hexCoord.row, hexCoord.col);
   if (!id) return;
   ensureHex(id);
