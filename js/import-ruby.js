@@ -322,16 +322,14 @@ function parseDslHex(code, bg, locationName) {
 
     } else if (part.startsWith('town=')) {
       townCount++;
-      const rev    = parseInt((part.match(/revenue:(\d+)/) || [])[1] || '0');
+      const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
       const locStr = (part.match(/loc:([\w.]+)/) || [])[1];
-      const phases = { yellow:rev, green:rev, brown:rev, gray:rev };
-      const active = rev > 0
-        ? { yellow:true, green:true, brown:true, gray:true }
-        : { yellow:false, green:false, brown:false, gray:false };
+      const { phases, active } = parsePhaseRevenue(revStr);
+      const rev = !revStr.includes('_') ? (parseInt(revStr) || 0) : null;
       hex.nodes.push({ type: 'town', flat: rev, phaseRevenue: phases,
         activePhases: active, locStr });
-      if (townCount === 1) { hex.townRevenue = rev; hex.townRevenues[0] = rev; }
-      if (townCount === 2) { hex.townRevenues[1] = rev; }
+      if (townCount === 1) { hex.townRevenue = rev ?? 0; hex.townRevenues[0] = rev ?? 0; }
+      if (townCount === 2) { hex.townRevenues[1] = rev ?? 0; }
 
     } else if (part.startsWith('path=')) {
       // Parse path=a:X,b:Y[,terminal:N] where X/Y may be 'N' (edge) or '_N' (node ref)
