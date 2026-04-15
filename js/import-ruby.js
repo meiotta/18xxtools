@@ -255,6 +255,9 @@ function parseDslHex(code, bg, locationName) {
     //   Matches DSL path=a:X,b:Y exactly.  _N → {type:'node',n:N}, N → {type:'edge',n:N}
     nodes: [],
     paths: [],
+    // stubs[i] = { edge:int, track:string } — tobymao Part::Stub
+    //   DSL: stub=edge:N[,track:narrow|broad|dual]
+    stubs: [],
   };
 
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
@@ -361,6 +364,16 @@ function parseDslHex(code, bg, locationName) {
       }
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) hex.terrainCost = parseInt(c);
+    } else if (part.startsWith('stub=')) {
+      // stub=edge:N[,track:X] — tobymao Part::Stub, engine/part/stub.rb
+      // Renders as a short track line from edge inward (track_stub.rb: M 0 87 L 0 65)
+      const edgeM = part.match(/edge:(\d+)/);
+      const trackM = part.match(/track:(\w+)/);
+      if (edgeM) {
+        const edge = parseInt(edgeM[1]);
+        hex.stubs.push({ edge, track: trackM ? trackM[1] : 'broad' });
+        exitSet.add(edge);
+      }
     } else if (part.startsWith('upgrade=')) {
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) hex.terrainCost = parseInt(c);

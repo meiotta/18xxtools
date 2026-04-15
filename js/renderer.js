@@ -973,6 +973,13 @@ function hexToSvgInner(hex, tileDef) {
     for (const [ea, eb] of hex.pathPairs) drawSeg(ea, eb);
   }
 
+  // ── Stubs — drawn unconditionally, can appear on any hex ───────────────────
+  // source: tobymao track_stub.rb build_props — M 0 87 L 0 65 (100-unit) → M 0 43.5 L 0 32.5 (×0.5)
+  // stroke-linecap:'butt' per source (not round).
+  for (const stub of (hex.stubs || [])) {
+    svg += `<path d="M 0 43.5 L 0 32.5" transform="rotate(${stub.edge * 60})" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="butt" fill="none"/>`;
+  }
+
   return svg;
 }
 
