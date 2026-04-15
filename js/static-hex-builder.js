@@ -125,9 +125,15 @@ function _buildModel() {
     : undefined;
 
   const p0 = _nodes[0];
-  const phaseRevenue = (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length)
-    ? {...p0.phaseRevenue}
-    : { yellow:20, green:30, brown:40, gray:60 };
+
+  // Phase revenue only applies to cities and offboards — towns always use flat revenue.
+  const usesPhaseRev = (_bg==='gray'||_bg==='red') && (feature==='city'||feature==='offboard');
+  const phaseRevenue = usesPhaseRev
+    ? (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length ? {...p0.phaseRevenue} : {yellow:20,green:30,brown:40,gray:60})
+    : {};
+  const activePhases = usesPhaseRev
+    ? {yellow:true,green:true,brown:true,gray:true}
+    : {};
 
   return {
     static:         true,
@@ -148,7 +154,7 @@ function _buildModel() {
     ooFlatRevenues: cityNodes.map(c=>c.revenue||20),
     mFlatRevenues:  cityNodes.map(c=>c.revenue||20),
     phaseRevenue,
-    activePhases:   {yellow:true,green:true,brown:true,gray:true},
+    activePhases,
     label:          _label,
     name:           '',
   };
@@ -401,7 +407,8 @@ function _commitTrack(type) {
   if (type==='blank') {
     if (eb!==null) _eePaths.push({id:_id(),ea,eb});
   } else {
-    const isPhase = _bg==='gray'||_bg==='red';
+    // Phase revenue only for cities and offboards — towns always use flat revenue
+    const isPhase = (_bg==='gray'||_bg==='red') && (type==='city'||type==='offboard');
     const node = {
       id:           _id(),
       type,
@@ -433,7 +440,8 @@ function _renderNodeEdit(nodeId) {
   if (!panel) return;
   const n = _nodes.find(x=>x.id===nodeId);
   if (!n) return;
-  const isPhase = _bg==='gray'||_bg==='red';
+  // Phase revenue only meaningful for cities and offboards
+  const isPhase = (_bg==='gray'||_bg==='red') && (n.type==='city'||n.type==='offboard');
   panel.innerHTML = `
     <div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:11px 12px;">
       <div class="shw-subtitle" style="margin-bottom:9px;text-transform:capitalize;">${n.type} settings</div>
