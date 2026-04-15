@@ -481,6 +481,13 @@ canvas { display: block; }
 .shw-btn-sec:disabled { opacity: 0.4; cursor: default; }
 .shw-btn-primary { background: #ffd700; border: none; color: #1a1a1a; font-weight: bold; padding: 7px 18px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .shw-btn-primary:hover { background: #ffe84e; }
+.shw-btn-sel { border-color: #ffd700 !important; color: #ffd700 !important; }
+
+/* Track-first wizard — element chips */
+.shw-chip { display:inline-flex; align-items:center; gap:4px; background:#262626; border:1px solid #484848; border-radius:100px; padding:3px 8px 3px 10px; font-size:11px; color:#ccc; white-space:nowrap; }
+.shw-chip.shw-chip-sel { border-color:#ffd700; color:#ffd700; }
+.shw-chip-x { background:none; border:none; color:#666; cursor:pointer; font-size:14px; line-height:1; padding:0 2px; flex-shrink:0; }
+.shw-chip-x:hover { color:#e55; }
 
 /* ── MD Accordion ──────────────────────────────────────────────────────────── */
 .accordion { margin-top: 8px; }
