@@ -883,7 +883,18 @@ function hexToSvgInner(hex, tileDef) {
             5: [0, -21.5], 6: [0, -25], 7: [0, -26], 8: [0, -27], 9: [0, -27.5],
           };
           const slots = node.slots;
-          const [bx, by] = CITY_SLOT_POS[slots] || [0, 0];
+          let [bx, by] = CITY_SLOT_POS[slots] || [0, 0];
+
+          // For pointy-top maps the inner <g> is rotated +30°.  City slot positions
+          // are defined in flat-top tile space, so we counter-rotate [bx,by] by −30°
+          // before computing the per-slot offsets.  Because 2-D rotations commute:
+          //   rotate(+30) × rotate(360/n × i) × rotate(−30) × [bx,by]
+          //   = rotate(360/n × i) × [bx,by]
+          // …so the final on-screen slot positions equal the un-rotated tobymao values.
+          if ((typeof state !== 'undefined') && state?.meta?.orientation === 'pointy') {
+            const cr = Math.cos(-Math.PI / 6), sr = Math.sin(-Math.PI / 6); // −30°
+            [bx, by] = [cr * bx - sr * by, sr * bx + cr * by];
+          }
 
           // Slot positions: rotate(360/n × i) applied to [bx,by], per city.rb render_part.
           const offsets = [];
