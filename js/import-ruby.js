@@ -446,13 +446,23 @@ function parseDslHex(code, bg, locationName) {
   }
 
   // ── Sync phaseRevenue / activePhases from primary node ──────────────────────
+  // Towns may have flat or phase revenue. Prefer the node's own phaseRevenue/activePhases
+  // if they contain real data (phase-revenue town); otherwise fall back to flat.
   if (hex.feature === 'town' || hex.feature === 'dualTown') {
-    const rev = hex.townRevenue || 0;
-    if (rev > 0) {
-      hex.phaseRevenue = { yellow: rev, green: rev, brown: rev, gray: rev };
-      hex.activePhases = { yellow: true, green: true, brown: true, gray: true };
+    const townNode = hex.nodes.find(n => n.type === 'town');
+    const nodeHasPhase = townNode && Object.values(townNode.activePhases || {}).some(Boolean);
+    if (nodeHasPhase) {
+      // Phase-revenue town — promote node data to top-level for renderer
+      hex.phaseRevenue = { ...townNode.phaseRevenue };
+      hex.activePhases = { ...townNode.activePhases };
     } else {
-      hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
+      const rev = hex.townRevenue || 0;
+      if (rev > 0) {
+        hex.phaseRevenue = { yellow: rev, green: rev, brown: rev, gray: rev };
+        hex.activePhases = { yellow: true, green: true, brown: true, gray: true };
+      } else {
+        hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
+      }
     }
   }
   if (hex.feature === 'none') {
