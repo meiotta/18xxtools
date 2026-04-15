@@ -265,16 +265,6 @@ function showContextMenu(x, y, hexId) {
   function addItem(label, onClick) { return _addItem(menu, label, onClick); }
   function addSep()                { _addSep(menu); }
 
-  // ── Minor Company ─────────────────────────────────────────────────────────
-  const minorLabel = state.minors.length === 0 ? '🏢 Start Minor Wizard here...' : '🏢 Add Another Minor here...';
-  addItem(minorLabel, () => {
-    showCompanyWizard('minor');
-    document.getElementById('cwHome').value = hexId;
-  });
-
-  addSep();
-
-
   // ── Terrain + Icons quick-grid ────────────────────────────────────────────
   _addSectionLabel(menu, 'Terrain & Icons');
   _buildQuickIconGrid(menu, hex,
