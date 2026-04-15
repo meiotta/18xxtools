@@ -130,12 +130,32 @@ function pixelToHex(px, py, size, orientation) {
 }
 
 function hexId(row, col) {
-  // Two coordinate parity conventions exist in 18xx games:
-  //   coordParity=0 (default): even cols use even row-nums (A2,A4…), odd cols odd (B1,B3…) — e.g. 1889
-  //   coordParity=1:           even cols use odd  row-nums (A1,A3…), odd cols even (B2,B4…) — e.g. 1830, 1846
-  // The parity is detected on import and stored in state.meta.coordParity.
+  const orientation = (typeof state !== 'undefined') ? (state.meta?.orientation ?? 'flat') : 'flat';
+
+  if (orientation === 'pointy') {
+    // Pointy layout: coordToGrid stores row=letterIdx (tobymao x=letter), col=normalised(numPart).
+    // Invert back to tobymao coordinate format: letter from row, numPart from col.
+    //
+    // coordToGrid formula (pointy):
+    //   even letterIdx: tries (numPart-1)/2 first, falls back to (numPart-2)/2
+    //   odd  letterIdx: tries (numPart-2)/2 first, falls back to (numPart-1)/2
+    // Whether the first or fallback applies depends on pointyStaggerParity:
+    //   psp=1 (e.g. 1822 PNW): even letterIdx → even numParts → numPart = 2*col+2
+    //                           odd  letterIdx → odd  numParts → numPart = 2*col+1
+    //   psp=0:                  even letterIdx → odd  numParts → numPart = 2*col+1
+    //                           odd  letterIdx → even numParts → numPart = 2*col+2
+    // Combined: condition (row%2===0) === (psp===1) selects +2 or +1 offset.
+    const psp = (typeof state !== 'undefined') ? (state.meta?.pointyStaggerParity ?? 0) : 0;
+    const letter  = String.fromCharCode(65 + row);
+    const numPart = ((row % 2 === 0) === (psp === 1)) ? (2 * col + 2) : (2 * col + 1);
+    return letter + numPart;
+  }
+
+  // Flat layout (and transposed-axes flat):
+  // coordParity=0 (default): even cols use even row-nums (A2,A4…), odd cols odd (B1,B3…) — e.g. 1889
+  // coordParity=1:           even cols use odd  row-nums (A1,A3…), odd cols even (B2,B4…) — e.g. 1830, 1846
   const cp = (typeof state !== 'undefined') ? (state.meta?.coordParity ?? 0) : 0;
-  const evenCol = (col % 2 === 0);
+  const evenCol  = (col % 2 === 0);
   // When cp=0: evenCol→even(+2), !evenCol→odd(+1)
   // When cp=1: evenCol→odd(+1),  !evenCol→even(+2)
   const coordRow = ((evenCol) === (cp === 0)) ? (2 * row + 2) : (2 * row + 1);
