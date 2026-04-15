@@ -202,6 +202,26 @@ function parseHexCode(code) {
 
 // ── Parse a Ruby hex DSL code string into a hex object ────────────────────────
 // bg: hex background color ('white', 'yellow', 'green', 'gray', 'red', 'blue')
+//
+// ── TOBYMAO DATA MODEL ────────────────────────────────────────────────────────
+// This function builds hex.nodes[] and hex.paths[] matching tobymao's:
+//   tile.cities[]  /  tile.towns[]  →  hex.nodes[]  (type:'city'|'town')
+//   tile.paths[]                    →  hex.paths[]  (each endpoint: edge N or node _N)
+//
+// FUTURE CLAUDE — DO NOT INVENT FLAGS:
+//   hex.hasSecondaryTown  ← DELETED.  Use hex.nodes.filter(n=>n.type==='town')
+//   hex.townLoc           ← DELETED.  Use node.locStr on the town node
+//   hex.internalPaths     ← DELETED.  Use hex.paths[] entries with both endpoints as nodes
+//   hex.cityExitsByNode   ← DELETED.  Use hex.paths[] to find edges per node
+//
+// hex.feature is kept as a DERIVED SUMMARY only for terrain badge collision code
+// and revenue box display.  DO NOT add rendering switch cases on hex.feature for
+// city/town/oo/dualTown — all such rendering is driven by hex.nodes[]+hex.paths[].
+//
+// Node positions (x, y, angle) are NOT stored here; they are computed lazily by
+// the renderer's inline position logic from node.locStr + connected path edges.
+// This keeps the parser free of geometry dependencies (computeTownPos lives in
+// renderer.js and must not be called here).
 function parseDslHex(code, bg, locationName) {
   const hex = {
     static: true,
@@ -227,19 +247,44 @@ function parseDslHex(code, bg, locationName) {
     killed: false,
     borders: [],   // [{ edge, type, cost }] — imported for export fidelity
     icons: [],     // [{ image }]
+    // ── Tobymao-faithful node / path model ────────────────────────────────────
+    // nodes[i] = { type:'city'|'town', slots, flat, phaseRevenue, activePhases, locStr }
+    //   locStr: raw loc: value from DSL (e.g. '1', '2.5', 'center', undefined)
+    //   Position computed by renderer; not stored here (see note above).
+    // paths[i] = { a:{type:'edge'|'node', n:int}, b:{type:'edge'|'node', n:int} }
+    //   Matches DSL path=a:X,b:Y exactly.  _N → {type:'node',n:N}, N → {type:'edge',n:N}
+    nodes: [],
+    paths: [],
   };
 
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   let cityCount = 0, townCount = 0;
   const exitSet = new Set();
-  const exitsByNode = {};   // node index → [edge, …]  — used for OO exitPairs
-  const pathPairs = [];
+  const exitsByNode = {};   // nodeIndex → [edge, …] — used to derive exitPairs
+  const pathPairList = [];  // edge-to-edge pairs (no nodes)
   const cityRevs = [];
 
+  // Parse 'N' → edge endpoint, '_N' → node endpoint
+  const parseEndpt = s =>
+    s.startsWith('_') ? { type: 'node', n: parseInt(s.slice(1)) }
+                      : { type: 'edge', n: parseInt(s) };
+
   for (const part of parts) {
-    // Bare keywords: 'city' or 'town' with no attributes (e.g. %w[E19 H4] => 'city')
-    if (part === 'city' || part === 'city=') { cityCount++; continue; }
-    if (part === 'town' || part === 'town=') { townCount++; continue; }
+    // Bare keywords: 'city' or 'town' with no attributes
+    if (part === 'city' || part === 'city=') {
+      hex.nodes.push({ type: 'city', slots: 1, flat: 0,
+        phaseRevenue: { yellow:0, green:0, brown:0, gray:0 },
+        activePhases: { yellow:true, green:true, brown:true, gray:true },
+        locStr: undefined });
+      cityCount++; continue;
+    }
+    if (part === 'town' || part === 'town=') {
+      hex.nodes.push({ type: 'town', flat: 0,
+        phaseRevenue: { yellow:0, green:0, brown:0, gray:0 },
+        activePhases: { yellow:false, green:false, brown:false, gray:false },
+        locStr: undefined });
+      townCount++; continue;
+    }
 
     if (part.startsWith('city=')) {
       cityCount++;
@@ -247,73 +292,57 @@ function parseDslHex(code, bg, locationName) {
       const slots  = parseInt((part.match(/slots:(\d+)/) || [])[1] || '1');
       const { phases, active } = parsePhaseRevenue(revStr);
       const flatVal = !revStr.includes('_') ? (parseInt(revStr) || 0) : null;
+      const locStr  = (part.match(/loc:([\w.]+)/) || [])[1];
       cityRevs.push({ phases, flat: flatVal });
+      const nodeActive = (Object.values(active).some(Boolean))
+        ? active : { yellow:true, green:true, brown:true, gray:true };
       if (cityCount === 1) {
         hex.slots = slots;
         hex.phaseRevenue = phases;
-        hex.activePhases = (Object.values(active).some(Boolean)) ? active : { yellow: true, green: true, brown: true, gray: true };
-        // Off-center city: parse loc: and compute position in 50-unit tile space
-        const locStr = (part.match(/loc:([\d.]+)/) || [])[1];
-        if (locStr !== undefined) {
-          const f = parseFloat(locStr);
-          if (!isNaN(f)) {
-            const isHalf = !Number.isInteger(f) && Math.abs(f - Math.round(f)) === 0.5;
-            // Tobymao city.rb: distance=50 in 100-unit space → 25 in 50-unit space.
-            // x = -sin(f*60°)*25, y = cos(f*60°)*25  (same formula as cityEdgePos() in renderer.js)
-            const angle  = f * Math.PI / 3;
-            hex.cityLocX = parseFloat((-Math.sin(angle) * 25).toFixed(2));
-            hex.cityLocY = parseFloat(( Math.cos(angle) * 25).toFixed(2));
-          }
-        }
+        hex.activePhases = nodeActive;
       }
+      hex.nodes.push({ type: 'city', slots, flat: flatVal,
+        phaseRevenue: phases, activePhases: nodeActive, locStr });
+
     } else if (part.startsWith('offboard=')) {
       const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
       const { phases, active } = parsePhaseRevenue(revStr);
       hex.phaseRevenue = phases;
-      hex.activePhases = (Object.values(active).some(Boolean)) ? active : { yellow: true, green: true, brown: true, gray: true };
+      hex.activePhases = (Object.values(active).some(Boolean)) ? active
+        : { yellow:true, green:true, brown:true, gray:true };
       hex.feature = 'offboard';
+
     } else if (part.startsWith('town=')) {
       townCount++;
-      const rev = parseInt((part.match(/revenue:(\d+)/) || [])[1] || '0');
-      // RCA fix: capture loc: for the town — needed when a town is positioned
-      // away from center (e.g. 1822 D35 town=revenue:10,loc:1).
-      // Without this, the secondary town position is lost and it renders at (0,0)
-      // on top of the city instead of at its correct edge-directed location.
-      const loc = (part.match(/loc:([\d.]+)/) || [])[1];
-      if (townCount === 1) {
-        hex.townRevenue = rev;
-        hex.townRevenues[0] = rev;
-        if (loc !== undefined) hex.townLoc = parseFloat(loc); // edge index (0-5)
-      }
+      const rev    = parseInt((part.match(/revenue:(\d+)/) || [])[1] || '0');
+      const locStr = (part.match(/loc:([\w.]+)/) || [])[1];
+      const phases = { yellow:rev, green:rev, brown:rev, gray:rev };
+      const active = rev > 0
+        ? { yellow:true, green:true, brown:true, gray:true }
+        : { yellow:false, green:false, brown:false, gray:false };
+      hex.nodes.push({ type: 'town', flat: rev, phaseRevenue: phases,
+        activePhases: active, locStr });
+      if (townCount === 1) { hex.townRevenue = rev; hex.townRevenues[0] = rev; }
       if (townCount === 2) { hex.townRevenues[1] = rev; }
+
     } else if (part.startsWith('path=')) {
-      const toNode     = part.match(/a:(\d+),b:_(\d+)/);
-      const fromNode   = part.match(/a:_(\d+),b:(\d+)/);
-      // RCA fix: detect node-to-node internal paths — path=a:_0,b:_1 etc.
-      // These connect two internal nodes (e.g. a city to a secondary town)
-      // with no edge exits.  All three existing regex branches fail to match
-      // this pattern, so it was silently dropped, causing the internal track
-      // segment and secondary town to never render.
-      // Source: tobymao path model — a path endpoint can be a node ref (_N)
-      // or an edge number (N); both-node paths are valid and occur in 1822.
-      const nodeToNode = (!toNode && !fromNode) ? part.match(/^path=a:_(\d+),b:_(\d+)/) : null;
-      const edgePair   = (!toNode && !fromNode && !nodeToNode) ? part.match(/^path=a:(\d+),b:(\d+)/) : null;
-      if (toNode) {
-        const edge = parseInt(toNode[1]), ni = parseInt(toNode[2]);
-        exitSet.add(edge);
-        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
-      } else if (fromNode) {
-        const ni = parseInt(fromNode[1]), edge = parseInt(fromNode[2]);
-        exitSet.add(edge);
-        (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
-      } else if (nodeToNode) {
-        // Internal node-to-node path — store for renderer to draw the segment.
-        // fromNodeIdx=_0 (city), toNodeIdx=_1 (secondary town) for 1822 D35.
-        if (!hex.internalPaths) hex.internalPaths = [];
-        hex.internalPaths.push([parseInt(nodeToNode[1]), parseInt(nodeToNode[2])]);
-      } else if (edgePair) {
-        pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
+      // Parse path=a:X,b:Y where X and Y may be 'N' (edge) or '_N' (node ref)
+      const pm = part.match(/^path=a:(_?\d+),b:(_?\d+)/);
+      if (pm) {
+        const a = parseEndpt(pm[1]), b = parseEndpt(pm[2]);
+        hex.paths.push({ a, b });
+        // Collect edge exits
+        if (a.type === 'edge') {
+          exitSet.add(a.n);
+          if (b.type === 'node') (exitsByNode[b.n] = exitsByNode[b.n] || []).push(a.n);
+        }
+        if (b.type === 'edge') {
+          exitSet.add(b.n);
+          if (a.type === 'node') (exitsByNode[a.n] = exitsByNode[a.n] || []).push(b.n);
+        }
+        if (a.type === 'edge' && b.type === 'edge') pathPairList.push([a.n, b.n]);
       }
+
     } else if (part.startsWith('label=')) {
       hex.label = part.slice(6).trim();
     } else if (part.includes('terrain:')) {
@@ -347,77 +376,72 @@ function parseDslHex(code, bg, locationName) {
     }
   }
 
-  hex.exits    = [...exitSet];
-  hex.pathPairs = pathPairs;
+  hex.exits     = [...exitSet];
+  hex.pathPairs = pathPairList;
 
-  // cityLocX/Y are set from loc: during city part parsing (if present).
-  // loc: IS the visual position for DSL preprinted map hexes — it is NOT merely
-  // a routing hint. The SVG rotate(orientDeg) wrapper handles orientation, so
-  // cityLocX/Y are used as-is in flat-top coordinate space. Do NOT zero them
-  // for connected cities; the loc: offset (e.g. Altoona loc:2.5 → above center)
-  // is intentional and drives the visual city position.
-
-  // Path mode: use 'pairs' when only edge-to-edge paths (no feature exits)
-  hex.pathMode = (pathPairs.length > 0 && exitSet.size === 0) ? 'pairs' : 'star';
-
-  // Determine feature from counts (only override for non-offboard hexes)
+  // ── Derive hex.feature (summary only — NOT used for rendering cities/towns) ─
   if (hex.feature !== 'offboard') {
     if (cityCount >= 3) {
-      // Triple-city hex (e.g. Moscow, Kiev in 1861) — rendered as 3-slot city
       hex.feature = 'city';
-      hex.slots    = cityCount;
-      // Use first city's revenue for the single revenue display
-      // (already set from cityCount===1 branch above; keep it)
-      // Store cityExitsByNode for multi-node city rendering
-      hex.cityExitsByNode = { ...exitsByNode };
+      hex.slots   = cityCount;
+      hex.ooFlatRevenues = [
+        cityRevs[0]?.flat ?? (cityRevs[0]?.phases?.yellow || 0),
+        cityRevs[1]?.flat ?? (cityRevs[1]?.phases?.yellow || 0),
+      ];
     } else if (cityCount === 2) {
       hex.feature = 'oo';
       hex.ooFlatRevenues = [
         cityRevs[0]?.flat !== null ? (cityRevs[0]?.flat || 0) : (cityRevs[0]?.phases?.yellow || 0),
         cityRevs[1]?.flat !== null ? (cityRevs[1]?.flat || 0) : (cityRevs[1]?.phases?.yellow || 0),
       ];
-      // exitPairs: assign exits per city node using path=a:N,b:_M routing when available,
-      // falling back to a simple 2-exit split for hexes without node-tagged paths.
+      // exitPairs: for OO revenue bubble positioning (nodes[0] exits, nodes[1] exits)
+      const cityNIs = hex.nodes.map((n, i) => n.type === 'city' ? i : null).filter(i => i !== null);
       if (Object.keys(exitsByNode).length >= 1) {
-        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
-      } else if (exitSet.size === 2) {
+        hex.exitPairs = [exitsByNode[cityNIs[0]] || [], exitsByNode[cityNIs[1]] || []];
+      } else if (exitSet.size >= 2) {
         const exits = [...exitSet];
         hex.exitPairs = [[exits[0]], [exits[1]]];
       }
     } else if (cityCount === 1) {
       hex.feature = 'city';
-      // RCA fix: when a city hex also has a town (city+town compound hex like
-      // 1822 D35 Swansea/Oystermouth), flag it so the renderer draws both.
-      // Previously, feature='city' swallowed the town entirely — no flag was
-      // set, so hexToSvgInner drew only the city circle and nothing else.
-      if (townCount >= 1) hex.hasSecondaryTown = true;
+      // cityLocX/Y: backward-compat for terrain-badge collision avoidance
+      const cn = hex.nodes.find(n => n.type === 'city');
+      if (cn?.locStr && cn.locStr !== 'center') {
+        const f = parseFloat(cn.locStr);
+        if (!isNaN(f)) {
+          const angle = f * Math.PI / 3;
+          hex.cityLocX = parseFloat((-Math.sin(angle) * 25).toFixed(2));
+          hex.cityLocY = parseFloat(( Math.cos(angle) * 25).toFixed(2));
+        }
+      }
     } else if (townCount >= 2) {
       hex.feature = 'dualTown';
-      // Store exit pairs per town node so renderer can draw correct arcs
+      // exitPairs: for dualTown revenue bubble positioning
+      const townNIs = hex.nodes.map((n, i) => n.type === 'town' ? i : null).filter(i => i !== null);
       if (Object.keys(exitsByNode).length >= 1) {
-        hex.exitPairs = [exitsByNode[0] || [], exitsByNode[1] || []];
+        hex.exitPairs = [exitsByNode[townNIs[0]] || [], exitsByNode[townNIs[1]] || []];
       }
     } else if (townCount === 1) {
       hex.feature = 'town';
     }
   }
 
-  // Sync phaseRevenue for town/dualTown features (townRevenue parsed separately)
+  // ── Sync phaseRevenue / activePhases from primary node ──────────────────────
   if (hex.feature === 'town' || hex.feature === 'dualTown') {
     const rev = hex.townRevenue || 0;
     if (rev > 0) {
       hex.phaseRevenue = { yellow: rev, green: rev, brown: rev, gray: rev };
       hex.activePhases = { yellow: true, green: true, brown: true, gray: true };
     } else {
-      // Town with no revenue — hide boxes
       hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
     }
   }
-
-  // Pure path hex (no feature, no revenue) — suppress zero-revenue boxes
   if (hex.feature === 'none') {
     hex.activePhases = { yellow: false, green: false, brown: false, gray: false };
   }
+
+  // pathMode: 'pairs' only when all paths are edge-to-edge (no nodes at all)
+  hex.pathMode = (pathPairList.length > 0 && hex.nodes.length === 0) ? 'pairs' : 'star';
 
   return hex;
 }

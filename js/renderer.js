@@ -673,206 +673,154 @@ function hexToSvgInner(hex, tileDef) {
   //   DSL_SLOT_R=12.5, DSL_CITY_D=25, DSL_TRACK_W=5, DSL_BAR_RW=16, DSL_BAR_RH=4
   // ep()          → track endpoint at HEX_INRADIUS=43.5
   // cityEdgePos() → city center at DSL_CITY_D=25 (tobymao city.rb distance=50/2)
+  //
+  // ── TOBYMAO-FAITHFUL NODES/PATHS RENDERING ──────────────────────────────────
+  // When hex.nodes[] is populated (all non-offboard DSL hexes), we render by
+  // iterating hex.nodes[] and hex.paths[] directly — matching tobymao's per-part
+  // render loop: each path draws its track segment, each node draws itself.
+  //
+  // FUTURE CLAUDE: Do NOT add hex.feature switch cases for city/town/oo/dualTown.
+  // All such cases are handled by the nodes[] iteration below.  hex.feature is a
+  // DERIVED SUMMARY used only for terrain-badge collision and revenue display code.
+  //
+  // Node position computation (inline — no stored x/y on nodes in the parser):
+  //   City with locStr       → position from locStr angle × DSL_CITY_D
+  //   City in OO (2+ cities) → cityEdgePos(first connected exit)
+  //   Single center city     → (0, 0)
+  //   Town with locStr       → position from locStr angle × 25, angle = locStr*60°
+  //   Town without locStr    → computeTownPos(connected exit edges)
 
-  if (hex.feature === 'town') {
-    // Canonical tobymao rendering from town_location.rb + track_node_path.rb:
-    //   - Town position is NOT always (0,0) — computed by computeTownPos()
-    //   - Each path=a:e,b:_0 draws arc/line from ep(e) TO the town position
-    //   - Bar at town position with canonical rotation angle
-    const exits = hex.exits || [];
-    if (exits.length === 0) {
-      // Lone dit (no paths) — canonical tobymao town_dot.rb: black fill, white stroke
-      svg += `<circle cx="0" cy="0" r="5" fill="black" stroke="white" stroke-width="2"/>`;
-    } else {
-      const tp = computeTownPos(exits);
-      const tx = tp.x, ty = tp.y;
+  if (hex.nodes && hex.nodes.length > 0) {
 
-      for (const e of exits) {
-        const p = ep(e);
-        if (checkColinear(p.x, p.y, tx, ty)) {
-          svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-        } else {
-          const arc = calcArc(p.x, p.y, tx, ty);
-          svg += `<path d="M ${p.x.toFixed(1)} ${p.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${tx.toFixed(1)} ${ty.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+    // ── Compute display positions for every node ────────────────────────────
+    const cityNodeCount = hex.nodes.filter(n => n.type === 'city').length;
+    const townNodeCount = hex.nodes.filter(n => n.type === 'town').length;
+
+    const nodePos = hex.nodes.map((node, ni) => {
+      // Collect edge numbers connected to this node via hex.paths[]
+      const connEdges = (hex.paths || [])
+        .filter(p =>
+          (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
+          (p.b.type === 'node' && p.b.n === ni && p.a.type === 'edge'))
+        .map(p => p.a.type === 'edge' ? p.a.n : p.b.n);
+
+      if (node.type === 'city') {
+        // Explicit loc: → position from loc angle
+        if (node.locStr && node.locStr !== 'center') {
+          const f = parseFloat(node.locStr);
+          if (!isNaN(f)) {
+            const a = f * Math.PI / 3;
+            return { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D, angle: 0 };
+          }
         }
-      }
+        // OO / multi-city: position each city at its primary connected exit
+        if (cityNodeCount >= 2) {
+          if (connEdges.length > 0) return { ...cityEdgePos(connEdges[0]), angle: 0 };
+          // Fallback: first OO city at edge 0, second at edge 3
+          const cityIdx = hex.nodes.slice(0, ni + 1).filter(n => n.type === 'city').length - 1;
+          return { ...cityEdgePos(cityIdx === 0 ? 0 : 3), angle: 0 };
+        }
+        // Single center city
+        return { x: 0, y: 0, angle: 0 };
 
-      svg += `<g transform="translate(${tx.toFixed(1)},${ty.toFixed(1)}) rotate(${tp.angle})"><rect x="${-DSL_BAR_RW/2}" y="${-DSL_BAR_RH/2}" width="${DSL_BAR_RW}" height="${DSL_BAR_RH}" fill="black" rx="1"/></g>`;
-    }
-
-  } else if (hex.feature === 'city') {
-    if (hex.slots >= 3 && hex.cityExitsByNode) {
-      // Multi-node city (London-style).
-      // Node positions from city.rb CITY_SLOT_POSITION (at scale 50):
-      //   2 nodes: ±DSL_SLOT_R*2 = ±25 apart  (SLOT_POSITION[2]=[-25,0]/[25,0] at scale 100)
-      //   3 nodes: [0,-29/2] rotated at 0°,120°,240°  (CITY_SLOT_POSITION[3]=[0,-29] at scale 100)
-      //   4+ nodes: cityEdgePos(ni) — each at its own edge
-      const nodeIndices = Object.keys(hex.cityExitsByNode).map(Number).sort((a, b) => a - b);
-      const nodeCount = nodeIndices.length;
-      const nodePosMap = {};
-      if (nodeCount <= 2) {
-        nodePosMap[nodeIndices[0]] = { x: -DSL_CITY_D, y: 0 };
-        nodePosMap[nodeIndices[1] ?? 1] = { x:  DSL_CITY_D, y: 0 };
-      } else if (nodeCount === 3) {
-        // CITY_SLOT_POSITION[3]=[0,-29]; slots rotate 120° each. At scale 50: [0,-14.5], [12.55,7.25], [-12.55,7.25]
-        nodePosMap[nodeIndices[0]] = { x: 0,      y: -14.5 };
-        nodePosMap[nodeIndices[1]] = { x:  12.55, y:   7.25 };
-        nodePosMap[nodeIndices[2]] = { x: -12.55, y:   7.25 };
       } else {
-        for (const ni of nodeIndices) nodePosMap[ni] = cityEdgePos(ni % 6);
-      }
-
-      // Tracks from exit edges to node centers
-      for (const ni of nodeIndices) {
-        const nodePos = nodePosMap[ni] || { x: 0, y: 0 };
-        for (const e of (hex.cityExitsByNode[ni] || [])) {
-          const p = ep(e);
-          svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${nodePos.x.toFixed(1)}" y2="${nodePos.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+        // Town: explicit loc: or compute from connected exits
+        if (node.locStr && node.locStr !== 'center') {
+          const f = parseFloat(node.locStr);
+          if (!isNaN(f)) {
+            const a = f * Math.PI / 3;
+            return { x: -Math.sin(a) * 25, y: Math.cos(a) * 25, angle: f * 60 };
+          }
         }
+        if (connEdges.length === 0 && townNodeCount >= 2) {
+          // Multiple towns with no exits: spread left/right (double-dit)
+          const townIdx = hex.nodes.slice(0, ni + 1).filter(n => n.type === 'town').length - 1;
+          return { x: townIdx === 0 ? -DSL_SLOT_R * 1.2 : DSL_SLOT_R * 1.2, y: 0, angle: 0 };
+        }
+        const tp = computeTownPos(connEdges); // renderer.js line ~87
+        return { x: tp.x, y: tp.y, angle: tp.angle };
       }
-      // White background: only for tight 2–3 node clusters. For 4+ nodes the
-      // cities are spread across edge positions (e.g. London 6-node) — a bbox
-      // would cover the entire hex interior. Tobymao renders each node circle
-      // independently in that case with no shared background.
-      if (nodeCount === 3) {
-        svg += `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>`;
-      } else if (nodeCount === 2) {
-        const xs = Object.values(nodePosMap).map(p => p.x);
-        const ys = Object.values(nodePosMap).map(p => p.y);
-        const bx = Math.min(...xs)-DSL_SLOT_R, by = Math.min(...ys)-DSL_SLOT_R;
-        const bw = Math.max(...xs)-Math.min(...xs)+2*DSL_SLOT_R;
-        const bh = Math.max(...ys)-Math.min(...ys)+2*DSL_SLOT_R;
-        svg += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="white" stroke="none" rx="${DSL_SLOT_R}"/>`;
-      }
-      // nodeCount >= 4: no background (spread-out nodes like London)
-      for (const ni of nodeIndices) {
-        const pos = nodePosMap[ni] || { x: 0, y: 0 };
-        svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
-      }
+    });
 
-    } else if (hex.slots >= 2) {
-      // Multi-slot single-city cluster (e.g. Glasgow 2-slot, Birmingham 3-slot).
-      // City center is at cityLocX/Y (from loc: in DSL, distance DSL_CITY_D=25).
-      const clX = hex.cityLocX || 0;
-      const clY = hex.cityLocY || 0;
+    // ── STEP 1: Draw track segments (paths) — rendered UNDER nodes ──────────
+    for (const path of (hex.paths || [])) {
+      const posA = path.a.type === 'edge' ? ep(path.a.n) : (nodePos[path.a.n] || { x: 0, y: 0 });
+      const posB = path.b.type === 'edge' ? ep(path.b.n) : (nodePos[path.b.n] || { x: 0, y: 0 });
 
-      for (const e of (hex.exits || [])) {
-        const p = ep(e);
-        svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${clX.toFixed(1)}" y2="${clY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-      }
-
-      const slots = hex.slots || 2;
-      // Slot positions: CITY_SLOT_POSITION[slots] at scale 50, rotated per slot.
-      // 2-slot: [-12.5,0]/[12.5,0];  3-slot: [0,-14.5],[12.55,7.25],[-12.55,7.25]
-      const offsets = slots >= 3
-        ? [{ x: 0, y: -14.5 }, { x: 12.55, y: 7.25 }, { x: -12.55, y: 7.25 }]
-        : [{ x: -DSL_SLOT_R, y: 0 }, { x: DSL_SLOT_R, y: 0 }];
-      if (slots >= 3) {
-        svg += `<g transform="translate(${clX.toFixed(1)},${clY.toFixed(1)})"><polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/></g>`;
+      if (path.a.type === 'node' && path.b.type === 'node') {
+        // Internal path (node→node, e.g. city→town in 1822 D35): straight line.
+        // No arc needed — both endpoints are interior points, not edge midpoints.
+        svg += `<line x1="${posA.x.toFixed(1)}" y1="${posA.y.toFixed(1)}" x2="${posB.x.toFixed(1)}" y2="${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
       } else {
-        svg += `<rect x="${(clX-DSL_SLOT_R).toFixed(1)}" y="${(clY-DSL_SLOT_R).toFixed(1)}" width="${(2*DSL_SLOT_R).toFixed(1)}" height="${(2*DSL_SLOT_R).toFixed(1)}" fill="white" stroke="none"/>`;
-      }
-      for (const off of offsets) {
-        svg += `<circle cx="${(clX+off.x).toFixed(1)}" cy="${(clY+off.y).toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
-      }
-
-    } else {
-      // Single-slot city. cityLocX/Y come from loc: in the DSL — this IS the
-      // visual position for preprinted map hexes (e.g. Altoona loc:2.5 places
-      // the city above center). Operates in flat-top coordinate space; the SVG
-      // rotate(orientDeg) wrapper handles orientation. rotateLocPos must NOT be
-      // applied here — that was a double-rotation bug.
-      const locX = hex.cityLocX || 0;
-      const locY = hex.cityLocY || 0;
-
-      // Bypass tracks (edge-to-edge paths independent of the city, e.g. Altoona path=a:1,b:4)
-      for (const [ea, eb] of (hex.pathPairs || [])) {
-        const pa = ep(ea), pb = ep(eb);
-        const diff = Math.abs(ea - eb);
-        if (diff === 3 || diff === 0) {
-          svg += `<line x1="${pa.x.toFixed(1)}" y1="${pa.y.toFixed(1)}" x2="${pb.x.toFixed(1)}" y2="${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+        // Edge→node path: arc when off-center and not colinear through origin
+        const ePt = path.a.type === 'edge' ? posA : posB;
+        const nPt = path.a.type === 'edge' ? posB : posA;
+        const isCenter = (Math.abs(nPt.x) < 0.5 && Math.abs(nPt.y) < 0.5);
+        if (!isCenter && !checkColinear(ePt.x, ePt.y, nPt.x, nPt.y)) {
+          const arc = calcArc(ePt.x, ePt.y, nPt.x, nPt.y);
+          svg += `<path d="M ${ePt.x.toFixed(1)} ${ePt.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${nPt.x.toFixed(1)} ${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
         } else {
-          const arc = calcArc(pa.x, pa.y, pb.x, pb.y);
-          svg += `<path d="M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+          svg += `<line x1="${ePt.x.toFixed(1)}" y1="${ePt.y.toFixed(1)}" x2="${nPt.x.toFixed(1)}" y2="${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
         }
       }
+    }
 
-      // Tracks from exits to city. Port of tobymao track_node_path.rb line 363:
-      // use arc when city is off-center and begin/end are not colinear with origin.
-      for (const e of (hex.exits || [])) {
-        const p = ep(e);
-        const isCenter = (locX === 0 && locY === 0);
-        if (!isCenter && !checkColinear(p.x, p.y, locX, locY)) {
-          const arc = calcArc(p.x, p.y, locX, locY);
-          svg += `<path d="M ${p.x.toFixed(1)} ${p.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${locX.toFixed(1)} ${locY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+    // Edge-to-edge bypass paths (e.g. Altoona path=a:1,b:4 alongside city)
+    for (const [ea, eb] of (hex.pathPairs || [])) {
+      const pa = ep(ea), pb = ep(eb);
+      const diff = Math.abs(ea - eb);
+      if (diff === 3 || diff === 0) {
+        svg += `<line x1="${pa.x.toFixed(1)}" y1="${pa.y.toFixed(1)}" x2="${pb.x.toFixed(1)}" y2="${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+      } else {
+        const arc = calcArc(pa.x, pa.y, pb.x, pb.y);
+        svg += `<path d="M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+      }
+    }
+
+    // ── STEP 2: Draw nodes — rendered OVER tracks ───────────────────────────
+    for (let ni = 0; ni < hex.nodes.length; ni++) {
+      const node = hex.nodes[ni];
+      const pos  = nodePos[ni];
+
+      if (node.type === 'city') {
+        if (node.slots >= 2) {
+          // Multi-slot single city (Glasgow 2-slot, Birmingham 3-slot, etc.)
+          const slots = node.slots;
+          const offsets = slots >= 3
+            ? [{ x: 0, y: -14.5 }, { x: 12.55, y: 7.25 }, { x: -12.55, y: 7.25 }]
+            : [{ x: -DSL_SLOT_R, y: 0 }, { x: DSL_SLOT_R, y: 0 }];
+          if (slots >= 3) {
+            svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})">` +
+                   `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>` +
+                   `</g>`;
+          } else {
+            svg += `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${(2 * DSL_SLOT_R).toFixed(1)}" height="${(2 * DSL_SLOT_R).toFixed(1)}" fill="white" stroke="none"/>`;
+          }
+          for (const off of offsets) {
+            svg += `<circle cx="${(pos.x + off.x).toFixed(1)}" cy="${(pos.y + off.y).toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+          }
         } else {
-          svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${locX.toFixed(1)}" y2="${locY.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+          // Single-slot city circle
+          svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+        }
+
+      } else if (node.type === 'town') {
+        // Does this town node have any connected paths?
+        const hasConnected = (hex.paths || []).some(p =>
+          (p.a.type === 'node' && p.a.n === ni) ||
+          (p.b.type === 'node' && p.b.n === ni));
+
+        if (!hasConnected && townNodeCount === 1) {
+          // Lone dit — canonical tobymao town_dot.rb: black fill, white stroke
+          svg += `<circle cx="0" cy="0" r="5" fill="black" stroke="white" stroke-width="2"/>`;
+        } else {
+          // Town bar at computed position and angle
+          svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)}) rotate(${pos.angle.toFixed(1)})">` +
+                 `<rect x="${(-DSL_BAR_RW / 2).toFixed(1)}" y="${(-DSL_BAR_RH / 2).toFixed(1)}" width="${DSL_BAR_RW}" height="${DSL_BAR_RH}" fill="black" rx="1"/>` +
+                 `</g>`;
         }
       }
-
-      // City circle (drawn after tracks so it sits on top)
-      svg += `<circle cx="${locX.toFixed(1)}" cy="${locY.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
-
-      // ── Secondary town (city+town compound hex) ──────────────────────────
-      // Occurs in 1822 D35 (Swansea city + Oystermouth town), where the DSL is:
-      //   city=revenue:20,loc:center; town=revenue:10,loc:1; path=a:_0,b:_1
-      //
-      // The path=a:_0,b:_1 is an internal node-to-node path (no edge exits).
-      // hex.hasSecondaryTown is set by import-ruby.js when cityCount=1 && townCount>=1.
-      // hex.townLoc is the edge index (0-5) the town is positioned toward.
-      // hex.internalPaths holds [[fromNode, toNode]] pairs for the connecting track.
-      //
-      // Town position: TownDot/TownRect preferred_render_locations with @edge=townLoc
-      //   x = -sin(edge * 60°) * 50   (tobymao 100-unit) * 0.5 = 25 (our 50-unit)
-      //   y =  cos(edge * 60°) * 50   * 0.5
-      // Bar rotation: town_rotation_angles for single-exit town = edge * 60°
-      //   source: town_location.rb line 185
-      if (hex.hasSecondaryTown && hex.townLoc !== undefined) {
-        const tAngleRad = hex.townLoc * Math.PI / 3; // edge * 60° in radians
-        const tDist     = 25;                          // tobymao 50 × 0.5 scale
-        const tx = -Math.sin(tAngleRad) * tDist;
-        const ty =  Math.cos(tAngleRad) * tDist;
-        const barAngleDeg = hex.townLoc * 60;          // town_rotation_angles[0]
-
-        // Internal track: city center → town bar (path=a:_0,b:_1)
-        // Straight line — both endpoints are interior to the hex.
-        svg += `<line x1="${locX.toFixed(1)}" y1="${locY.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-
-        // Town bar at computed position, rotated to face the track direction.
-        // Matches hexToSvgInner feature==='town' bar rendering (line ~700).
-        svg += `<g transform="translate(${tx.toFixed(1)},${ty.toFixed(1)}) rotate(${barAngleDeg})">` +
-               `<rect x="${-DSL_BAR_RW/2}" y="${-DSL_BAR_RH/2}" width="${DSL_BAR_RW}" height="${DSL_BAR_RH}" fill="black" rx="1"/>` +
-               `</g>`;
-      }
     }
-
-  } else if (hex.feature === 'oo') {
-    // OO: two separate single-slot cities.
-    // Positions from computeCityTownEdges (tile-geometry.js):
-    //   With paths → each city at cityEdgePos(its primary exit edge)
-    //   No paths   → spread evenly: city0=edge0(bottom), city1=edge3(top)
-    // Reference: tile-geometry.js computeCityTownEdges, city.rb preferred_render_locations
-    const exitPairs = hex.exitPairs || [];
-    const pos0 = (exitPairs[0] && exitPairs[0].length > 0)
-      ? cityEdgePos(exitPairs[0][0])
-      : cityEdgePos(0);   // default: edge 0 = bottom
-    const pos1 = (exitPairs[1] && exitPairs[1].length > 0)
-      ? cityEdgePos(exitPairs[1][0])
-      : cityEdgePos(3);   // default: edge 3 = top
-
-    // Tracks from each city's exits to its circle center
-    for (const e of (exitPairs[0] || [])) {
-      const p = ep(e);
-      svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${pos0.x.toFixed(1)}" y2="${pos0.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-    }
-    for (const e of (exitPairs[1] || [])) {
-      const p = ep(e);
-      svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${pos1.x.toFixed(1)}" y2="${pos1.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-    }
-
-    // OO = two separate single-slot cities — each is just a circle, no connecting rect.
-    svg += `<circle cx="${pos0.x.toFixed(1)}" cy="${pos0.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
-    svg += `<circle cx="${pos1.x.toFixed(1)}" cy="${pos1.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
 
   } else if (hex.feature === 'offboard') {
     // Offboard exits: tapered triangle arrows pointing inward from each exit edge
@@ -891,15 +839,11 @@ function hexToSvgInner(hex, tileDef) {
       svg += `<polygon points="${pts}" fill="#222"/>`;
     }
 
-  } else if (hex.feature === 'dualTown' || (hex.pathPairs && hex.pathPairs.length > 0)) {
-    // DualTown with no exits: double-dit
-    if (hex.feature === 'dualTown' && (!hex.exits || hex.exits.length === 0) && (!hex.exitPairs || hex.exitPairs.every(p => !p.length))) {
-      svg += `<circle cx="${-DSL_SLOT_R * 1.2}" cy="0" r="5" fill="black" stroke="white" stroke-width="2"/>`;
-      svg += `<circle cx="${ DSL_SLOT_R * 1.2}" cy="0" r="5" fill="black" stroke="white" stroke-width="2"/>`;
-    }
-    const pathPairs = hex.pathPairs || [];
-
-    const drawSegment = (e1, e2) => {
+  } else if (hex.pathPairs && hex.pathPairs.length > 0) {
+    // Pure edge-to-edge path hex (no nodes at all — pathMode==='pairs')
+    // dualTown hexes are now handled above via nodes[]; this branch handles only
+    // true no-feature track hexes (e.g. straight-through water crossing).
+    const drawSeg = (e1, e2) => {
       const p1 = ep(e1), p2 = ep(e2);
       const diff = Math.abs(e1 - e2);
       if (diff === 3 || diff === 0) {
@@ -909,25 +853,7 @@ function hexToSvgInner(hex, tileDef) {
         svg += `<path d="M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
       }
     };
-
-    if (hex.exitPairs && hex.exitPairs.length >= 2) {
-      for (const pair of hex.exitPairs) {
-        if (pair.length >= 2) drawSegment(pair[0], pair[1]);
-        else if (pair.length === 1) {
-          const p = ep(pair[0]);
-          svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="0" y2="0" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-        }
-      }
-    } else {
-      const exits = hex.exits || [];
-      for (let i = 0; i + 1 < exits.length; i += 2) drawSegment(exits[i], exits[i + 1]);
-      if (exits.length % 2 === 1) {
-        const p = ep(exits[exits.length - 1]);
-        svg += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="0" y2="0" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-      }
-    }
-
-    for (const [ea, eb] of pathPairs) drawSegment(ea, eb);
+    for (const [ea, eb] of hex.pathPairs) drawSeg(ea, eb);
   }
 
   return svg;
