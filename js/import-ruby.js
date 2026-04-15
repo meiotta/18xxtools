@@ -606,6 +606,18 @@ function importRubyMap(content) {
   const pointyStaggerParity = (orientation === 'pointy' && _evenRowEven > _evenRowOdd) ? 1 : 0;
   console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
 
+  // ── Eagerly update state.meta so hexId uses the correct keys during build ────
+  // hexId() reads state.meta.orientation / coordParity / pointyStaggerParity at
+  // call time.  Without this early update, hexId would use the *previous* map's
+  // settings while building newHexes, storing hexes under wrong coord strings.
+  // The upload handler sets these again after we return — that is idempotent.
+  if (typeof state !== 'undefined') {
+    state.meta.orientation          = orientation;
+    state.meta.coordParity          = coordParity;
+    state.meta.pointyStaggerParity  = pointyStaggerParity;
+    state.meta.staggerParity        = transposedAxes ? 1 : 0;
+  }
+
   // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
   //
   // ── Standard flat-top convention (most games) ────────────────────────────
