@@ -940,10 +940,9 @@ function hexToSvgInner(hex, tileDef) {
         }
 
       } else if (node.type === 'junction') {
-        // Junction: connection point for sea/port paths — small marker dot.
-        // source: tobymao Part::Junction — always at hex center.
-        // Kept small so it doesn't dominate; the spike path is the primary visual.
-        svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="3" fill="#222" stroke="none"/>`;
+        // Junction: routing node only — no visual element.
+        // source: tobymao has no view/game/part/junction.rb.
+        // The engine Part::Junction exists for route-finding; nothing is drawn for it.
       }
     }
 
