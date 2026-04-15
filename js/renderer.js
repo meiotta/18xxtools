@@ -810,9 +810,12 @@ function hexToSvgInner(hex, tileDef) {
           (p.a.type === 'node' && p.a.n === ni) ||
           (p.b.type === 'node' && p.b.n === ni));
 
-        if (!hasConnected && townNodeCount === 1) {
-          // Lone dit — canonical tobymao town_dot.rb: black fill, white stroke
-          svg += `<circle cx="0" cy="0" r="5" fill="black" stroke="white" stroke-width="2"/>`;
+        if (!hasConnected) {
+          // No connected paths → TownDot (circle).
+          // Covers lone dit (single town, no exits) AND double-dit (dualTown, no exits).
+          // tobymao source: town_dot.rb — rendered when town has no @edge connection.
+          // pos.x/y: (0,0) for single lone-dit; spread (±15,0) for double-dit (no exits).
+          svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="5" fill="black" stroke="white" stroke-width="2"/>`;
         } else {
           // Town bar at computed position and angle
           svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)}) rotate(${pos.angle.toFixed(1)})">` +
