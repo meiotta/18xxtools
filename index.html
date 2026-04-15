@@ -407,19 +407,14 @@
         <button id="addCompanyBtn" class="corp-add-btn" data-add-for="majors"   style="display:none;">+ Add Major</button>
       </div>
 
-      <!-- table area -->
-      <div style="flex:1; overflow:auto; padding:24px 28px; background:var(--bg-base);">
+      <!-- content area — privates is full-bleed master-detail; minors/majors are padded tables -->
+      <div id="corpContentWrap" style="flex:1; display:flex; flex-direction:column; overflow:hidden; background:var(--bg-base);">
 
-        <!-- Privates table -->
-        <div id="corpPrivatesSection">
-          <table class="card-table fullview-table">
-            <thead><tr><th>Name</th><th>Cost</th><th>Revenue</th><th>Ability</th><th style="width:36px;"></th></tr></thead>
-            <tbody id="privatesTableBody"></tbody>
-          </table>
-        </div>
+        <!-- Privates: master-detail (JS renders rail + editor into here) -->
+        <div id="corpPrivatesSection" style="flex:1; display:flex; overflow:hidden;"></div>
 
         <!-- Minors table -->
-        <div id="corpMinorsSection" style="display:none;">
+        <div id="corpMinorsSection" style="display:none; flex:1; overflow:auto; padding:24px 28px;">
           <table class="card-table fullview-table">
             <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Mechanism</th><th>Tokens</th><th style="width:36px;"></th></tr></thead>
             <tbody id="minorsTableBody"></tbody>
@@ -427,7 +422,7 @@
         </div>
 
         <!-- Majors table -->
-        <div id="corpMajorsSection" style="display:none;">
+        <div id="corpMajorsSection" style="display:none; flex:1; overflow:auto; padding:24px 28px;">
           <table class="card-table fullview-table">
             <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Par</th><th>Tokens</th><th>Float %</th><th style="width:36px;"></th></tr></thead>
             <tbody id="companiesTableBody"></tbody>

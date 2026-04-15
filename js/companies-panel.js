@@ -3,7 +3,7 @@
 // Load order: NINTH — after hex-panel.js.
 //
 // renderCompaniesTable()   — rebuilds the company rows from state.companies
-// renderPrivatesTable()    — rebuilds private company rows from state.privates
+// renderPrivatesCards()    — rebuilds private company cards from state.privates
 // renderTerrainCostsTable()— rebuilds terrain cost editor from state.terrainCosts
 // renderHomeCompanySelect()— syncs the home company <select> in the hex panel
 
@@ -243,42 +243,634 @@ document.getElementById('cwBtnSave').addEventListener('click', () => {
   document.getElementById('companyWizard').style.display = 'none';
 });
 
-function renderPrivatesTable() {
-  const tbody = document.getElementById('privatesTableBody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
+// ── Ability System ────────────────────────────────────────────────────────────
+// Structured ability definitions for private companies.
+// ABILITY_DEFS maps tobymao ability type strings to display config.
+// Each def has: label, category, fields[], suggest(ability) → string.
+// Fields: { key, label, type: 'select'|'number'|'checkbox'|'tags'|'text', ... }
+// 'tags' fields store string[] (comma-separated in UI, array in state).
+
+// ── Buyer type / charter color ────────────────────────────────────────────────
+// Colors copied directly from tobymao's g_1822 PRIVATE_GREEN/RED/BLUE constants
+// and the g_1830 registered yellow. These are the canonical charter band colors.
+// no_buy is NOT an ability here — it is expressed via buyerType: 'no_acquire'.
+const BUYER_TYPES = {
+  any:         { label: 'Any Corporation',      color: '#ffe600', textColor: '#1a1a1a' },
+  major_minor: { label: 'Major / Minor',        color: '#90EE90', textColor: '#1a1a1a' },
+  major_only:  { label: 'Major Only',           color: '#FF7276', textColor: '#1a1a1a' },
+  no_acquire:  { label: 'Cannot Be Acquired',   color: '#89CFF0', textColor: '#1a1a1a' },
+};
+
+function buyerTypeColor(p) {
+  return (BUYER_TYPES[p.buyerType] || BUYER_TYPES.any).color;
+}
+
+const ABILITY_CATEGORIES = [
+  { label: 'Track & Terrain', types: ['tile_lay', 'tile_discount'] },
+  { label: 'Tokens & Stations', types: ['token', 'teleport'] },
+  { label: 'Blocking', types: ['blocks_hexes'] },
+  { label: 'Corporate', types: ['exchange', 'shares'] },
+  { label: 'Revenue', types: ['hex_bonus', 'train_discount'] },
+  { label: 'Trains', types: ['grants_train'] },
+  { label: 'Lifecycle', types: ['close'] },
+  { label: 'Other', types: ['generic'] },
+];
+
+const ABILITY_DEFS = {
+  tile_lay: {
+    label: 'Tile Lay',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'count', label: 'Uses', type: 'number', default: 1 },
+      { key: 'free', label: 'Free of charge', type: 'checkbox', default: false },
+      { key: 'closed_when_used_up', label: 'Closes when used', type: 'checkbox', default: true },
+      { key: 'reachable', label: 'Must be reachable', type: 'checkbox', default: true },
+      { key: 'hexes', label: 'Limit to hexes', type: 'tags', placeholder: 'e.g. B20, G15 — blank = any' },
+      { key: 'tiles', label: 'Limit to tiles', type: 'tags', placeholder: 'e.g. 3, 4, 58 — blank = any' },
+    ],
+    suggest(a) {
+      const who = a.owner_type === 'player' ? 'player' : 'owning corporation';
+      const n   = a.count || 1;
+      const fr  = a.free ? ', free of charge,' : '';
+      const hx  = (a.hexes && a.hexes.length) ? ` on hexes ${a.hexes.join(', ')}` : '';
+      const tl  = (a.tiles && a.tiles.length) ? ` using tiles ${a.tiles.join(', ')}` : '';
+      const cl  = a.closed_when_used_up ? ' Closes when the power is used.' : '';
+      return `Allows the ${who} to lay ${n} tile(s)${fr}${hx}${tl}.${cl}`;
+    },
+  },
+  tile_discount: {
+    label: 'Tile Discount',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'discount', label: 'Discount', type: 'number', default: 20 },
+      { key: 'terrain', label: 'Terrain', type: 'select', options: ['', 'mountain', 'hill', 'swamp', 'water', 'desert', 'forest'], default: '' },
+      { key: 'hexes', label: 'Limit to hexes', type: 'tags', placeholder: 'blank = all terrain of that type' },
+    ],
+    suggest(a) {
+      const terrain = a.terrain || 'all terrain';
+      const hx = (a.hexes && a.hexes.length) ? ` (${a.hexes.join(', ')})` : '';
+      return `Provides a $${a.discount || 0} discount on ${terrain} tile lays${hx}.`;
+    },
+  },
+  token: {
+    label: 'Token Placement',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'price', label: 'Token cost', type: 'number', default: 0 },
+      { key: 'count', label: 'Uses', type: 'number', default: 1 },
+      { key: 'hexes', label: 'Limit to hexes', type: 'tags', placeholder: 'blank = any' },
+    ],
+    suggest(a) {
+      const price = (a.price && a.price > 0) ? `for $${a.price}` : 'free of charge';
+      const hx    = (a.hexes && a.hexes.length) ? ` in ${a.hexes.join(', ')}` : '';
+      return `Allows the owning ${a.owner_type || 'corporation'} to place a station token${hx} ${price}.`;
+    },
+  },
+  teleport: {
+    label: 'Teleport (Token Without Route)',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'hexes', label: 'Target hexes', type: 'tags', placeholder: 'e.g. F16' },
+      { key: 'tiles', label: 'Required tile(s)', type: 'tags', placeholder: 'e.g. 57' },
+    ],
+    suggest(a) {
+      const hx = (a.hexes && a.hexes.length) ? ` in ${a.hexes.join(', ')}` : '';
+      return `The owning ${a.owner_type || 'corporation'} may place a tile and station token${hx} without needing a connected route.`;
+    },
+  },
+  blocks_hexes: {
+    label: 'Block Hexes',
+    fields: [
+      { key: 'owner_type', label: 'While owned by', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'hexes', label: 'Blocked hexes', type: 'tags', placeholder: 'e.g. G15, B20' },
+    ],
+    suggest(a) {
+      const hx = (a.hexes && a.hexes.length) ? a.hexes.join(', ') : '?';
+      return `Blocks ${hx} while owned by a ${a.owner_type || 'player'}.`;
+    },
+  },
+  exchange: {
+    label: 'Exchange for Share',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'corporations', label: 'Corporation(s)', type: 'tags', placeholder: 'e.g. NYC, PRR' },
+      { key: 'when', label: 'When', type: 'text', placeholder: 'any, stock_round, …', default: 'any' },
+      { key: 'from', label: 'From', type: 'tags', placeholder: 'ipo, market' },
+    ],
+    suggest(a) {
+      const corps = (a.corporations && a.corporations.length) ? a.corporations.join('/') : '?';
+      const from  = (a.from && a.from.length) ? ` from the ${a.from.join(' or ')}` : '';
+      const when  = a.when ? ` during ${a.when}` : '';
+      return `May be exchanged for a share of ${corps}${from}${when}.`;
+    },
+  },
+  shares: {
+    label: 'Grant Shares on Acquisition',
+    fields: [
+      { key: 'shares', label: 'Shares', type: 'tags', placeholder: 'e.g. PRR_1, B&O_0' },
+    ],
+    suggest(a) {
+      const s = (a.shares && a.shares.length) ? a.shares.join(', ') : '?';
+      return `The initial acquirer immediately receives: ${s}.`;
+    },
+  },
+  hex_bonus: {
+    label: 'Hex Revenue Bonus',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'amount', label: 'Bonus amount', type: 'number', default: 10 },
+      { key: 'hexes', label: 'Hexes', type: 'tags', placeholder: 'e.g. D12, F16' },
+    ],
+    suggest(a) {
+      const hx = (a.hexes && a.hexes.length) ? ` through ${a.hexes.join(', ')}` : '';
+      return `Routes${hx} earn a bonus of $${a.amount || 0}.`;
+    },
+  },
+  train_discount: {
+    label: 'Train Purchase Discount',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'discount', label: 'Discount', type: 'number', default: 20 },
+      { key: 'trains', label: 'Train types', type: 'tags', placeholder: 'e.g. 4, 5 — blank = all' },
+    ],
+    suggest(a) {
+      const tr = (a.trains && a.trains.length) ? ` on ${a.trains.join('/')} trains` : '';
+      return `Provides a $${a.discount || 0} discount${tr} when purchasing trains from the depot.`;
+    },
+  },
+  grants_train: {
+    label: 'Grants Train on Purchase',
+    fields: [
+      { key: 'trainKind', label: 'Train type', type: 'select',
+        options: [
+          { value: 'permanent', label: 'Permanent (e.g. 2P)' },
+          { value: 'pullman',   label: 'Pullman (P)' },
+          { value: 'local',     label: 'Local (L)' },
+        ], default: 'permanent' },
+      { key: 'distance', label: 'Distance (permanent only)', type: 'number', default: 2 },
+    ],
+    suggest(a) {
+      if (a.trainKind === 'pullman') return 'When purchased by a corporation, grants a Pullman train. Closes when purchased.';
+      if (a.trainKind === 'local')   return 'When purchased by a corporation, grants a permanent L-train. Closes when purchased.';
+      return `When purchased by a corporation, grants a permanent ${a.distance || 2}-train. Closes when purchased.`;
+    },
+  },
+  close: {
+    label: 'Custom Close Condition',
+    fields: [
+      { key: 'when', label: 'Closes when', type: 'select', options: ['bought_train', 'sold', 'never', 'operated', 'par'], default: 'bought_train' },
+      { key: 'corporation', label: 'Corporation (if bought_train)', type: 'text', placeholder: 'e.g. B&O — blank = any corp' },
+    ],
+    suggest(a) {
+      if (a.when === 'never')       return 'Never auto-closes.';
+      if (a.when === 'sold')        return 'Closes immediately when sold to a corporation.';
+      if (a.when === 'operated')    return 'Closes after the owning corporation first operates.';
+      if (a.when === 'par')         return 'Closes when the owning corporation is parred.';
+      if (a.when === 'bought_train') {
+        return a.corporation
+          ? `Closes when ${a.corporation} purchases its first train.`
+          : 'Closes when the owning corporation purchases its first train.';
+      }
+      return `Closes when: ${a.when}.`;
+    },
+  },
+  generic: {
+    label: 'Generic / Custom',
+    fields: [
+      { key: 'desc', label: 'Description', type: 'textarea', placeholder: 'Describe the ability in plain text…' },
+    ],
+    suggest(a) { return a.desc || ''; },
+  },
+};
+
+// ── Linked-train helpers ──────────────────────────────────────────────────────
+// Returns the display label for a grants_train ability (e.g. '2P', 'P', 'L').
+function trainKindLabel(kind, distance) {
+  if (kind === 'pullman') return 'P';
+  if (kind === 'local')   return 'L';
+  return (distance || 2) + 'P'; // permanent
+}
+
+// Syncs a linked train's label and distance after a grants_train field change.
+function syncLinkedTrain(ability) {
+  if (!ability || !ability.linkedTrainId) return;
+  const train = (state.trains || []).find(t => t.id === ability.linkedTrainId);
+  if (!train) return;
+  const kind = ability.trainKind || 'permanent';
+  const dist = parseInt(ability.distance) || 2;
+  train.label = trainKindLabel(kind, dist);
+  train.n     = (kind === 'pullman' || kind === 'local') ? 0 : dist;
+  if (typeof renderTrainsTable === 'function') renderTrainsTable();
+}
+
+// Selected private index for the master-detail panel (null = nothing selected)
+let _selectedPrivateIdx = null;
+
+// Generate a suggested description from all configured abilities on a private
+function suggestDescription(p) {
+  if (!p.abilities || !p.abilities.length) return '';
+  return p.abilities
+    .map(a => { const def = ABILITY_DEFS[a.type]; return def ? def.suggest(a) : ''; })
+    .filter(Boolean)
+    .join(' ');
+}
+
+function buildAbilityPickerHTML() {
+  return ABILITY_CATEGORIES.map(cat => {
+    const btns = cat.types
+      .map(t => ABILITY_DEFS[t] ? `<button class="pc-pick-type" data-type="${t}">${ABILITY_DEFS[t].label}</button>` : '')
+      .join('');
+    return `<div class="pc-pick-category">
+      <div class="pc-pick-cat-label">${cat.label}</div>
+      <div class="pc-pick-items">${btns}</div>
+    </div>`;
+  }).join('');
+}
+
+
+// ── Private Company Master-Detail ─────────────────────────────────────────────
+// Layout: left rail (list) + right detail editor.
+// _selectedPrivateIdx tracks which company is open in the editor.
+//
+// Phase strip semantics:
+//   p.closesOn = phase name string — the FIRST phase the company is inactive in.
+//   Clicking an active pill → that pill becomes first inactive (closes before it).
+//   Clicking the close-point pill → clears closesOn (never auto-closes).
+
+// ── Phase strip ───────────────────────────────────────────────────────────────
+function buildPhaseStripHTML(p) {
+  const phases = state.phases || [];
+
+  if (phases.length === 0) {
+    // Ghost reference: closesOn set but no phases exist
+    if (p.closesOn) {
+      return `
+        <div class="pc-strip-label">Active phases</div>
+        <div class="pc-strip-pills">
+          <span class="pc-phase-pill pc-phase-ghost" title="Phase '${p.closesOn}' referenced but no phases defined">${p.closesOn}?</span>
+        </div>`;
+    }
+    return `
+      <div class="pc-strip-label">Active phases</div>
+      <div class="pc-strip-empty">No phases defined — set them in Trains &amp; Phases</div>`;
+  }
+
+  const closesOn = p.closesOn || null;
+  let pastClose = false;
+  const pills = phases.map(ph => {
+    const name = ph.name || '?';
+    const isClosePoint = (name === closesOn);
+    const bgColor = ph.color || '#4a7fa5';
+
+    if (isClosePoint) {
+      pastClose = true;
+      // close-boundary pill: dashed border, ⊘ prefix via CSS ::before
+      return `<span class="pc-phase-pill pc-phase-closes" data-phase="${name}" title="Closes when phase ${name} starts — click to clear">${name}</span>`;
+    }
+    if (pastClose) {
+      return `<span class="pc-phase-pill pc-phase-inactive" data-phase="${name}" title="Company closed — click to move close point here">${name}</span>`;
+    }
+    return `<span class="pc-phase-pill pc-phase-active" data-phase="${name}" style="background:${bgColor};" title="Active — click to close before this phase">${name}</span>`;
+  });
+
+  // Ghost pill: closesOn references a phase name not in state.phases
+  let ghostPill = '';
+  if (closesOn && !phases.find(ph => ph.name === closesOn)) {
+    ghostPill = `<span class="pc-phase-pill pc-phase-ghost" title="Phase '${closesOn}' not defined yet">${closesOn}?</span>`;
+  }
+
+  const neverBadge = !closesOn
+    ? `<span class="pc-strip-never" title="Never auto-closes">∞ never</span>`
+    : '';
+
+  return `
+    <div class="pc-strip-label">Active phases</div>
+    <div class="pc-strip-pills">${pills.join('')}${ghostPill}${neverBadge}</div>`;
+}
+
+// ── Master-detail entry point ─────────────────────────────────────────────────
+// Called whenever the privates list or selection changes.
+function renderPrivatesSection() {
+  const wrap = document.getElementById('corpPrivatesSection');
+  if (!wrap) return;
+
+  // Guard: clamp selection to valid range
+  if (_selectedPrivateIdx !== null && _selectedPrivateIdx >= state.privates.length) {
+    _selectedPrivateIdx = state.privates.length ? state.privates.length - 1 : null;
+  }
+
+  wrap.innerHTML = '';
+
+  // ── Left rail ─────────────────────────────────────────────────────────────
+  const rail = document.createElement('div');
+  rail.className = 'pc-rail';
+
+  const itemsWrap = document.createElement('div');
+  itemsWrap.className = 'pc-rail-items';
+
   state.privates.forEach((p, idx) => {
-    const tr = document.createElement('tr');
-    tr.style.borderBottom = '1px solid #333';
-    tr.innerHTML = `
-      <td><input type="text" class="p-name" style="width:100%;" placeholder="Name"></td>
-      <td><input type="number" class="p-cost" style="width:100%;"></td>
-      <td><input type="number" class="p-rev" style="width:100%;"></td>
-      <td><input type="text" class="p-ability" style="width:100%;" placeholder="Ability"></td>
-      <td style="text-align:center;"><button class="table-btn delete-btn" style="background:#8b0000;">✕</button></td>
-    `;
-    const nInp = tr.querySelector('.p-name');
-    const cInp = tr.querySelector('.p-cost');
-    const rInp = tr.querySelector('.p-rev');
-    const aInp = tr.querySelector('.p-ability');
+    const item = document.createElement('div');
+    item.className = 'pc-rail-item' + (idx === _selectedPrivateIdx ? ' active' : '');
+    item.dataset.idx = idx;
+    const dotColor = buyerTypeColor(p);
+    const sym  = `P${idx + 1}`;
+    const name = escHtml(p.name || 'Unnamed');
+    item.innerHTML = `
+      <span class="pc-rail-dot" style="background:${dotColor};"></span>
+      <div class="pc-rail-text">
+        <span class="pc-rail-sym">${sym}</span>
+        <span class="pc-rail-name">${name}</span>
+      </div>`;
+    item.addEventListener('click', () => {
+      _selectedPrivateIdx = idx;
+      renderPrivatesSection();
+    });
+    itemsWrap.appendChild(item);
+  });
 
-    nInp.value = p.name || '';
-    cInp.value = p.cost || 0;
-    rInp.value = p.revenue || 0;
-    aInp.value = p.ability || '';
+  const addBtn = document.createElement('button');
+  addBtn.className = 'pc-rail-add';
+  addBtn.textContent = '+ Add Private';
+  addBtn.addEventListener('click', () => {
+    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+    _selectedPrivateIdx = state.privates.length - 1;
+    renderPrivatesSection();
+    autosave();
+  });
 
-    nInp.addEventListener('change', (e) => { state.privates[idx].name = e.target.value; autosave(); });
-    cInp.addEventListener('change', (e) => { state.privates[idx].cost = parseInt(e.target.value) || 0; autosave(); });
-    rInp.addEventListener('change', (e) => { state.privates[idx].revenue = parseInt(e.target.value) || 0; autosave(); });
-    aInp.addEventListener('change', (e) => { state.privates[idx].ability = e.target.value; autosave(); });
+  rail.appendChild(itemsWrap);
+  rail.appendChild(addBtn);
+  wrap.appendChild(rail);
 
-    tr.querySelector('.delete-btn').addEventListener('click', () => {
-      state.privates.splice(idx, 1);
-      renderPrivatesTable();
+  // ── Right detail panel ────────────────────────────────────────────────────
+  const detail = document.createElement('div');
+  detail.className = 'pc-detail-wrap';
+
+  if (_selectedPrivateIdx === null || !state.privates.length) {
+    detail.innerHTML = `<div class="pc-detail-empty">
+      <span>Select a private company from the list</span>
+      <span class="pc-detail-empty-sub">or click + Add Private to create one</span>
+    </div>`;
+  } else {
+    detail.appendChild(buildPrivateDetailEl(_selectedPrivateIdx));
+  }
+
+  wrap.appendChild(detail);
+}
+
+// Convenience alias so io.js / setup.js / trains-panel.js calls still work
+function renderPrivatesCards() { renderPrivatesSection(); }
+
+// ── Detail editor element ─────────────────────────────────────────────────────
+function buildPrivateDetailEl(idx) {
+  const p = state.privates[idx];
+  if (!p.abilities) p.abilities = [];
+  const abCount = p.abilities.length;
+
+  const el = document.createElement('div');
+  el.className = 'pc-detail-editor';
+
+  const btKey   = p.buyerType || 'any';
+  const btData  = BUYER_TYPES[btKey] || BUYER_TYPES.any;
+  const btOptionsHTML = Object.entries(BUYER_TYPES).map(([k, v]) =>
+    `<option value="${k}"${k === btKey ? ' selected' : ''}>${v.label}</option>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="pc-charter-band" style="background:${btData.color}; color:${btData.textColor};">
+      <span class="pc-charter-sym">P${idx + 1}</span>
+      <select class="pc-buyer-sel">${btOptionsHTML}</select>
+    </div>
+    <div class="pc-det-header">
+      <input type="text" class="pc-det-name" placeholder="Name" value="${escHtml(p.name || '')}">
+      <button class="pc-det-delete" title="Delete this private">Delete</button>
+    </div>
+
+    <div class="pc-det-section pc-det-financials">
+      <div class="pc-det-field">
+        <label class="pc-det-label">Face value</label>
+        <div class="pc-det-money">$<input type="number" class="pc-det-cost"    min="0" value="${p.cost    || 0}"></div>
+      </div>
+      <div class="pc-det-field">
+        <label class="pc-det-label">Revenue / OR</label>
+        <div class="pc-det-money">$<input type="number" class="pc-det-revenue" min="0" value="${p.revenue || 0}"></div>
+      </div>
+    </div>
+
+    <div class="pc-det-section">
+      <div class="pc-det-section-hd">
+        <span class="pc-det-section-title">Abilities${abCount ? ` <span class="pc-ab-badge">${abCount}</span>` : ''}</span>
+      </div>
+      <div class="pc-ability-list pc-det-ability-list"></div>
+      <div class="pc-add-ability-bar">
+        <button class="pc-add-ability-btn">+ Add ability</button>
+        <div class="pc-ability-picker" style="display:none;">${buildAbilityPickerHTML()}</div>
+      </div>
+    </div>
+
+    <div class="pc-det-section">
+      <div class="pc-det-section-hd">
+        <span class="pc-det-section-title">Description</span>
+        <button class="pc-suggest-btn"${!abCount ? ' disabled' : ''} title="Generate from configured abilities">↺ Suggest from abilities</button>
+      </div>
+      <textarea class="pc-desc pc-det-desc" placeholder="Free-text description of what this company does…">${escHtml(p.ability || '')}</textarea>
+    </div>
+
+    <div class="pc-det-section">
+      <div class="pc-det-section-title">Active phases</div>
+      <div class="pc-phase-strip pc-det-phase-strip">${buildPhaseStripHTML(p)}</div>
+    </div>
+  `;
+
+  // Render ability chips into the list slot
+  el.querySelector('.pc-det-ability-list').innerHTML = buildAbilitiesListHTML(p, idx);
+
+  // ── field listeners ────────────────────────────────────────────────────────
+  el.querySelector('.pc-buyer-sel').addEventListener('change', e => {
+    state.privates[idx].buyerType = e.target.value;
+    autosave();
+    // Update charter band color live
+    const bd  = BUYER_TYPES[e.target.value] || BUYER_TYPES.any;
+    const band = el.querySelector('.pc-charter-band');
+    if (band) { band.style.background = bd.color; band.style.color = bd.textColor; }
+    // Update rail dot color live
+    const dot = document.querySelector(`.pc-rail-item[data-idx="${idx}"] .pc-rail-dot`);
+    if (dot) dot.style.background = bd.color;
+  });
+  el.querySelector('.pc-det-name').addEventListener('change', e => {
+    state.privates[idx].name = e.target.value; autosave();
+    const railItem = document.querySelector(`.pc-rail-item:nth-child(${idx + 1}) .pc-rail-name`);
+    if (railItem) railItem.textContent = state.privates[idx].name || 'Unnamed';
+  });
+  el.querySelector('.pc-det-cost').addEventListener('change',    e => { state.privates[idx].cost    = parseInt(e.target.value) || 0; autosave(); });
+  el.querySelector('.pc-det-revenue').addEventListener('change', e => { state.privates[idx].revenue = parseInt(e.target.value) || 0; autosave(); });
+  el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].ability = e.target.value; autosave(); });
+
+  el.querySelector('.pc-det-delete').addEventListener('click', () => {
+    state.privates.splice(idx, 1);
+    _selectedPrivateIdx = state.privates.length ? Math.min(idx, state.privates.length - 1) : null;
+    renderPrivatesSection();
+    autosave();
+  });
+
+  // ── suggest ────────────────────────────────────────────────────────────────
+  el.querySelector('.pc-suggest-btn').addEventListener('click', () => {
+    const text = suggestDescription(p);
+    if (!text) return;
+    state.privates[idx].ability = text;
+    el.querySelector('.pc-desc').value = text;
+    autosave();
+  });
+
+  // ── ability field changes (no full re-render — preserves focus) ───────────
+  el.querySelectorAll('.pc-ab-f').forEach(field => {
+    const ai      = parseInt(field.dataset.ai);
+    const key     = field.dataset.key;
+    const ability = state.privates[idx].abilities[ai];
+    if (!ability) return;
+    const fDef = (ABILITY_DEFS[ability.type] && ABILITY_DEFS[ability.type].fields || []).find(f => f.key === key);
+    field.addEventListener('change', () => {
+      let val = field.value;
+      if (field.type === 'checkbox')           val = field.checked;
+      else if (fDef && fDef.type === 'number') val = parseFloat(val) || 0;
+      else if (fDef && fDef.type === 'tags')   val = val.split(',').map(s => s.trim()).filter(Boolean);
+      state.privates[idx].abilities[ai][key] = val;
+      // Keep linked train in sync when grants_train fields change
+      if (ability.type === 'grants_train') syncLinkedTrain(state.privates[idx].abilities[ai]);
       autosave();
     });
-    tbody.appendChild(tr);
   });
+
+  // ── remove ability ─────────────────────────────────────────────────────────
+  el.querySelectorAll('.pc-ability-rm').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ai      = parseInt(btn.dataset.ai);
+      const ability = state.privates[idx].abilities[ai];
+      // grants_train: remove the linked train from the roster when ability is removed
+      if (ability && ability.type === 'grants_train' && ability.linkedTrainId) {
+        const ti = (state.trains || []).findIndex(t => t.id === ability.linkedTrainId);
+        if (ti !== -1) {
+          state.trains.splice(ti, 1);
+          if (typeof renderTrainsTable === 'function') renderTrainsTable();
+        }
+      }
+      state.privates[idx].abilities.splice(ai, 1);
+      autosave();
+      renderPrivatesSection();
+    });
+  });
+
+  // ── + Add ability picker ───────────────────────────────────────────────────
+  const addAbBtn = el.querySelector('.pc-add-ability-btn');
+  const picker   = el.querySelector('.pc-ability-picker');
+  if (addAbBtn && picker) {
+    addAbBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const showing = picker.style.display !== 'none';
+      picker.style.display = showing ? 'none' : 'block';
+      addAbBtn.classList.toggle('active', !showing);
+    });
+    picker.addEventListener('click', e => e.stopPropagation());
+    document.addEventListener('click', function closePicker() {
+      picker.style.display = 'none';
+      addAbBtn.classList.remove('active');
+    }, { once: true });
+    el.querySelectorAll('.pc-pick-type').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const type = btn.dataset.type;
+        const def  = ABILITY_DEFS[type];
+        if (!def) return;
+        const newAbility = { type };
+        def.fields.forEach(f => {
+          const defVal = typeof f.default !== 'undefined' ? f.default : '';
+          newAbility[f.key] = f.type === 'tags' ? [] : defVal;
+        });
+        // grants_train: auto-create a linked train in the roster
+        if (type === 'grants_train') {
+          const linkedId = 'lt_' + Math.random().toString(36).substr(2, 6);
+          newAbility.linkedTrainId = linkedId;
+          if (!state.trains) state.trains = [];
+          state.trains.push({
+            id:               linkedId,
+            distType:         'n',
+            n:                newAbility.distance || 2,
+            cost:             0,
+            count:            1,
+            rusts:            false,
+            phase:            '',
+            label:            trainKindLabel(newAbility.trainKind || 'permanent', newAbility.distance || 2),
+            linkedPrivateIdx: idx,
+          });
+        }
+        state.privates[idx].abilities.push(newAbility);
+        autosave();
+        renderPrivatesSection();
+        if (type === 'grants_train' && typeof renderTrainsTable === 'function') renderTrainsTable();
+      });
+    });
+  }
+
+  // ── phase strip interaction ────────────────────────────────────────────────
+  el.querySelectorAll('.pc-phase-pill[data-phase]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const pr = state.privates[idx];
+      pr.closesOn = pill.classList.contains('pc-phase-closes') ? null : pill.dataset.phase;
+      autosave();
+      renderPrivatesSection();
+    });
+  });
+
+  return el;
+}
+
+// Renders ability chips HTML for the detail panel's ability list slot
+// (picker HTML is now generated separately and inlined in buildPrivateDetailEl)
+function buildAbilitiesListHTML(p, idx) {
+  const abilities = p.abilities || [];
+  if (!abilities.length) {
+    return `<div class="pc-no-abilities">No abilities configured — click + Add ability below</div>`;
+  }
+  return abilities.map((a, ai) => {
+    const def = ABILITY_DEFS[a.type];
+    const typeLabel = def ? def.label : a.type;
+    const fields = def ? def.fields.map(f => {
+      const v = a[f.key];
+      let ctrl = '';
+      if (f.type === 'select') {
+        const opts = f.options.map(o => {
+          const oval = typeof o === 'object' ? o.value : o;
+          const olbl = typeof o === 'object' ? o.label : (o || '(any)');
+          return `<option value="${escHtml(oval)}"${v === oval ? ' selected' : ''}>${escHtml(olbl)}</option>`;
+        }).join('');
+        ctrl = `<select class="pc-ab-f" data-ai="${ai}" data-key="${f.key}">${opts}</select>`;
+      } else if (f.type === 'checkbox') {
+        ctrl = `<input type="checkbox" class="pc-ab-f" data-ai="${ai}" data-key="${f.key}"${v ? ' checked' : ''}>`;
+      } else if (f.type === 'number') {
+        ctrl = `<input type="number" class="pc-ab-f" data-ai="${ai}" data-key="${f.key}" value="${v !== undefined ? v : (f.default || 0)}">`;
+      } else if (f.type === 'tags') {
+        const tv = Array.isArray(v) ? v.join(', ') : (v || '');
+        ctrl = `<input type="text" class="pc-ab-f" data-ai="${ai}" data-key="${f.key}" value="${escHtml(tv)}" placeholder="${escHtml(f.placeholder || '')}">`;
+      } else if (f.type === 'textarea') {
+        ctrl = `<textarea class="pc-ab-f pc-ab-textarea" data-ai="${ai}" data-key="${f.key}" placeholder="${escHtml(f.placeholder || '')}">${escHtml(v || '')}</textarea>`;
+      } else {
+        ctrl = `<input type="text" class="pc-ab-f" data-ai="${ai}" data-key="${f.key}" value="${escHtml(v || '')}" placeholder="${escHtml(f.placeholder || '')}">`;
+      }
+      return `<div class="pc-ab-row"><label class="pc-ab-lbl">${f.label}</label>${ctrl}</div>`;
+    }).join('') : '';
+    return `<div class="pc-ability-chip">
+      <div class="pc-ability-chip-hd">
+        <span class="pc-ability-type">${typeLabel}</span>
+        <button class="pc-ability-rm" data-ai="${ai}" title="Remove">×</button>
+      </div>
+      ${fields ? `<div class="pc-ability-fields">${fields}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Minimal HTML-escaping for inline values
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function renderTerrainCostsTable() {
@@ -300,7 +892,8 @@ function renderTerrainCostsTable() {
 }
 
 document.getElementById('addPrivateBtn').addEventListener('click', () => {
-  state.privates.push({ name: 'New Private', cost: 100, revenue: 20, ability: '' });
-  renderPrivatesTable();
+  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+  _selectedPrivateIdx = state.privates.length - 1;
+  renderPrivatesSection();
   autosave();
 });

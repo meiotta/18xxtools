@@ -8,6 +8,7 @@
  */
 function calculateTrainLabel(tr) {
     if (!tr) return '—';
+    if (tr.label) return tr.label;   // linked/special trains carry an explicit label
     if (tr.distType === 'n') return String(tr.n || 2);
     if (tr.distType === 'xy') return `${tr.x || 2}/${tr.y || 1}`;
     if (tr.distType === 'nm') return `${tr.n || 2}+${tr.m || 1}`;
@@ -39,6 +40,8 @@ function renderTrainsTable() {
         const phase = state.phases.find(p => p.name === tr.phase);
         const phaseColor = phase ? (phase.color || '#444') : 'transparent';
         const label = calculateTrainLabel(tr);
+        const isLinked = tr.linkedPrivateIdx !== undefined && tr.linkedPrivateIdx !== null;
+        const linkedSym = isLinked ? 'P' + (tr.linkedPrivateIdx + 1) : '';
 
         trRow.innerHTML = `
             <td style="padding:0; position:relative;">
@@ -46,6 +49,7 @@ function renderTrainsTable() {
             </td>
             <td>
                 <span class="train-auto-label">${label}</span>
+                ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
             </td>
             <td>
                 <div class="config-cell">
@@ -92,7 +96,7 @@ function renderTrainsTable() {
                         <option value="">No Phase</option>
                         ${state.phases.map(p => `<option value="${p.name}" ${tr.phase === p.name ? 'selected' : ''}>Phase ${p.name}</option>`).join('')}
                     </select>
-                    <button class="table-btn delete-btn">✕</button>
+                    <button class="table-btn delete-btn" ${isLinked ? `title="Linked to ${linkedSym} — remove the 'Grants Train' ability from that private to delete" style="opacity:0.35; cursor:not-allowed;"` : ''}>✕</button>
                 </div>
             </td>
         `;
@@ -135,6 +139,7 @@ function renderTrainsTable() {
         });
 
         trRow.querySelector('.delete-btn').addEventListener('click', () => {
+            if (isLinked) return; // deletion managed via the private's Grants Train ability
             state.trains.splice(idx, 1);
             renderTrainsTable();
             autosave();
@@ -286,8 +291,8 @@ function renderPhasesTable() {
             </td>
         `;
 
-        row.querySelector('.ph-color').addEventListener('change', (e) => { ph.color = e.target.value; renderTrainsTable(); autosave(); });
-        row.querySelector('.ph-name').addEventListener('change', (e) => { ph.name = e.target.value; renderTrainsTable(); autosave(); });
+        row.querySelector('.ph-color').addEventListener('change', (e) => { ph.color = e.target.value; renderTrainsTable(); if (typeof renderPrivatesCards === 'function') renderPrivatesCards(); autosave(); });
+        row.querySelector('.ph-name').addEventListener('change', (e) => { ph.name = e.target.value; renderTrainsTable(); if (typeof renderPrivatesCards === 'function') renderPrivatesCards(); autosave(); });
         row.querySelector('.ph-trigger').addEventListener('change', (e) => { ph.onTrain = e.target.value; autosave(); });
         row.querySelector('.ph-ors').addEventListener('change', (e) => { ph.ors = parseInt(e.target.value) || 2; autosave(); });
         row.querySelector('.ph-limit').addEventListener('change', (e) => { ph.limit = parseInt(e.target.value) || 4; autosave(); });

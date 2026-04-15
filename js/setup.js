@@ -78,10 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.classList.add('active');
 
       // Show/hide table sections
+      // corpPrivatesSection is a flex master-detail container; the others are block.
       const sections = { privates: 'corpPrivatesSection', minors: 'corpMinorsSection', majors: 'corpMajorsSection' };
+      const displayValues = { privates: 'flex', minors: '', majors: '' };
       Object.entries(sections).forEach(([key, id]) => {
         const el = document.getElementById(id);
-        if (el) el.style.display = key === tab ? '' : 'none';
+        if (el) el.style.display = key === tab ? (displayValues[key] || '') : 'none';
       });
 
       // Show/hide the matching add button
@@ -212,7 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderMinorsTable();
   renderTrainsTable();
   renderPhasesTable();
-  renderPrivatesTable();
+  renderPrivatesCards();
   renderTerrainCostsTable();
   renderHomeCompanySelect();
   syncOrientationSelect();

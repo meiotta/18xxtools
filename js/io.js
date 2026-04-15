@@ -36,7 +36,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     document.getElementById('baseGameLabel').textContent = 'Base: ' + state.meta.baseGame;
     renderCompaniesTable();
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
-    renderPrivatesTable();
+    renderPrivatesCards();
     renderTrainsTable();
     renderTerrainCostsTable();
     renderHomeCompanySelect();
