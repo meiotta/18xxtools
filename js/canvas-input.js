@@ -124,6 +124,102 @@ function _lassoUp(e) {
     }
     if (lastId !== null) selectedHex = lastId;
     _lassoJustCompleted = true;
+  } else {
+    // Plain click — handle selection here because mousedown.preventDefault()
+    // suppresses the 'click' event in some browsers (Chrome/Edge on SVG).
+    const startWp = { x: _lasso.startX, y: _lasso.startY };
+    _lasso = null; // clear before calling handlers that might check it
+
+    // Dismiss any open context menu
+    if (typeof removeContextMenu === 'function') removeContextMenu();
+
+    // Placement mode intercept
+    if (isPlacementMode && pendingMinorIndex !== null) {
+      const ph = pixelToHex(startWp.x, startWp.y, HEX_SIZE, state.meta.orientation);
+      const pid = hexId(ph.row, ph.col);
+      state.minors[pendingMinorIndex].homeHex = pid;
+      renderMinorsTable();
+      autosave();
+      exitPlacementMode();
+      _lassoJustCompleted = true;
+      _updateLassoSvg();
+      render();
+      return;
+    }
+
+    const ph = pixelToHex(startWp.x, startWp.y, HEX_SIZE, state.meta.orientation);
+    const pid = hexId(ph.row, ph.col);
+
+    // Edge tools
+    if (activeTool === 'impassable' || activeTool === 'water-crossing') {
+      selectedHex = pid;
+      const edgeNum = findNearestEdge(ph.row, ph.col, startWp.x, startWp.y);
+      ensureHex(pid);
+      const h = state.hexes[pid];
+      if (!h.borders) h.borders = [];
+      const type = activeTool === 'impassable' ? 'impassable' : 'water';
+      const existingIdx = h.borders.findIndex(b => b.edge === edgeNum);
+      let removing = existingIdx >= 0 && h.borders[existingIdx].type === type;
+      let border = null;
+      if (!removing) {
+        border = { edge: edgeNum, type };
+        if (type === 'water') border.cost = (state.terrainCosts && state.terrainCosts.water) || 40;
+      }
+      if (removing) {
+        h.borders.splice(existingIdx, 1);
+      } else if (existingIdx >= 0) {
+        h.borders[existingIdx] = border;
+      } else {
+        h.borders.push(border);
+      }
+      const neighbor = getNeighborHex(ph.row, ph.col, edgeNum);
+      if (neighbor) {
+        const nid = hexId(neighbor.row, neighbor.col);
+        ensureHex(nid);
+        const nh = state.hexes[nid];
+        if (!nh.borders) nh.borders = [];
+        const mirrorEdge = (edgeNum + 3) % 6;
+        const nExistingIdx = nh.borders.findIndex(b => b.edge === mirrorEdge);
+        if (removing) {
+          if (nExistingIdx >= 0) nh.borders.splice(nExistingIdx, 1);
+        } else {
+          const nBorder = { edge: mirrorEdge, type };
+          if (border.cost !== undefined) nBorder.cost = border.cost;
+          if (nExistingIdx >= 0) nh.borders[nExistingIdx] = nBorder;
+          else nh.borders.push(nBorder);
+        }
+      }
+      if (typeof updateHexPanel === 'function') updateHexPanel(pid);
+      _lassoJustCompleted = true;
+      _updateLassoSvg();
+      render(); autosave();
+      return;
+    }
+
+    // Plain hex select / tool apply
+    selectedHexes.clear();
+    selectedHex = pid;
+    // Switch right panel to HEX tab
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    const hexTabBtn = document.querySelector('.tab-btn[data-tab="hex"]');
+    if (hexTabBtn) hexTabBtn.classList.add('active');
+    const hexTab = document.getElementById('hexTab');
+    if (hexTab) hexTab.classList.add('active');
+
+    const existingHex = state.hexes[pid];
+    if (activeTool === 'tile' && activeTile) {
+      applyTool(pid);
+    } else if (!activeTool && existingHex?.tile) {
+      existingHex.rotation = ((existingHex.rotation || 0) + 1) % 6;
+      if (existingHex.tile === _stampTile) _stampRotation = existingHex.rotation;
+      autosave();
+      updateStatus(`Rotated tile #${existingHex.tile} → ${existingHex.rotation * 60}°`);
+    } else {
+      applyTool(pid);
+    }
+    if (typeof updateHexPanel === 'function') updateHexPanel(pid);
+    _lassoJustCompleted = true; // suppress click handler from double-processing
   }
   _lasso = null;
   _updateLassoSvg();
@@ -141,124 +237,39 @@ mapSvg.addEventListener('mousedown', (e) => {
   }
 });
 mapSvg.addEventListener('click', (e) => {
-  // Dismiss any open right-click context menu on left click
+  // Always dismiss any open context menu
   if (typeof removeContextMenu === 'function') removeContextMenu();
-  // Placement Mode Intercept
-  if (isPlacementMode && pendingMinorIndex !== null) {
-    const wp = clientToWorld(e.clientX, e.clientY);
-    const hex = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
-    const id = hexId(hex.row, hex.col);
-    state.minors[pendingMinorIndex].homeHex = id;
-    renderMinorsTable();
-    autosave();
-    exitPlacementMode();
-    return;
-  }
-  // Suppress click that fires immediately after a completed lasso drag
+  // Suppress click that fires after lasso drag or plain click handled by _lassoUp
   if (_lassoJustCompleted) { _lassoJustCompleted = false; return; }
-  const wp2 = clientToWorld(e.clientX, e.clientY);
-  const hex = pixelToHex(wp2.x, wp2.y, HEX_SIZE, state.meta.orientation);
+  // Modifier clicks (ctrl/shift) bypass mousedown lasso, so click still fires for these
+  if (e.button !== 0) return;
+  const wp = clientToWorld(e.clientX, e.clientY);
+  const hex = pixelToHex(wp.x, wp.y, HEX_SIZE, state.meta.orientation);
   const id = hexId(hex.row, hex.col);
-  if (e.button === 0) {
-    // ── Edge tools: detect which edge was clicked ──────────────────────────
-    if (activeTool === 'impassable' || activeTool === 'water-crossing') {
-      selectedHex = id;
-      const edgeNum = findNearestEdge(hex.row, hex.col, wx, wy);
-      ensureHex(id);
-      const h = state.hexes[id];
-      if (!h.borders) h.borders = [];
-      const type = activeTool === 'impassable' ? 'impassable' : 'water';
-      // Determine the border object first (need cost for water before applying)
-      const existingIdx = h.borders.findIndex(b => b.edge === edgeNum);
-      let removing = existingIdx >= 0 && h.borders[existingIdx].type === type;
-      let border = null;
-      if (!removing) {
-        border = { edge: edgeNum, type };
-        if (type === 'water') {
-          border.cost = (state.terrainCosts && state.terrainCosts.water) || 40;
-        }
-      }
-      // Apply to primary hex
-      if (removing) {
-        h.borders.splice(existingIdx, 1);
-      } else if (existingIdx >= 0) {
-        h.borders[existingIdx] = border;
-      } else {
-        h.borders.push(border);
-      }
-      // Apply mirror border to adjacent hex (same edge between the two hexes)
-      const neighbor = getNeighborHex(hex.row, hex.col, edgeNum);
-      if (neighbor) {
-        const nid = hexId(neighbor.row, neighbor.col);
-        ensureHex(nid);
-        const nh = state.hexes[nid];
-        if (!nh.borders) nh.borders = [];
-        const mirrorEdge = (edgeNum + 3) % 6;
-        const nExistingIdx = nh.borders.findIndex(b => b.edge === mirrorEdge);
-        if (removing) {
-          if (nExistingIdx >= 0) nh.borders.splice(nExistingIdx, 1);
-        } else {
-          const nBorder = { edge: mirrorEdge, type };
-          if (border.cost !== undefined) nBorder.cost = border.cost;
-          if (nExistingIdx >= 0) {
-            nh.borders[nExistingIdx] = nBorder;
-          } else {
-            nh.borders.push(nBorder);
-          }
-        }
-      }
-      updateHexPanel(id);
-      render();
-      autosave();
-      return;
-    }
-    // Ctrl/Cmd+click → toggle multi-select
-    if (e.ctrlKey || e.metaKey) {
-      if (selectedHexes.has(id)) {
-        selectedHexes.delete(id);
-      } else {
-        selectedHexes.add(id);
-        selectedHex = id;
-      }
-      render();
-      return;
-    }
-    // Shift+click → add hex to multi-select
-    if (e.shiftKey) {
-      if (selectedHex && !selectedHexes.has(selectedHex)) selectedHexes.add(selectedHex);
+  // Ctrl/Cmd+click → toggle multi-select
+  if (e.ctrlKey || e.metaKey) {
+    if (selectedHexes.has(id)) {
+      selectedHexes.delete(id);
+    } else {
       selectedHexes.add(id);
       selectedHex = id;
-      render();
-      return;
     }
-    // Plain click → clear multi-select, select this hex
-    selectedHexes.clear();
-    selectedHex = id;
-    // Switch right panel to HEX tab whenever user clicks a hex on the map
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    const hexTabBtn = document.querySelector('.tab-btn[data-tab="hex"]');
-    if (hexTabBtn) hexTabBtn.classList.add('active');
-    const hexTab = document.getElementById('hexTab');
-    if (hexTab) hexTab.classList.add('active');
-    const existingHex = state.hexes[id];
-    if (activeTool === 'tile' && activeTile) {
-      // DROP: place tile, applyTool handles deselect
-      applyTool(id);
-    } else if (!activeTool && existingHex?.tile) {
-      // ROTATE: no tool active, hex has a tile — rotate 60°
-      existingHex.rotation = ((existingHex.rotation || 0) + 1) % 6;
-      // Keep stamp rotation in sync if this tile matches the stamp
-      if (existingHex.tile === _stampTile) _stampRotation = existingHex.rotation;
-      autosave();
-      updateStatus(`Rotated tile #${existingHex.tile} → ${existingHex.rotation * 60}°`);
-    } else {
-      // Other tools (terrain, erase, etc.)
-      applyTool(id);
-    }
-    updateHexPanel(id);
     render();
+    return;
   }
+  // Shift+click → add hex to multi-select
+  if (e.shiftKey) {
+    if (selectedHex && !selectedHexes.has(selectedHex)) selectedHexes.add(selectedHex);
+    selectedHexes.add(id);
+    selectedHex = id;
+    render();
+    return;
+  }
+  // Plain unmodified click that wasn't caught by _lassoUp (edge case fallback)
+  selectedHexes.clear();
+  selectedHex = id;
+  if (typeof updateHexPanel === 'function') updateHexPanel(id);
+  render();
 });
 mapSvg.addEventListener('contextmenu', (e) => {
   e.preventDefault();
