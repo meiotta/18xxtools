@@ -126,8 +126,12 @@ function _buildModel() {
 
   const p0 = _nodes[0];
 
-  // Phase revenue only applies to cities and offboards — towns always use flat revenue.
-  const usesPhaseRev = (_bg==='gray'||_bg==='red') && (feature==='city'||feature==='offboard');
+  // Phase revenue: auto for cities/offboards on gray/red; towns only if opted in via phaseMode.
+  const usesPhaseRev = (_bg==='gray'||_bg==='red') && (
+    feature==='city' || feature==='offboard' ||
+    (feature==='town' && (townNodes[0]?.phaseMode || false)) ||
+    (feature==='dualTown' && townNodes.some(t=>t.phaseMode))
+  );
   const phaseRevenue = usesPhaseRev
     ? (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length ? {...p0.phaseRevenue} : {yellow:20,green:30,brown:40,gray:60})
     : {};
@@ -407,14 +411,15 @@ function _commitTrack(type) {
   if (type==='blank') {
     if (eb!==null) _eePaths.push({id:_id(),ea,eb});
   } else {
-    // Phase revenue only for cities and offboards — towns always use flat revenue
-    const isPhase = (_bg==='gray'||_bg==='red') && (type==='city'||type==='offboard');
+    // Cities/offboards on gray/red default to phase revenue; towns default to flat
+    const defaultPhase = (_bg==='gray'||_bg==='red') && (type==='city'||type==='offboard');
     const node = {
       id:           _id(),
       type,
       slots:        1,
       revenue:      type==='town'?10:20,
-      phaseRevenue: isPhase?{yellow:20,green:30,brown:40,gray:60}:{},
+      phaseMode:    defaultPhase,   // towns can opt in via toggle; cities/offboards auto-on
+      phaseRevenue: {yellow:20,green:30,brown:40,gray:60},
       terminal:     type==='offboard',
     };
     _nodes.push(node);
@@ -440,8 +445,8 @@ function _renderNodeEdit(nodeId) {
   if (!panel) return;
   const n = _nodes.find(x=>x.id===nodeId);
   if (!n) return;
-  // Phase revenue only meaningful for cities and offboards
-  const isPhase = (_bg==='gray'||_bg==='red') && (n.type==='city'||n.type==='offboard');
+  const canTogglePhase = (_bg==='gray'||_bg==='red') && n.type==='town';
+  const isPhase = n.phaseMode === true;
   panel.innerHTML = `
     <div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:11px 12px;">
       <div class="shw-subtitle" style="margin-bottom:9px;text-transform:capitalize;">${n.type} settings</div>
@@ -450,7 +455,13 @@ function _renderNodeEdit(nodeId) {
           <div style="display:flex;gap:6px;">
             ${[1,2,3,4].map(s=>`<button class="shw-btn-sec${n.slots===s?' shw-btn-sel':''}" onclick="window._shwSlots(${n.id},${s})">${s}</button>`).join('')}
           </div></div>`:''}
-      ${n.type!=='offboard'?( isPhase ? `
+      ${n.type!=='offboard'?(`
+        ${canTogglePhase?`
+          <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
+            <input type="checkbox" id="shwPhMode${n.id}" ${isPhase?'checked':''} onchange="window._shwPhMode(${n.id},this.checked)">
+            <label for="shwPhMode${n.id}" style="margin:0;cursor:pointer;font-size:12px;color:#777;">Use phase revenue</label>
+          </div>`:''}
+        ${isPhase ? `
         <div class="shw-field"><label>Revenue by phase</label>
           <div class="shw-phase-rows">
             ${PHASES.map(p=>`
@@ -462,7 +473,7 @@ function _renderNodeEdit(nodeId) {
           </div></div>` : `
         <div class="shw-field"><label>Revenue</label>
           <input type="number" min="0" step="10" value="${n.revenue||0}" style="width:80px;" oninput="window._shwRev(${n.id},this.value)">
-        </div>`) :''}
+        </div>`}`) :''}
       ${n.type==='city'?`
         <div class="shw-field" style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
           <input type="checkbox" id="shwTerm${n.id}" ${n.terminal?'checked':''} onchange="window._shwTerm(${n.id},this.checked)">
@@ -472,11 +483,12 @@ function _renderNodeEdit(nodeId) {
     </div>`;
 }
 
-window._shwSlots = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.slots=v; _refresh2();} };
-window._shwRev   = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.revenue=parseInt(v)||0; _updateChips();} };
-window._shwPhRev = (id,p,v) => { const n=_nodes.find(x=>x.id===id); if(n){if(!n.phaseRevenue)n.phaseRevenue={};n.phaseRevenue[p]=parseInt(v)||0;} };
-window._shwTerm  = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n) n.terminal=v; };
-window._shwDone  = ()       => { _editNodeId=null; const p=document.getElementById('shwNodeEdit'); if(p)p.innerHTML=''; _updateChips(); };
+window._shwSlots  = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.slots=v; _refresh2();} };
+window._shwRev    = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.revenue=parseInt(v)||0; _updateChips();} };
+window._shwPhRev  = (id,p,v) => { const n=_nodes.find(x=>x.id===id); if(n){if(!n.phaseRevenue)n.phaseRevenue={};n.phaseRevenue[p]=parseInt(v)||0;} };
+window._shwTerm   = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n) n.terminal=v; };
+window._shwPhMode = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.phaseMode=v; _refresh2();} };
+window._shwDone   = ()       => { _editNodeId=null; const p=document.getElementById('shwNodeEdit'); if(p)p.innerHTML=''; _updateChips(); };
 
 function _updateChips() {
   const el=document.getElementById('shwChips'); if(el) el.innerHTML=_chipsHtml();
@@ -536,9 +548,12 @@ window.staticHexCode = function staticHexCode(hex) {
 
   // ── Node directives ───────────────────────────────────────────────────────
   switch (hex.feature) {
-    case 'town':
-      parts.push(`town=revenue:${noExits?0:(hex.townRevenue??10)}`);
+    case 'town': {
+      // Phase revenue for towns is unusual but valid in custom games
+      const hasPhase = Object.keys(hex.phaseRevenue||{}).length && hex.activePhases?.yellow;
+      parts.push(`town=revenue:${noExits?0:(hasPhase?phaseRevStr():(hex.townRevenue??10))}`);
       break;
+    }
     case 'dualTown': {
       const [r0,r1] = hex.townRevenues||[10,10];
       parts.push(`town=revenue:${noExits?0:r0}`);
