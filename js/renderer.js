@@ -831,13 +831,17 @@ function hexToSvgInner(hex, tileDef) {
         const nPt = path.a.type === 'edge' ? posB : posA;
 
         if (path.terminal) {
-          // Terminal path: tapered spike polygon — wide at edge, pointed at node.
-          // source: tobymao Part::Path terminal:1 — used for sea/port stubs in e.g. 1822.
-          const dir = { x: nPt.x - ePt.x, y: nPt.y - ePt.y };
-          const len  = Math.hypot(dir.x, dir.y);
-          const px = -dir.y / len, py = dir.x / len;   // perpendicular unit vector
-          const hw = DSL_TRACK_W / 2 + 1;               // half-width at base (edge side)
-          svg += `<polygon points="${(ePt.x + px*hw).toFixed(1)},${(ePt.y + py*hw).toFixed(1)} ${(ePt.x - px*hw).toFixed(1)},${(ePt.y - py*hw).toFixed(1)} ${nPt.x.toFixed(1)},${nPt.y.toFixed(1)}" fill="#222"/>`;
+          // Terminal path: tobymao track_node_path.rb build_props terminal branch.
+          // Pentagon drawn in the rotated edge frame (edge at y=43.5, tobymao y=87 × 0.5):
+          //   hw = width/2 = 4 (tobymao) → 2 (×0.5); we use DSL_TRACK_W/2 to match our track width.
+          //   terminal:1 → M hw 35 L hw 43.5 L -hw 43.5 L -hw 35 L 0 17.5 Z   (tobymao: M hw 70 L hw 87 L -hw 87 L -hw 70 L 0 35)
+          //   terminal:2 → M hw 42.5 L hw 43.5 L -hw 43.5 L -hw 42.5 L 0 32.5 Z (tobymao: M hw 85 L hw 87 L -hw 87 L -hw 85 L 0 65)
+          const edgeNum = path.a.type === 'edge' ? path.a.n : path.b.n;
+          const hw = (DSL_TRACK_W / 2).toFixed(2);
+          const d = path.terminal === 2
+            ? `M ${hw} 42.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 42.5 L 0 32.5 Z`
+            : `M ${hw} 35.0 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 35.0 L 0 17.5 Z`;
+          svg += `<path d="${d}" transform="rotate(${edgeNum * 60})" fill="#222"/>`;
         } else {
           // Normal edge→node path: arc when off-center and not colinear through origin
           const isCenter = (Math.abs(nPt.x) < 0.5 && Math.abs(nPt.y) < 0.5);
@@ -870,17 +874,43 @@ function hexToSvgInner(hex, tileDef) {
 
       if (node.type === 'city') {
         if (node.slots >= 2) {
-          // Multi-slot single city (Glasgow 2-slot, Birmingham 3-slot, etc.)
+          // Multi-slot city.
+          // source: tobymao city.rb CITY_SLOT_POSITION + BOX_ATTRS.
+          //
+          // CITY_SLOT_POSITION[n] — starting offset before slot rotation (tobymao 100-unit × 0.5):
+          const CITY_SLOT_POS = {
+            1: [0, 0], 2: [-12.5, 0], 3: [0, -14.5], 4: [-12.5, -12.5],
+            5: [0, -21.5], 6: [0, -25], 7: [0, -26], 8: [0, -27], 9: [0, -27.5],
+          };
           const slots = node.slots;
-          const offsets = slots >= 3
-            ? [{ x: 0, y: -14.5 }, { x: 12.55, y: 7.25 }, { x: -12.55, y: 7.25 }]
-            : [{ x: -DSL_SLOT_R, y: 0 }, { x: DSL_SLOT_R, y: 0 }];
-          if (slots >= 3) {
+          const [bx, by] = CITY_SLOT_POS[slots] || [0, 0];
+
+          // Slot positions: rotate(360/n × i) applied to [bx,by], per city.rb render_part.
+          const offsets = [];
+          for (let i = 0; i < slots; i++) {
+            const rad = (2 * Math.PI / slots) * i;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            offsets.push({ x: cos * bx - sin * by, y: sin * bx + cos * by });
+          }
+
+          // BOX_ATTRS — white backdrop behind slot circles (tobymao city.rb × 0.5):
+          //   2: rect  SLOT_DIAMETER × SLOT_DIAMETER at (−SLOT_RADIUS, −SLOT_RADIUS)   → 25×25 at (−12.5,−12.5)
+          //   3: hex polygon (Hex::POINTS × 0.458 × 0.5)
+          //   4: rect  2×SLOT_DIAMETER × 2×SLOT_DIAMETER at (−SLOT_DIAMETER, −SLOT_DIAMETER) rx=SLOT_RADIUS → 50×50 at (−25,−25) rx=12.5
+          //   5: circle r = 1.36 × SLOT_DIAMETER → r = 34
+          //   6–9: circle r = 1.5 × SLOT_DIAMETER → r = 37.5
+          const SD = 2 * DSL_SLOT_R;  // SLOT_DIAMETER in our scale = 25
+          if (slots === 2) {
+            svg += `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${SD.toFixed(1)}" height="${SD.toFixed(1)}" fill="white" stroke="none"/>`;
+          } else if (slots === 3) {
             svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})">` +
                    `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>` +
                    `</g>`;
+          } else if (slots === 4) {
+            svg += `<rect x="${(pos.x - SD).toFixed(1)}" y="${(pos.y - SD).toFixed(1)}" width="${(SD * 2).toFixed(1)}" height="${(SD * 2).toFixed(1)}" rx="${DSL_SLOT_R.toFixed(1)}" fill="white" stroke="none"/>`;
           } else {
-            svg += `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${(2 * DSL_SLOT_R).toFixed(1)}" height="${(2 * DSL_SLOT_R).toFixed(1)}" fill="white" stroke="none"/>`;
+            const r = ((slots === 5 ? 1.36 : 1.5) * SD).toFixed(1);
+            svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${r}" fill="white" stroke="none"/>`;
           }
           for (const off of offsets) {
             svg += `<circle cx="${(pos.x + off.x).toFixed(1)}" cy="${(pos.y + off.y).toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
@@ -918,20 +948,12 @@ function hexToSvgInner(hex, tileDef) {
     }
 
   } else if (hex.feature === 'offboard') {
-    // Offboard exits: tapered triangle arrows pointing inward from each exit edge
+    // Offboard exits: tobymao track_offboard.rb build_props pentagon in rotated edge frame.
+    // In tobymao 100-unit space: M hw 75 L hw 87 L -hw 87 L -hw 75 L 0 48 Z  (hw = width/2 = 4)
+    // In our 0.5 scale:          M hw 37.5 L hw 43.5 L -hw 43.5 L -hw 37.5 L 0 24 Z
     for (const e of (hex.exits || [])) {
-      const p = ep(e);
-      const len = Math.hypot(p.x, p.y);
-      const dx = p.x / len, dy = p.y / len;
-      const px_perp = -dy, py_perp = dx;
-      const depth = hex.taperStyle === 2 ? 10 : 18;
-      const halfW = hex.taperStyle === 2 ? 4 : 6;
-      const pts = [
-        `${(p.x + px_perp * halfW).toFixed(1)},${(p.y + py_perp * halfW).toFixed(1)}`,
-        `${(p.x - px_perp * halfW).toFixed(1)},${(p.y - py_perp * halfW).toFixed(1)}`,
-        `${(p.x - dx * depth).toFixed(1)},${(p.y - dy * depth).toFixed(1)}`,
-      ].join(' ');
-      svg += `<polygon points="${pts}" fill="#222"/>`;
+      const hw = (DSL_TRACK_W / 2).toFixed(2);
+      svg += `<path d="M ${hw} 37.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 37.5 L 0 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
     }
 
   } else if (hex.pathPairs && hex.pathPairs.length > 0) {
