@@ -270,7 +270,12 @@ function parseDslHex(code, bg, locationName) {
                       : { type: 'edge', n: parseInt(s) };
 
   for (const part of parts) {
-    // Bare keywords: 'city' or 'town' with no attributes
+    // Bare keywords: 'city', 'town', 'junction' with no attributes
+    // junction: sea/port interchange node (1822 blue hexes) — tobymao Part::Junction
+    if (part === 'junction') {
+      hex.nodes.push({ type: 'junction', locStr: undefined });
+      continue;
+    }
     if (part === 'city' || part === 'city=') {
       hex.nodes.push({ type: 'city', slots: 1, flat: 0,
         phaseRevenue: { yellow:0, green:0, brown:0, gray:0 },
@@ -326,11 +331,14 @@ function parseDslHex(code, bg, locationName) {
       if (townCount === 2) { hex.townRevenues[1] = rev; }
 
     } else if (part.startsWith('path=')) {
-      // Parse path=a:X,b:Y where X and Y may be 'N' (edge) or '_N' (node ref)
+      // Parse path=a:X,b:Y[,terminal:N] where X/Y may be 'N' (edge) or '_N' (node ref)
+      // terminal:N marks a tapered stub end (spike) — tobymao track_node_path.rb
       const pm = part.match(/^path=a:(_?\d+),b:(_?\d+)/);
       if (pm) {
         const a = parseEndpt(pm[1]), b = parseEndpt(pm[2]);
-        hex.paths.push({ a, b });
+        const termM = part.match(/terminal:(\d+)/);
+        const terminal = termM ? parseInt(termM[1]) : 0;
+        hex.paths.push({ a, b, terminal });
         // Collect edge exits
         if (a.type === 'edge') {
           exitSet.add(a.n);

@@ -753,7 +753,13 @@ function hexToSvgInner(hex, tileDef) {
           (p.b.type === 'node' && p.b.n === ni && p.a.type === 'edge'))
         .map(p => p.a.type === 'edge' ? p.a.n : p.b.n);
 
-      if (node.type === 'city') {
+      if (node.type === 'junction') {
+        // Junction nodes sit at hex center.
+        // source: tobymao Part::Junction — sea/port interchange, rendered as small dot.
+        // Position is always (0,0); no region tracking needed (junction is a minor part).
+        nodePos.push({ x: 0, y: 0, angle: 0 });
+
+      } else if (node.type === 'city') {
         let pos;
         if (node.locStr && node.locStr !== 'center') {
           const f = parseFloat(node.locStr);
@@ -820,15 +826,27 @@ function hexToSvgInner(hex, tileDef) {
         // No arc needed — both endpoints are interior points, not edge midpoints.
         svg += `<line x1="${posA.x.toFixed(1)}" y1="${posA.y.toFixed(1)}" x2="${posB.x.toFixed(1)}" y2="${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
       } else {
-        // Edge→node path: arc when off-center and not colinear through origin
+        // Edge→node path
         const ePt = path.a.type === 'edge' ? posA : posB;
         const nPt = path.a.type === 'edge' ? posB : posA;
-        const isCenter = (Math.abs(nPt.x) < 0.5 && Math.abs(nPt.y) < 0.5);
-        if (!isCenter && !checkColinear(ePt.x, ePt.y, nPt.x, nPt.y)) {
-          const arc = calcArc(ePt.x, ePt.y, nPt.x, nPt.y);
-          svg += `<path d="M ${ePt.x.toFixed(1)} ${ePt.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${nPt.x.toFixed(1)} ${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+
+        if (path.terminal) {
+          // Terminal path: tapered spike polygon — wide at edge, pointed at node.
+          // source: tobymao Part::Path terminal:1 — used for sea/port stubs in e.g. 1822.
+          const dir = { x: nPt.x - ePt.x, y: nPt.y - ePt.y };
+          const len  = Math.hypot(dir.x, dir.y);
+          const px = -dir.y / len, py = dir.x / len;   // perpendicular unit vector
+          const hw = DSL_TRACK_W / 2 + 1;               // half-width at base (edge side)
+          svg += `<polygon points="${(ePt.x + px*hw).toFixed(1)},${(ePt.y + py*hw).toFixed(1)} ${(ePt.x - px*hw).toFixed(1)},${(ePt.y - py*hw).toFixed(1)} ${nPt.x.toFixed(1)},${nPt.y.toFixed(1)}" fill="#222"/>`;
         } else {
-          svg += `<line x1="${ePt.x.toFixed(1)}" y1="${ePt.y.toFixed(1)}" x2="${nPt.x.toFixed(1)}" y2="${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+          // Normal edge→node path: arc when off-center and not colinear through origin
+          const isCenter = (Math.abs(nPt.x) < 0.5 && Math.abs(nPt.y) < 0.5);
+          if (!isCenter && !checkColinear(ePt.x, ePt.y, nPt.x, nPt.y)) {
+            const arc = calcArc(ePt.x, ePt.y, nPt.x, nPt.y);
+            svg += `<path d="M ${ePt.x.toFixed(1)} ${ePt.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${nPt.x.toFixed(1)} ${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+          } else {
+            svg += `<line x1="${ePt.x.toFixed(1)}" y1="${ePt.y.toFixed(1)}" x2="${nPt.x.toFixed(1)}" y2="${nPt.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+          }
         }
       }
     }
@@ -890,6 +908,12 @@ function hexToSvgInner(hex, tileDef) {
                  `<rect x="${(-DSL_BAR_RW / 2).toFixed(1)}" y="${(-DSL_BAR_RH / 2).toFixed(1)}" width="${DSL_BAR_RW}" height="${DSL_BAR_RH}" fill="black" rx="1"/>` +
                  `</g>`;
         }
+
+      } else if (node.type === 'junction') {
+        // Junction: connection point for sea/port paths — small marker dot.
+        // source: tobymao Part::Junction — always at hex center.
+        // Kept small so it doesn't dominate; the spike path is the primary visual.
+        svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="3" fill="#222" stroke="none"/>`;
       }
     }
 
