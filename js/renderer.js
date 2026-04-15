@@ -693,11 +693,60 @@ function hexToSvgInner(hex, tileDef) {
   if (hex.nodes && hex.nodes.length > 0) {
 
     // ── Compute display positions for every node ────────────────────────────
-    const cityNodeCount = hex.nodes.filter(n => n.type === 'city').length;
-    const townNodeCount = hex.nodes.filter(n => n.type === 'town').length;
+    //
+    // Uses the same 24-region @region_use system as buildTerrainSvg so that
+    // no-edge town positions are placed via TownDot.preferred_render_locations
+    // exactly as tobymao does — not via a hardcoded spread.
+    //
+    // Processes nodes SEQUENTIALLY so each placed node's regions are visible
+    // to subsequent nodes (tobymao calls increment_cost() after each render).
+    //
+    // ── region_use initialisation ─────────────────────────────────────────
+    // source: base.rb TRACK_TO_EDGE_N, CENTER
+    const _ru = new Array(24).fill(0);
+    const _TTE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]]; // TRACK_TO_EDGE_N
+    for (const e of (hex.exits || [])) {
+      const rr = _TTE[e]; if (rr) for (const r of rr) _ru[r] += 1;
+    }
+    // Cities pre-occupy CENTER; done before the loop so they affect town placement.
+    const _CTR = [7,8,9,14,15,16]; // Base::CENTER
+    for (const node of hex.nodes) {
+      if (node.type === 'city') for (const r of _CTR) _ru[r] += 1;
+    }
 
-    const nodePos = hex.nodes.map((node, ni) => {
-      // Collect edge numbers connected to this node via hex.paths[]
+    // ── TownDot.OFFSET_TOWNS ──────────────────────────────────────────────
+    // source: assets/app/view/game/part/town_dot.rb lines 33-52
+    // Used when more than one town in the tile has no edge connection.
+    // Coords in tobymao 100-unit space; ×0.5 for our 50-unit space.
+    // Weights on positions 2 and 3 are 0.5 (region_weights is a Hash there).
+    // !! DO NOT change these coordinates or weights — they are tobymao constants !!
+    const _OT = [
+      { r: [13, 14], w: 1,   x: -20, y:  10 }, // x=-40,y=20  ×0.5
+      { r: [9,  10], w: 1,   x:  20, y: -10 }, // x=40, y=-20 ×0.5
+      { r: [6,   7], w: 0.5, x: -20, y: -10 }, // x=-40,y=-20 ×0.5 (weight=0.5)
+      { r: [16, 17], w: 0.5, x:  20, y:  10 }, // x=40, y=20  ×0.5 (weight=0.5)
+    ];
+    // combined_cost: sum(region_use[r] * weight) for each region in the location
+    const _otCost = loc => loc.r.reduce((s, r) => s + _ru[r] * loc.w, 0);
+    // increment_cost: add weight to each region after placement
+    const _otInc  = loc => { for (const r of loc.r) _ru[r] += loc.w; };
+
+    // Count towns with no edge connection — mirrors tobymao's condition:
+    //   @tile.towns.count { |t| !@tile.preferred_city_town_edges[t] } > 1
+    // source: town_dot.rb preferred_render_locations
+    const noEdgeTownCount = hex.nodes.filter((n, ni) =>
+      n.type === 'town' &&
+      !(hex.paths || []).some(p =>
+        (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
+        (p.b.type === 'node' && p.b.n === ni && p.a.type === 'edge'))
+    ).length;
+
+    const cityNodeCount = hex.nodes.filter(n => n.type === 'city').length;
+
+    // Sequential position computation
+    const nodePos = [];
+    for (let ni = 0; ni < hex.nodes.length; ni++) {
+      const node = hex.nodes[ni];
       const connEdges = (hex.paths || [])
         .filter(p =>
           (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
@@ -705,42 +754,61 @@ function hexToSvgInner(hex, tileDef) {
         .map(p => p.a.type === 'edge' ? p.a.n : p.b.n);
 
       if (node.type === 'city') {
-        // Explicit loc: → position from loc angle
+        let pos;
         if (node.locStr && node.locStr !== 'center') {
           const f = parseFloat(node.locStr);
           if (!isNaN(f)) {
             const a = f * Math.PI / 3;
-            return { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D, angle: 0 };
+            pos = { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D, angle: 0 };
           }
         }
-        // OO / multi-city: position each city at its primary connected exit
-        if (cityNodeCount >= 2) {
-          if (connEdges.length > 0) return { ...cityEdgePos(connEdges[0]), angle: 0 };
-          // Fallback: first OO city at edge 0, second at edge 3
-          const cityIdx = hex.nodes.slice(0, ni + 1).filter(n => n.type === 'city').length - 1;
-          return { ...cityEdgePos(cityIdx === 0 ? 0 : 3), angle: 0 };
+        if (!pos) {
+          if (cityNodeCount >= 2) {
+            pos = connEdges.length > 0
+              ? { ...cityEdgePos(connEdges[0]), angle: 0 }
+              : { ...cityEdgePos(hex.nodes.slice(0, ni + 1).filter(n => n.type === 'city').length === 1 ? 0 : 3), angle: 0 };
+          } else {
+            pos = { x: 0, y: 0, angle: 0 };
+          }
         }
-        // Single center city
-        return { x: 0, y: 0, angle: 0 };
+        nodePos.push(pos);
+        // Cities were pre-incremented above; no additional _ru update here.
 
       } else {
-        // Town: explicit loc: or compute from connected exits
+        // Town
+        let pos;
         if (node.locStr && node.locStr !== 'center') {
           const f = parseFloat(node.locStr);
           if (!isNaN(f)) {
             const a = f * Math.PI / 3;
-            return { x: -Math.sin(a) * 25, y: Math.cos(a) * 25, angle: f * 60 };
+            pos = { x: -Math.sin(a) * 25, y: Math.cos(a) * 25, angle: f * 60 };
           }
         }
-        if (connEdges.length === 0 && townNodeCount >= 2) {
-          // Multiple towns with no exits: spread left/right (double-dit)
-          const townIdx = hex.nodes.slice(0, ni + 1).filter(n => n.type === 'town').length - 1;
-          return { x: townIdx === 0 ? -DSL_SLOT_R * 1.2 : DSL_SLOT_R * 1.2, y: 0, angle: 0 };
+        if (!pos) {
+          if (connEdges.length === 0) {
+            if (noEdgeTownCount > 1) {
+              // Multiple no-edge towns: OFFSET_TOWNS via combinedCost, index tiebreak
+              // source: town_dot.rb preferred_render_locations + base.rb min_by logic
+              let best = _OT[0], bestCost = _otCost(_OT[0]);
+              for (let i = 1; i < _OT.length; i++) {
+                const c = _otCost(_OT[i]);
+                if (c < bestCost) { best = _OT[i]; bestCost = c; }
+              }
+              _otInc(best); // update region_use for subsequent no-edge towns
+              pos = { x: best.x, y: best.y, angle: 0 };
+            } else {
+              // Single no-edge town: CENTER_TOWN at origin
+              // source: town_dot.rb CENTER_TOWN = [{ region_weights: CENTER, x: 0, y: 0 }]
+              pos = { x: 0, y: 0, angle: 0 };
+            }
+          } else {
+            const tp = computeTownPos(connEdges);
+            pos = { x: tp.x, y: tp.y, angle: tp.angle };
+          }
         }
-        const tp = computeTownPos(connEdges); // renderer.js line ~87
-        return { x: tp.x, y: tp.y, angle: tp.angle };
+        nodePos.push(pos);
       }
-    });
+    }
 
     // ── STEP 1: Draw track segments (paths) — rendered UNDER nodes ──────────
     for (const path of (hex.paths || [])) {
