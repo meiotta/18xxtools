@@ -275,12 +275,29 @@ function parseDslHex(code, bg, locationName) {
     } else if (part.startsWith('town=')) {
       townCount++;
       const rev = parseInt((part.match(/revenue:(\d+)/) || [])[1] || '0');
-      if (townCount === 1) { hex.townRevenue = rev; hex.townRevenues[0] = rev; }
+      // RCA fix: capture loc: for the town — needed when a town is positioned
+      // away from center (e.g. 1822 D35 town=revenue:10,loc:1).
+      // Without this, the secondary town position is lost and it renders at (0,0)
+      // on top of the city instead of at its correct edge-directed location.
+      const loc = (part.match(/loc:([\d.]+)/) || [])[1];
+      if (townCount === 1) {
+        hex.townRevenue = rev;
+        hex.townRevenues[0] = rev;
+        if (loc !== undefined) hex.townLoc = parseFloat(loc); // edge index (0-5)
+      }
       if (townCount === 2) { hex.townRevenues[1] = rev; }
     } else if (part.startsWith('path=')) {
-      const toNode   = part.match(/a:(\d+),b:_(\d+)/);
-      const fromNode = part.match(/a:_(\d+),b:(\d+)/);
-      const edgePair = !toNode && !fromNode ? part.match(/^path=a:(\d+),b:(\d+)/) : null;
+      const toNode     = part.match(/a:(\d+),b:_(\d+)/);
+      const fromNode   = part.match(/a:_(\d+),b:(\d+)/);
+      // RCA fix: detect node-to-node internal paths — path=a:_0,b:_1 etc.
+      // These connect two internal nodes (e.g. a city to a secondary town)
+      // with no edge exits.  All three existing regex branches fail to match
+      // this pattern, so it was silently dropped, causing the internal track
+      // segment and secondary town to never render.
+      // Source: tobymao path model — a path endpoint can be a node ref (_N)
+      // or an edge number (N); both-node paths are valid and occur in 1822.
+      const nodeToNode = (!toNode && !fromNode) ? part.match(/^path=a:_(\d+),b:_(\d+)/) : null;
+      const edgePair   = (!toNode && !fromNode && !nodeToNode) ? part.match(/^path=a:(\d+),b:(\d+)/) : null;
       if (toNode) {
         const edge = parseInt(toNode[1]), ni = parseInt(toNode[2]);
         exitSet.add(edge);
@@ -289,7 +306,14 @@ function parseDslHex(code, bg, locationName) {
         const ni = parseInt(fromNode[1]), edge = parseInt(fromNode[2]);
         exitSet.add(edge);
         (exitsByNode[ni] = exitsByNode[ni] || []).push(edge);
-      } else if (edgePair) pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
+      } else if (nodeToNode) {
+        // Internal node-to-node path — store for renderer to draw the segment.
+        // fromNodeIdx=_0 (city), toNodeIdx=_1 (secondary town) for 1822 D35.
+        if (!hex.internalPaths) hex.internalPaths = [];
+        hex.internalPaths.push([parseInt(nodeToNode[1]), parseInt(nodeToNode[2])]);
+      } else if (edgePair) {
+        pathPairs.push([parseInt(edgePair[1]), parseInt(edgePair[2])]);
+      }
     } else if (part.startsWith('label=')) {
       hex.label = part.slice(6).trim();
     } else if (part.includes('terrain:')) {
@@ -362,6 +386,11 @@ function parseDslHex(code, bg, locationName) {
       }
     } else if (cityCount === 1) {
       hex.feature = 'city';
+      // RCA fix: when a city hex also has a town (city+town compound hex like
+      // 1822 D35 Swansea/Oystermouth), flag it so the renderer draws both.
+      // Previously, feature='city' swallowed the town entirely — no flag was
+      // set, so hexToSvgInner drew only the city circle and nothing else.
+      if (townCount >= 1) hex.hasSecondaryTown = true;
     } else if (townCount >= 2) {
       hex.feature = 'dualTown';
       // Store exit pairs per town node so renderer can draw correct arcs

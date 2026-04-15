@@ -812,6 +812,38 @@ function hexToSvgInner(hex, tileDef) {
 
       // City circle (drawn after tracks so it sits on top)
       svg += `<circle cx="${locX.toFixed(1)}" cy="${locY.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
+
+      // ── Secondary town (city+town compound hex) ──────────────────────────
+      // Occurs in 1822 D35 (Swansea city + Oystermouth town), where the DSL is:
+      //   city=revenue:20,loc:center; town=revenue:10,loc:1; path=a:_0,b:_1
+      //
+      // The path=a:_0,b:_1 is an internal node-to-node path (no edge exits).
+      // hex.hasSecondaryTown is set by import-ruby.js when cityCount=1 && townCount>=1.
+      // hex.townLoc is the edge index (0-5) the town is positioned toward.
+      // hex.internalPaths holds [[fromNode, toNode]] pairs for the connecting track.
+      //
+      // Town position: TownDot/TownRect preferred_render_locations with @edge=townLoc
+      //   x = -sin(edge * 60°) * 50   (tobymao 100-unit) * 0.5 = 25 (our 50-unit)
+      //   y =  cos(edge * 60°) * 50   * 0.5
+      // Bar rotation: town_rotation_angles for single-exit town = edge * 60°
+      //   source: town_location.rb line 185
+      if (hex.hasSecondaryTown && hex.townLoc !== undefined) {
+        const tAngleRad = hex.townLoc * Math.PI / 3; // edge * 60° in radians
+        const tDist     = 25;                          // tobymao 50 × 0.5 scale
+        const tx = -Math.sin(tAngleRad) * tDist;
+        const ty =  Math.cos(tAngleRad) * tDist;
+        const barAngleDeg = hex.townLoc * 60;          // town_rotation_angles[0]
+
+        // Internal track: city center → town bar (path=a:_0,b:_1)
+        // Straight line — both endpoints are interior to the hex.
+        svg += `<line x1="${locX.toFixed(1)}" y1="${locY.toFixed(1)}" x2="${tx.toFixed(1)}" y2="${ty.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+
+        // Town bar at computed position, rotated to face the track direction.
+        // Matches hexToSvgInner feature==='town' bar rendering (line ~700).
+        svg += `<g transform="translate(${tx.toFixed(1)},${ty.toFixed(1)}) rotate(${barAngleDeg})">` +
+               `<rect x="${-DSL_BAR_RW/2}" y="${-DSL_BAR_RH/2}" width="${DSL_BAR_RW}" height="${DSL_BAR_RH}" fill="black" rx="1"/>` +
+               `</g>`;
+      }
     }
 
   } else if (hex.feature === 'oo') {
