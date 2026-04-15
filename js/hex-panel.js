@@ -4,6 +4,7 @@
 //
 // updateHexPanel(hexId) — populates the right panel fields from state.hexes[hexId].
 // All DOM event listeners for hex tab fields are wired here.
+// Fields auto-save on change — no Apply button.
 
 function updateHexPanel(hexId) {
   const hex = state.hexes[hexId] || {};
@@ -40,7 +41,7 @@ function updateHexPanel(hexId) {
       b.textContent = 'Static';
       badgeRow.appendChild(b);
     }
-    if (hex.terrain === 'offmap' || !!hex.offboard) {
+    if (hex.terrain === 'offmap' || hex.feature === 'offboard') {
       const b = document.createElement('span');
       b.className = 'hpanel-badge hpanel-badge-offboard';
       b.textContent = 'Offboard';
@@ -66,21 +67,29 @@ function updateHexPanel(hexId) {
     seg.classList.toggle('active', parseInt(seg.dataset.rot) === rot);
   });
 
-  // ── City Name (shown when placed tile has a city/OO, or white-tile city/oo) ─
+  // ── City Name ──────────────────────────────────────────────────────────────
+  // Show for: placed numbered tile with city/OO, manually placed city/OO/town,
+  // static hexes with city/town/offboard feature, imported hexes with node data.
   const tileCitySection = document.getElementById('tileCityNameSection');
   const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
-  const hasCityFeature = (td && (td.city || td.oo)) || !!hex.city || !!hex.oo;
-  if (hasCityFeature) {
-    tileCitySection.style.display = 'block';
-    document.getElementById('tileCityName').value = hex.cityName || '';
-  } else {
-    tileCitySection.style.display = 'none';
+  const hasCityFeature =
+    (td && (td.city || td.oo)) ||
+    !!hex.city || !!hex.oo || !!hex.town ||
+    (hex.static && (hex.feature === 'city' || hex.feature === 'town' || hex.feature === 'offboard')) ||
+    !!(hex.nodes && hex.nodes.some(n => n.type === 'city' || n.type === 'town'));
+  if (tileCitySection) {
+    if (hasCityFeature) {
+      tileCitySection.style.display = 'block';
+      document.getElementById('tileCityName').value = hex.cityName || '';
+    } else {
+      tileCitySection.style.display = 'none';
+    }
   }
 
   // ── Company references (read-only) ─────────────────────────────────────────
   _updateCompanyRefs(hexId);
 
-  // ── Upgrade rules ──────────────────────────────────────────────────────────
+  // ── Upgrade rules (hidden inputs — sync in case they're ever shown) ────────
   const noUpgradeEl = document.getElementById('hexNoUpgrade');
   const upgradeOnlyEl = document.getElementById('hexUpgradeOnly');
   if (noUpgradeEl)    noUpgradeEl.checked = !!hex.noUpgrade;
@@ -91,7 +100,7 @@ function updateHexPanel(hexId) {
   if (phaseRevSection) {
     const showPhaseRev = hex.static === true &&
       (hex.bg === 'gray' || hex.bg === 'red') &&
-      ((hex.cities && hex.cities.length > 0) || !!hex.offboard);
+      (hex.feature === 'city' || hex.feature === 'offboard');
     phaseRevSection.style.display = showPhaseRev ? 'block' : 'none';
     if (showPhaseRev) {
       const pr = hex.phaseRevenue || {};
@@ -139,7 +148,6 @@ function _updateCompanyRefs(hexId) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12px;';
 
-    // Token: outer circle with company colour, inner white dot (standard 18xx token look)
     const token = document.createElement('span');
     token.style.cssText = `
       display:inline-flex;align-items:center;justify-content:center;
@@ -170,7 +178,6 @@ function _applyCityName() {
   ensureHex(selectedHex);
   const val = document.getElementById('tileCityName').value.trim();
   state.hexes[selectedHex].cityName = val || undefined;
-  // Update the title block immediately
   const titleEl = document.getElementById('hexTitleMain');
   if (titleEl) titleEl.textContent = val ? `${selectedHex} — ${val}` : selectedHex;
   render();
@@ -224,6 +231,7 @@ document.getElementById('rotNextBtn').addEventListener('click', () => {
   autosave();
 });
 
+// ── Upgrade rules — hidden inputs kept for JS compat, no visible UI ───────────
 document.getElementById('hexNoUpgrade').addEventListener('change', (e) => {
   if (!selectedHex) return;
   ensureHex(selectedHex);
@@ -242,41 +250,6 @@ document.getElementById('hexUpgradeOnly').addEventListener('change', (e) => {
     delete state.hexes[selectedHex].upgradeOnly;
   }
   autosave();
-});
-
-document.getElementById('applyHexBtn').addEventListener('click', () => {
-  if (selectedHex) {
-    const hex = state.hexes[selectedHex] || {};
-    hex.terrain     = document.getElementById('hexTerrain').value;
-    hex.terrainCost = terrainCost(hex.terrain);
-    hex.rotation    = parseInt(document.getElementById('hexRotation').value) || 0;
-    hex.label       = document.getElementById('hexLabel').value.trim();
-
-    // Save city name for placed tiles that have a city/OO
-    const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
-    if (td && (td.city || td.oo)) {
-      hex.cityName = document.getElementById('tileCityName').value.trim();
-    }
-
-    // Upgrade rules
-    const noUpgradeEl = document.getElementById('hexNoUpgrade');
-    const upgradeOnlyEl = document.getElementById('hexUpgradeOnly');
-    if (noUpgradeEl && noUpgradeEl.checked) {
-      hex.noUpgrade = true;
-    } else {
-      delete hex.noUpgrade;
-    }
-    const upgradeOnly = upgradeOnlyEl ? upgradeOnlyEl.value.trim() : '';
-    if (upgradeOnly) {
-      hex.upgradeOnly = upgradeOnly;
-    } else {
-      delete hex.upgradeOnly;
-    }
-
-    state.hexes[selectedHex] = hex;
-    render();
-    autosave();
-  }
 });
 
 document.getElementById('clearHexBtn').addEventListener('click', () => {
@@ -338,7 +311,7 @@ document.querySelectorAll('.rot-seg').forEach(btn => {
   });
 });
 
-// ── Terrain quick-btn stubs for JS compat (no UI shown, but some callers may exist) ──
+// ── Terrain quick-btn stubs for JS compat ─────────────────────────────────────
 document.querySelectorAll('.terrain-quick-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (!selectedHex) return;

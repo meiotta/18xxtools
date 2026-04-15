@@ -517,11 +517,16 @@
           <input type="text" id="hexCoordDisplay" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
           <input type="text" id="hexCoord" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
 
-          <!-- ── Label ────────────────────────────────────── -->
-          <div class="field">
-            <label>Label</label>
-            <input type="text" id="hexLabel" placeholder="e.g. NY, B, OO…" autocomplete="off">
-          </div>
+          <!-- ── Advanced (collapsible) ────────────────────── -->
+          <details id="hexAdvancedSection" style="margin-bottom:8px;">
+            <summary style="cursor:pointer;font-size:11px;color:#777;user-select:none;padding:2px 0;list-style:none;">
+              ▸ Advanced
+            </summary>
+            <div class="field" style="margin-top:6px;">
+              <label>Label</label>
+              <input type="text" id="hexLabel" placeholder="e.g. NY, B, OO…" autocomplete="off">
+            </div>
+          </details>
 
           <!-- Terrain is painted via the left-panel brush — keep elements hidden for JS compat -->
           <select id="hexTerrain" style="display:none;">
@@ -574,16 +579,11 @@
             <div id="hexCompanyRefsList"></div>
           </div>
 
-          <!-- ── Upgrade Rules (reserved — content added when needed) ──────── -->
-          <div class="hpanel-section" id="upgradeRulesSection">
-            <div class="hpanel-section-title">Upgrade Rules</div>
-            <!-- placeholder: upgrade rule controls will be added here -->
-            <input type="checkbox" id="hexNoUpgrade" style="display:none;">
-            <input type="text"     id="hexUpgradeOnly" style="display:none;" autocomplete="off">
-          </div>
-
-          <!-- ── Apply ────────────────────────────────────── -->
-          <button id="applyHexBtn" style="width:100%; margin-top:8px;">Apply</button>
+          <!-- Hidden inputs for JS compat (upgrade rules — no visible UI) -->
+          <input type="checkbox" id="hexNoUpgrade" style="display:none;">
+          <input type="text"     id="hexUpgradeOnly" style="display:none;" autocomplete="off">
+          <!-- applyHexBtn kept as hidden stub — fields auto-save on change -->
+          <button id="applyHexBtn" style="display:none;" aria-hidden="true"></button>
 
           <!-- ── Phase Revenue (static gray/red hexes only) ── -->
           <div id="staticPhaseRevenueSection" style="display:none;margin-top:8px;">

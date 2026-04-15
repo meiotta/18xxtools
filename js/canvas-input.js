@@ -141,6 +141,8 @@ mapSvg.addEventListener('mousedown', (e) => {
   }
 });
 mapSvg.addEventListener('click', (e) => {
+  // Dismiss any open right-click context menu on left click
+  if (typeof removeContextMenu === 'function') removeContextMenu();
   // Placement Mode Intercept
   if (isPlacementMode && pendingMinorIndex !== null) {
     const wp = clientToWorld(e.clientX, e.clientY);
