@@ -891,7 +891,11 @@ function hexToSvgInner(hex, tileDef) {
           //   rotate(+30) × rotate(360/n × i) × rotate(−30) × [bx,by]
           //   = rotate(360/n × i) × [bx,by]
           // …so the final on-screen slot positions equal the un-rotated tobymao values.
-          if ((typeof state !== 'undefined') && state?.meta?.orientation === 'pointy') {
+          // The same −30° wrapper is applied to rect backdrops (slots 2 and 4) below
+          // so they also appear axis-aligned on screen.  Circles and the hexagon are
+          // rotationally symmetric and need no correction.
+          const isPointy = (typeof state !== 'undefined') && state?.meta?.orientation === 'pointy';
+          if (isPointy) {
             const cr = Math.cos(-Math.PI / 6), sr = Math.sin(-Math.PI / 6); // −30°
             [bx, by] = [cr * bx - sr * by, sr * bx + cr * by];
           }
@@ -910,15 +914,19 @@ function hexToSvgInner(hex, tileDef) {
           //   4: rect  2×SLOT_DIAMETER × 2×SLOT_DIAMETER at (−SLOT_DIAMETER, −SLOT_DIAMETER) rx=SLOT_RADIUS → 50×50 at (−25,−25) rx=12.5
           //   5: circle r = 1.36 × SLOT_DIAMETER → r = 34
           //   6–9: circle r = 1.5 × SLOT_DIAMETER → r = 37.5
+          // Rect backdrops (slots 2 and 4) are wrapped in rotate(-30) for pointy maps
+          // so the outer +30° inner-group rotation leaves them screen-axis-aligned.
+          const bWrap  = isPointy ? `<g transform="rotate(-30)">` : '';
+          const bWrapZ = isPointy ? `</g>` : '';
           const SD = 2 * DSL_SLOT_R;  // SLOT_DIAMETER in our scale = 25
           if (slots === 2) {
-            svg += `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${SD.toFixed(1)}" height="${SD.toFixed(1)}" fill="white" stroke="none"/>`;
+            svg += bWrap + `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${SD.toFixed(1)}" height="${SD.toFixed(1)}" fill="white" stroke="none"/>` + bWrapZ;
           } else if (slots === 3) {
             svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})">` +
                    `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>` +
                    `</g>`;
           } else if (slots === 4) {
-            svg += `<rect x="${(pos.x - SD).toFixed(1)}" y="${(pos.y - SD).toFixed(1)}" width="${(SD * 2).toFixed(1)}" height="${(SD * 2).toFixed(1)}" rx="${DSL_SLOT_R.toFixed(1)}" fill="white" stroke="none"/>`;
+            svg += bWrap + `<rect x="${(pos.x - SD).toFixed(1)}" y="${(pos.y - SD).toFixed(1)}" width="${(SD * 2).toFixed(1)}" height="${(SD * 2).toFixed(1)}" rx="${DSL_SLOT_R.toFixed(1)}" fill="white" stroke="none"/>` + bWrapZ;
           } else {
             const r = ((slots === 5 ? 1.36 : 1.5) * SD).toFixed(1);
             svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${r}" fill="white" stroke="none"/>`;
