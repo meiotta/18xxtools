@@ -575,16 +575,30 @@ function buildIconsSvg(hex) {
 }
 
 // ─── EDGE POSITION HELPERS FOR SVG (flat-top unrotated, 50-unit space) ───────
-// All geometry uses tobymao's 100-unit values halved to match tile-geometry.js:
-//   HEX_INRADIUS  = 43.5  (track endpoint distance, tobymao Y_B=87 / 2)
-//   SLOT_RADIUS   = 12.5  (city/token circle radius, tobymao SLOT_RADIUS=25 / 2)
-//   CITY_EDGE_DIST = 25   (city center at edge, tobymao distance=50 / 2)
-//   BAR_RW = 16, BAR_RH = 4  (town bar, tobymao 32×8 / 2)
-//   TRACK_W = 5              (track stroke-width)
 //
-// ep(edge): track endpoint at hex edge midpoint (distance HEX_INRADIUS=43.5).
-//   Edge 0=S(0,+43.5)  1=SW(-37.7,+21.75)  2=NW(-37.7,-21.75)
-//   3=N(0,-43.5)  4=NE(+37.7,-21.75)  5=SE(+37.7,+21.75)
+// This renderer is a JavaScript port of the relevant geometry from tobymao's
+// 18xx-maker engine (assets/app/view/game/part/ and lib/engine/part/).  We work
+// at HALF tobymao's coordinate scale (tobymao = 100-unit hex; ours = 50-unit) so
+// that the numbers fit cleanly in SVG without a global 0.5 scale transform.
+//
+// Scale table  (tobymao value → our value):
+//   HEX_INRADIUS   87  → 43.5   track endpoint distance from center
+//   SLOT_RADIUS    25  → 12.5   city/token circle radius   (city.rb)
+//   CITY_EDGE_DIST 50  → 25     city center when placed at an edge
+//   TOWN_BAR       32×8 → 16×4  bar rect half-width/height
+//   TRACK_WIDTH     9  → 5      stroke-width (rounded up for clarity at small size)
+//
+// Edge numbering — matches tobymao DSL throughout this file AND in static-hex-builder.js:
+//   0 = S  (bottom)         ep(0) = (0, +43.5)
+//   1 = SW (lower-left)     ep(1) = (-37.7, +21.75)
+//   2 = NW (upper-left)     ep(2) = (-37.7, -21.75)
+//   3 = N  (top)            ep(3) = (0, -43.5)
+//   4 = NE (upper-right)    ep(4) = (+37.7, -21.75)
+//   5 = SE (lower-right)    ep(5) = (+37.7, +21.75)
+//
+// ep(edge): track endpoint at hex edge midpoint.
+// Formula: x = -sin(edge × π/3) × 43.5,  y = cos(edge × π/3) × 43.5
+// (SVG y-axis points down, so edge 0 = directly below center.)
 const DSL_SLOT_R  = 12.5;  // city/token circle radius
 const DSL_CITY_D  = 25;    // city center distance from hex center (at an edge)
 const DSL_TRACK_W = 5;     // track stroke-width
@@ -603,10 +617,32 @@ function cityEdgePos(edge) {
 }
 
 // ─── HEX TO SVG INNER GEOMETRY ─────────────────────────────────────────────
-// Generates SVG string for the INNER geometry of a hex (tracks, cities, towns, features).
-// Operates in flat-top unrotated coordinate space centered at (0,0).
-// The caller wraps this in a <g transform="rotate(deg) scale(sc)"> group.
-// Returns SVG string (path, circle, line elements).
+// hexToSvgInner(hex, tileDef) — SVG string for the interior of one hex cell.
+//
+// Coordinate space: flat-top, unrotated, centered at (0,0), 50-unit scale.
+// The caller in render() wraps the result in:
+//   <g transform="translate(cx,cy) rotate(orientOff + tileDeg) scale(sc)">
+// where orientOff is 0 for flat-top maps, 30 for pointy-top maps.
+//
+// Two rendering paths:
+//
+//   1. TILE (tileDef != null) — pre-parsed SVG geometry from tile-registry.js.
+//      Used for player tiles placed from the tile pool (hex.tile = '6', '57', etc.).
+//      tileDef carries svgPath, city, oo, town, dualTown, townAt, cities fields.
+//
+//   2. DSL HEX (tileDef == null) — drawn from the hex model in state.hexes[].
+//      Used for map tiles (printed on the board), offboards, blank/terrain hexes.
+//      Rendering is driven by hex.nodes[] + hex.paths[] (see block below).
+//      hex.feature is a DERIVED SUMMARY — it is NOT used for rendering.
+//
+// hex model fields consumed here:
+//   nodes[]     — [{type, slots, locStr}]  required for any town/city to appear
+//   paths[]     — [{a:{type,n/e}, b:{type,n/e}, terminal?}]  tracks + connections
+//   pathPairs[] — [[ea,eb], …]  edge-to-edge bypass routes imported from Ruby DSL
+//   blankPaths[]— [[ea,eb], …]  edge-to-edge routes drawn in the hex builder
+//   exits[]     — [edge,…]      used for region_use initialisation only
+//   feature     — string        used by terrain/revenue code, NOT rendering
+//   bg          — color string  used by the caller, not here
 function hexToSvgInner(hex, tileDef) {
   let svg = '';
 
@@ -668,27 +704,37 @@ function hexToSvgInner(hex, tileDef) {
     return svg;
   }
 
-  // ─── DSL hexes (no tileDef) — geometry in 50-unit space ─────────────────────
-  // Constants (from tile-geometry.js, matching tobymao at scale 0.5):
-  //   DSL_SLOT_R=12.5, DSL_CITY_D=25, DSL_TRACK_W=5, DSL_BAR_RW=16, DSL_BAR_RH=4
-  // ep()          → track endpoint at HEX_INRADIUS=43.5
-  // cityEdgePos() → city center at DSL_CITY_D=25 (tobymao city.rb distance=50/2)
+  // ─── DSL hexes (no tileDef) ──────────────────────────────────────────────────
   //
-  // ── TOBYMAO-FAITHFUL NODES/PATHS RENDERING ──────────────────────────────────
-  // When hex.nodes[] is populated (all non-offboard DSL hexes), we render by
-  // iterating hex.nodes[] and hex.paths[] directly — matching tobymao's per-part
-  // render loop: each path draws its track segment, each node draws itself.
+  // Rendering is entirely driven by hex.nodes[] and hex.paths[].
   //
-  // FUTURE CLAUDE: Do NOT add hex.feature switch cases for city/town/oo/dualTown.
-  // All such cases are handled by the nodes[] iteration below.  hex.feature is a
-  // DERIVED SUMMARY used only for terrain-badge collision and revenue display code.
+  // !! FUTURE CLAUDE: do NOT add feature-switch rendering (if feature==='town' …).
+  // !! hex.feature is a string summary used only by terrain-badge and revenue code.
+  // !! Towns and cities are drawn solely by the nodes[] loop below.
+  // !! If a hex has no nodes[], nothing is drawn — even if feature is set.
+  // !! static-hex-builder.js must always write nodes[]+paths[] into the hex model.
   //
-  // Node position computation (inline — no stored x/y on nodes in the parser):
-  //   City with locStr       → position from locStr angle × DSL_CITY_D
-  //   City in OO (2+ cities) → cityEdgePos(first connected exit)
-  //   Single center city     → (0, 0)
-  //   Town with locStr       → position from locStr angle × 25, angle = locStr*60°
-  //   Town without locStr    → computeTownPos(connected exit edges)
+  // ── Node data model ──────────────────────────────────────────────────────────
+  //   node.type   — 'town' | 'city' | 'junction'
+  //   node.slots  — integer ≥ 1  (city only; 1=single, 2=double, etc.)
+  //   node.locStr — optional position string:
+  //                   'center' or omitted → default position logic below
+  //                   '0'–'5'            → integer loc, angle = N × 60°
+  //                   '0.5'–'5.5'        → half-integer loc (between two edges)
+  //
+  // ── Path data model ──────────────────────────────────────────────────────────
+  //   path.a / path.b — endpoints, each { type: 'edge'|'node', n: index }
+  //                     edge n = tobymao edge number (0=S, clockwise)
+  //                     node n = index into hex.nodes[]
+  //   path.terminal   — 1 or 2 for offboard terminal flags (pentagon shape)
+  //
+  // ── Node position logic (mirrors tobymao part/town_dot.rb + part/city.rb) ────
+  //   City, single, center        → (0, 0)
+  //   City, single, locStr N      → cityEdgePos(N)  (distance 25 toward edge N)
+  //   City, OO / multi, no locStr → cityEdgePos(first connected exit edge)
+  //   Town, locStr N              → (-sin(N×π/3)×25, cos(N×π/3)×25)
+  //   Town, no locStr, 1+ edges   → computeTownPos(connected edges)  (midpoint arc)
+  //   Town, no locStr, no edges   → origin, or OFFSET_TOWNS spread for 2+ such towns
 
   if (hex.nodes && hex.nodes.length > 0) {
 
@@ -856,7 +902,8 @@ function hexToSvgInner(hex, tileDef) {
     }
 
     // Edge-to-edge bypass paths (e.g. Altoona path=a:1,b:4 alongside city)
-    for (const [ea, eb] of (hex.pathPairs || [])) {
+    // Also renders blankPaths (from hex builder) that coexist with a node feature.
+    for (const [ea, eb] of [...(hex.pathPairs || []), ...(hex.blankPaths || [])]) {
       const pa = ep(ea), pb = ep(eb);
       const diff = Math.abs(ea - eb);
       if (diff === 3 || diff === 0) {

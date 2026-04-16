@@ -1,13 +1,43 @@
 // ─── STATIC HEX BUILDER ────────────────────────────────────────────────────────
-// Single-panel non-modal hex editor with live preview.
-// Replaces the 3-step wizard with a persistent overlay panel.
+// Single-panel, non-modal overlay for building map hexes — the pre-printed tiles
+// that are fixed on the board before play begins (cities, towns, offboards, terrain
+// tracks, blank grey/colored hexes).  Distinct from the player tile pool (manifest).
 //
 // Load order: SEVENTH — after context-menu.js
 //
 // Public API:
-//   window.openHexBuilder(hexId)
-//   window.openStaticHexWizard(hexId)  — alias, kept for backward compatibility
-//   window.staticHexCode(hex)          — generate map.rb DSL from saved hex model
+//   window.openHexBuilder(hexId)         — open builder for the given hex grid key
+//   window.openStaticHexWizard(hexId)    — alias kept for backward compatibility
+//   window.staticHexCode(hex)            — emit tobymao map.rb DSL for a saved hex model
+//
+// ── Relationship to renderer.js / hexToSvgInner ──────────────────────────────
+// The builder's live canvas preview calls hexToSvgInner() directly (via _toDslHex).
+// When the user clicks Place, _buildFinalModel() writes the hex to state.hexes[],
+// and the main render() loop calls hexToSvgInner() again from there.
+// Both calls must produce the same output, so _buildFinalModel() must mirror
+// the nodes[]+paths[] structure that hexToSvgInner requires — not just feature/exits.
+//
+// ── Data model written to state.hexes[hexId] by _buildFinalModel() ───────────
+//   nodes[]      — [{type, slots, locStr}]       required for town/city rendering
+//   paths[]      — [{a:{type,n/e}, b:{type,n/e}, terminal?}]  all track connections
+//   blankPaths[] — [[ea, eb], …]                 edge-to-edge tracks with no node
+//   exits[]      — [edge, …]                     union of all connected edges
+//   exitPairs[]  — [[edge,…], …]                 per-node exits for multi-node tiles
+//   feature      — 'town'|'city'|'oo'|'dualTown'|'offboard'|'none'  (summary only)
+//   bg           — 'white'|'yellow'|'green'|'brown'|'gray'|'red'|'blue'
+//
+// ── Internal builder state ────────────────────────────────────────────────────
+//   _nodes[]     — full node descriptors including revenue and phaseMode
+//   _nodeEdges{} — {nodeId: [edge, …]}  which exits connect to each node
+//   _segments[]  — [{id, ea, eb}]       bare edge-to-edge tracks (no node)
+//
+// ── Edge numbering — matches tobymao DSL and ep() in renderer.js ─────────────
+//   0=S  1=SW  2=NW  3=N  4=NE  5=SE   (clockwise from bottom)
+//
+// ── Loc / snap positions ──────────────────────────────────────────────────────
+//   13 snap targets per hex: 'center' + integer locs '0'–'5' + half locs '0.5'–'5.5'
+//   Position formula: x = -sin(N×π/3) × 25 × SC,  y = cos(N×π/3) × 25 × SC
+//   Same formula as ep() but at distance 25 (half the inradius) instead of 43.5.
 
 (function () {
 'use strict';
@@ -35,15 +65,17 @@ const SC  = 2.2;           // scale: tile 50-unit space → canvas pixels
 const OR  = 50   * SC;     // outer (circum) radius
 const IR  = 43.3 * SC;     // inner (apothem)
 
-// Edge midpoints in canvas space (absolute).
-// Tile-space vectors: EDGE_MIDPOINTS from constants.js, scaled by SC, offset by center.
+// Edge midpoints in canvas space (absolute pixels on the 280×300 canvas).
+// Order matches ep() in renderer.js and tobymao DSL (0=S, clockwise).
+// ep(N): x = -sin(N×π/3)×43.5, y = cos(N×π/3)×43.5  — scaled by SC and shifted to center.
+// NOTE: constants.js has a different EDGE_MIDPOINTS ordering (0=SE); do NOT use it here.
 const EMP = [
-  [CCX + 37.5 * SC,  CCY + 21.65 * SC],  // 0 lower-right
-  [CCX,              CCY + 43.3  * SC],  // 1 bottom
-  [CCX - 37.5 * SC,  CCY + 21.65 * SC],  // 2 lower-left
-  [CCX - 37.5 * SC,  CCY - 21.65 * SC],  // 3 upper-left
-  [CCX,              CCY - 43.3  * SC],  // 4 top
-  [CCX + 37.5 * SC,  CCY - 21.65 * SC],  // 5 upper-right
+  [CCX,              CCY + 43.3  * SC],  // 0 bottom
+  [CCX - 37.5 * SC,  CCY + 21.65 * SC],  // 1 lower-left
+  [CCX - 37.5 * SC,  CCY - 21.65 * SC],  // 2 upper-left
+  [CCX,              CCY - 43.3  * SC],  // 3 top
+  [CCX + 37.5 * SC,  CCY - 21.65 * SC],  // 4 upper-right
+  [CCX + 37.5 * SC,  CCY + 21.65 * SC],  // 5 lower-right
 ];
 
 // Flat-top hex corners
@@ -130,6 +162,10 @@ function _loadFromModel(h) {
   const feature  = h.feature || 'none';
   const exitPairs = h.exitPairs || [];
 
+  // If the saved model has nodes[], use their locStr directly (round-trip fidelity).
+  // Otherwise fall back to feature-based reconstruction with locStr:'center'.
+  const savedNodes = h.nodes || [];
+
   if (feature === 'town' || feature === 'dualTown') {
     const revs = feature === 'dualTown' ? (h.townRevenues || [10, 10]) : [h.townRevenue || 10];
     const exits = h.exits || [];
@@ -137,7 +173,8 @@ function _loadFromModel(h) {
     revs.forEach((rev, i) => {
       const nodeId = _nextId();
       const edges  = pairs[i] || [];
-      _nodes.push({ id: nodeId, type: 'town', slots: 1, locStr: 'center', revenue: rev, phaseRevenue: { yellow: 20, green: 30, brown: 40, gray: 60 }, terminal: false, phaseMode: false });
+      const locStr = savedNodes[i]?.locStr || 'center';
+      _nodes.push({ id: nodeId, type: 'town', slots: 1, locStr, revenue: rev, phaseRevenue: { yellow: 20, green: 30, brown: 40, gray: 60 }, terminal: false, phaseMode: false });
       _nodeEdges[nodeId] = edges;
     });
   } else if (feature === 'city' || feature === 'oo' || feature === 'm') {
@@ -149,12 +186,14 @@ function _loadFromModel(h) {
       const nodeId = _nextId();
       const edges  = pairs[i] || [];
       const rev    = revs[i] || 20;
-      _nodes.push({ id: nodeId, type: 'city', slots: slots[i] || 1, locStr: 'center', revenue: rev, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: h.terminal || false, phaseMode: (_bg === 'gray' || _bg === 'red') });
+      const locStr = savedNodes[i]?.locStr || 'center';
+      _nodes.push({ id: nodeId, type: 'city', slots: slots[i] || 1, locStr, revenue: rev, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: h.terminal || false, phaseMode: !!(h.phaseRevenue && Object.keys(h.phaseRevenue).length && h.activePhases?.yellow) });
       _nodeEdges[nodeId] = edges;
     }
   } else if (feature === 'offboard') {
     const nodeId = _nextId();
-    _nodes.push({ id: nodeId, type: 'offboard', slots: 1, locStr: 'center', revenue: 0, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: true, phaseMode: true });
+    const locStr = savedNodes[0]?.locStr || 'center';
+    _nodes.push({ id: nodeId, type: 'offboard', slots: 1, locStr, revenue: 0, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: true, phaseMode: true });
     _nodeEdges[nodeId] = h.exits || [];
   }
 
@@ -177,16 +216,20 @@ function _toDslHex() {
   const paths = [];
 
   // Edge-to-node paths
+  // Path endpoint convention (matches import-ruby.js parseEndpt and renderer):
+  //   edge endpoint → { type: 'edge', n: edgeNumber }
+  //   node endpoint → { type: 'node', n: nodeIndex }
+  // Both use .n — do NOT use .e for edges here.
   _nodes.forEach((node, ni) => {
     const edges = _nodeEdges[node.id] || [];
     edges.forEach(edge => {
-      paths.push({ a: { type: 'edge', e: edge }, b: { type: 'node', n: ni }, terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
+      paths.push({ a: { type: 'edge', n: edge }, b: { type: 'node', n: ni }, terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
     });
   });
 
   // Blank edge-to-edge segments become paths too
   _segments.forEach(seg => {
-    paths.push({ a: { type: 'edge', e: seg.ea }, b: { type: 'edge', e: seg.eb } });
+    paths.push({ a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } });
   });
 
   // Compute exits: union of all edge endpoints
@@ -235,18 +278,39 @@ function _buildFinalModel() {
   _segments.forEach(s => { exitSet.add(s.ea); exitSet.add(s.eb); });
   const exits = Array.from(exitSet).sort((a, b) => a - b);
 
-  // exitPairs: for multi-node tiles, each node's connected edges
-  const exitPairs = _nodes.length > 1
-    ? _nodes.map(n => _nodeEdges[n.id] || [])
-    : undefined;
+  // exitPairs: per-node connected edge arrays.  Always written (even for single
+  // nodes) so that staticHexCode() can distinguish node-connected exits from
+  // bypass-segment edges when both exist on the same hex.
+  const exitPairs = _nodes.map(n => _nodeEdges[n.id] || []);
+
+  // nodes[] + paths[] — required by hexToSvgInner for rendering.
+  // hex.feature is only a derived summary; the renderer iterates nodes[]/paths[].
+  const nodes = _nodes.map(n => ({
+    type:   n.type === 'offboard' ? 'city' : n.type,
+    slots:  n.slots  || 1,
+    locStr: n.locStr || 'center',
+  }));
+  const paths = [];
+  _nodes.forEach((node, ni) => {
+    (_nodeEdges[node.id] || []).forEach(edge => {
+      paths.push({ a: { type: 'edge', n: edge }, b: { type: 'node', n: ni },
+                   terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
+    });
+  });
+  _segments.forEach(seg => {
+    paths.push({ a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } });
+  });
 
   const p0 = _nodes[0];
 
-  const usesPhaseRev = (_bg === 'gray' || _bg === 'red') && (
-    feature === 'city' || feature === 'offboard' ||
+  // Phase revenue is driven entirely by node.phaseMode — not by tile color.
+  const usesPhaseRev =
+    feature === 'offboard' ||
+    (feature === 'city'     && cityNodes.some(n => n.phaseMode))  ||
     (feature === 'town'     && (townNodes[0]?.phaseMode || false)) ||
-    (feature === 'dualTown' && townNodes.some(t => t.phaseMode))
-  );
+    (feature === 'dualTown' && townNodes.some(t => t.phaseMode))  ||
+    (feature === 'oo'       && cityNodes.some(n => n.phaseMode))  ||
+    (feature === 'm'        && cityNodes.some(n => n.phaseMode));
   const phaseRevenue = usesPhaseRev
     ? (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length ? { ...p0.phaseRevenue } : { yellow: 20, green: 30, brown: 40, gray: 60 })
     : {};
@@ -262,6 +326,8 @@ function _buildFinalModel() {
     ooSlots:        cityNodes.length >= 2  ? cityNodes.map(c => c.slots || 1) : undefined,
     exits,
     exitPairs,
+    nodes,
+    paths,
     blankPaths:     _segments.map(s => [s.ea, s.eb]),
     rotation:       0,
     terminal:       p0?.terminal || false,
@@ -379,13 +445,8 @@ function _panelHtml() {
     <div class="hb-footer">
       <button class="hb-btn-cancel" id="hbBtnCancel">Cancel</button>
       <div class="hb-footer-right">
-        <button class="hb-btn-primary" id="hbBtnPlace">Place</button>
-        <div class="hb-dropdown-wrap">
-          <button class="hb-btn-dropdown" id="hbBtnDropdown" title="More options">&#9660;</button>
-          <div class="hb-dropdown-menu" id="hbDropdownMenu" style="display:none;">
-            <button class="hb-dropdown-item" id="hbMenuManifest">Place &amp; Save to Manifest</button>
-          </div>
-        </div>
+        <button class="hb-btn-secondary" id="hbBtnManifest" title="Save to tile manifest without placing on map">Save to Manifest</button>
+        <button class="hb-btn-primary"   id="hbBtnPlace"    title="Place tile on map">Place</button>
       </div>
     </div>
 
@@ -395,7 +456,7 @@ function _panelHtml() {
 }
 
 function _toolbarHtml() {
-  const showOff = (_bg === 'red' || _bg === 'gray');
+  const showOff = (_bg === 'red');
   const tools = [
     { id: 'track',    label: 'Track',    icon: '&#9135;' },
     { id: 'town',     label: 'Town',     icon: '&#9670;' },
@@ -419,36 +480,51 @@ function _nodeConfigHtml() {
     return `<div class="hb-section-label">Node Config</div>
             <div class="hb-hint">Select a node to configure it</div>`;
   }
-  const isPhaseMode = node.phaseMode && (_bg === 'gray' || _bg === 'red');
-  const canTogglePhase = (_bg === 'gray' || _bg === 'red') && node.type === 'town';
-  const showRevGrid    = (_bg === 'gray' || _bg === 'red') && (node.type === 'city' || node.type === 'offboard' || isPhaseMode);
+  // Phase revenue rules:
+  //   white/yellow/green/brown — tile color IS the phase; no phase revenue UI
+  //   gray  — permanent board hex may have phase revenue (e.g. 1822 e6); checkbox opt-in
+  //   red   — offboard; always phase revenue, no checkbox needed
+  //   offboard node type — always phase revenue regardless of tile color
+  const isRedOrOff  = _bg === 'red' || node.type === 'offboard';
+  const canOptPhase = _bg === 'gray' && node.type !== 'offboard';
+  const isPhaseMode = isRedOrOff || (canOptPhase && !!node.phaseMode);
+
+  const phaseGrid = () => `<div class="hb-field"><div class="hb-field-label">Revenue by phase</div>
+    <div class="hb-phase-rows">
+      ${PHASES.map(p => `
+        <div class="hb-phase-row">
+          <span class="hb-phase-dot" style="background:${PHASE_COLORS[p]};"></span>
+          <span class="hb-phase-label">${p}</span>
+          <input class="hb-rev-input shw-rev-input" type="number" min="0" step="10"
+            value="${node.phaseRevenue?.[p] ?? 0}" data-phase="${p}">
+        </div>`).join('')}
+    </div></div>`;
 
   let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>`;
 
-  if (node.type !== 'offboard') {
-    if (canTogglePhase) {
-      html += `<div class="hb-check-row">
-        <input type="checkbox" id="hbPhaseMode" ${node.phaseMode ? 'checked' : ''}>
-        <label for="hbPhaseMode">Phase revenue</label>
-      </div>`;
-    }
-    if (showRevGrid) {
-      html += `<div class="hb-field"><div class="hb-field-label">Revenue by phase</div>
-        <div class="hb-phase-rows">
-          ${PHASES.map(p => `
-            <div class="hb-phase-row">
-              <span class="hb-phase-dot" style="background:${PHASE_COLORS[p]};"></span>
-              <span class="hb-phase-label">${p}</span>
-              <input class="hb-rev-input shw-rev-input" type="number" min="0" step="10"
-                value="${node.phaseRevenue?.[p] ?? 0}" data-phase="${p}">
-            </div>`).join('')}
-        </div></div>`;
+  if (isRedOrOff) {
+    // Red / offboard: phase revenue always shown, no toggle
+    html += phaseGrid();
+  } else if (canOptPhase) {
+    // Gray non-offboard: optional phase revenue (could be terminal tile or permanent board feature)
+    html += `<div class="hb-check-row">
+      <input type="checkbox" id="hbPhaseMode" ${node.phaseMode ? 'checked' : ''}>
+      <label for="hbPhaseMode">Phase revenue</label>
+    </div>`;
+    if (node.phaseMode) {
+      html += phaseGrid();
     } else {
       html += `<div class="hb-field">
         <div class="hb-field-label">Revenue</div>
         <input type="number" id="hbRevenue" class="hb-num-input" min="0" step="10" value="${node.revenue || 0}">
       </div>`;
     }
+  } else {
+    // white/yellow/green/brown: flat revenue only
+    html += `<div class="hb-field">
+      <div class="hb-field-label">Revenue</div>
+      <input type="number" id="hbRevenue" class="hb-num-input" min="0" step="10" value="${node.revenue || 0}">
+    </div>`;
   }
 
   if (node.type === 'city') {
@@ -490,8 +566,8 @@ function _manifestFormHtml() {
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="hb-btn-primary" id="hbManSave">Save to Manifest</button>
-      <button class="hb-btn-cancel"  id="hbManFork">Fork as Upgrade &#8594;</button>
+      <button class="hb-btn-primary"   id="hbManSave">Save to Manifest</button>
+      <button class="hb-btn-secondary" id="hbManFork"></button>
     </div>
   </div>`;
 }
@@ -608,28 +684,14 @@ function _bindPanel() {
   const placeBtn = document.getElementById('hbBtnPlace');
   if (placeBtn) placeBtn.onclick = () => { _save(); _close(); };
 
-  // Dropdown toggle
-  const dropBtn  = document.getElementById('hbBtnDropdown');
-  const dropMenu = document.getElementById('hbDropdownMenu');
-  if (dropBtn && dropMenu) {
-    dropBtn.onclick = (e) => {
-      e.stopPropagation();
-      const vis = dropMenu.style.display !== 'none';
-      dropMenu.style.display = vis ? 'none' : 'block';
-    };
-    document.addEventListener('click', () => { if (dropMenu) dropMenu.style.display = 'none'; }, { once: true });
-  }
-
-  // Manifest menu item
-  const manItem = document.getElementById('hbMenuManifest');
-  if (manItem) manItem.onclick = () => {
-    if (dropMenu) dropMenu.style.display = 'none';
-    _save();
+  // Save to Manifest (no map placement)
+  const manBtn = document.getElementById('hbBtnManifest');
+  if (manBtn) manBtn.onclick = () => {
     _showManifest = !_showManifest;
     const mf = document.getElementById('hbManifestForm');
     if (mf) {
       mf.style.display = _showManifest ? 'block' : 'none';
-      if (_showManifest) mf.innerHTML = _manifestFormHtml(), _bindManifestForm();
+      if (_showManifest) { mf.innerHTML = _manifestFormHtml(); _bindManifestForm(); }
     }
   };
 
@@ -742,27 +804,54 @@ function _refreshNodeConfig() {
   _updateDslPreview();
 }
 
+// Color upgrade chain: white→yellow→green→brown→gray (gray is the terminal phase).
+// Red and blue are off-board/water types — no upgrade path.
+const UPGRADE_CHAIN = { white: 'yellow', yellow: 'green', green: 'brown', brown: 'gray' };
+
 function _bindManifestForm() {
   const saveBtn = document.getElementById('hbManSave');
   if (saveBtn) saveBtn.onclick = () => {
     const idInput    = document.getElementById('hbManId');
     const countInput = document.getElementById('hbManCount');
     const lblInput   = document.getElementById('hbManLabel');
-    const id    = (idInput?.value.trim()    || _nextManifestId());
+    const id    = (idInput?.value.trim()  || _nextManifestId());
     const count = parseInt(countInput?.value || '1');
     const label = lblInput?.value.trim() || _label;
+    _manifestId = id;  // remember for fork
+    _manifestCount = count;
     const model = { ...(_buildFinalModel()), label };
     state.customTiles = state.customTiles || {};
     state.customTiles[id] = { count, hex: model };
-    console.log('[HexBuilder] Saved to manifest:', id, state.customTiles[id]);
     // Visual feedback
-    if (saveBtn) { saveBtn.textContent = 'Saved ✓'; setTimeout(() => { saveBtn.textContent = 'Save to Manifest'; }, 1500); }
+    saveBtn.textContent = 'Saved ✓';
+    setTimeout(() => { saveBtn.textContent = 'Save to Manifest'; }, 1500);
+    // Enable fork button now that we have a saved ID to fork from
+    const forkBtn = document.getElementById('hbManFork');
+    if (forkBtn) {
+      const nextColor = UPGRADE_CHAIN[_bg];
+      forkBtn.disabled = !nextColor;
+      forkBtn.textContent = nextColor ? `Fork as ${nextColor} upgrade →` : 'No upgrade (fully upgraded)';
+    }
   };
 
   const forkBtn = document.getElementById('hbManFork');
-  if (forkBtn) forkBtn.onclick = () => {
-    console.log('[HexBuilder] Fork as Upgrade — stub');
-  };
+  if (forkBtn) {
+    const nextColor = UPGRADE_CHAIN[_bg];
+    forkBtn.disabled = !nextColor;
+    forkBtn.textContent = nextColor ? `Fork as ${nextColor} upgrade →` : 'No upgrade (fully upgraded)';
+    forkBtn.onclick = () => {
+      const next = UPGRADE_CHAIN[_bg];
+      if (!next) return;
+      // Advance color, keep full topology
+      _bg = next;
+      // Suggest next manifest ID (ch01 → ch02, or append 'u')
+      const m = (_manifestId || '').match(/^(.+?)(\d+)$/);
+      _manifestId = m ? m[1] + (parseInt(m[2]) + 1) : (_manifestId || 'ch01') + 'u';
+      // Hide form, rebuild panel (new color affects toolbar + node config defaults)
+      _showManifest = false;
+      _buildPanel();
+    };
+  }
 }
 
 // ── Canvas interaction ────────────────────────────────────────────────────────
@@ -840,25 +929,37 @@ function _handleEdgeClick(edge) {
   }
 
   if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
-    // Edge click while in node tool — connect pending or place at nearest snap
-    if (_pendingEdge === null) {
-      _pendingEdge = edge;
-    } else if (_pendingEdge === edge) {
+    if (_selectedNodeId !== null) {
+      // A node is selected — single-click toggles this edge's connection to it
+      const edges = _nodeEdges[_selectedNodeId] || [];
+      const idx = edges.indexOf(edge);
+      if (idx >= 0) {
+        edges.splice(idx, 1);   // disconnect
+      } else {
+        edges.push(edge);       // connect
+      }
+      _nodeEdges[_selectedNodeId] = edges;
       _pendingEdge = null;
     } else {
-      // Connect pending edge to current edge via a new node
-      const locStr = _nearestSnap(EMP[edge][0], EMP[edge][1])?.locStr || 'center';
-      const nodeId = _placeNode(locStr);
-      if (nodeId !== null) {
-        const nodeEdges = _nodeEdges[nodeId] || [];
-        if (!nodeEdges.includes(_pendingEdge)) nodeEdges.push(_pendingEdge);
-        if (!nodeEdges.includes(edge))         nodeEdges.push(edge);
-        _nodeEdges[nodeId] = nodeEdges;
+      // No node selected yet — two-click shortcut: place a node at center
+      // connecting both clicked edges (quicker than clicking canvas + edges separately)
+      if (_pendingEdge === null) {
+        _pendingEdge = edge;
+      } else if (_pendingEdge === edge) {
+        _pendingEdge = null;
+      } else {
+        const nodeId = _placeNode('center');
+        if (nodeId !== null) {
+          const nodeEdges = _nodeEdges[nodeId] || [];
+          if (!nodeEdges.includes(_pendingEdge)) nodeEdges.push(_pendingEdge);
+          if (!nodeEdges.includes(edge))         nodeEdges.push(edge);
+          _nodeEdges[nodeId] = nodeEdges;
+        }
+        _pendingEdge = null;
       }
-      _pendingEdge = null;
-      _updateDslPreview();
     }
     _renderCanvas();
+    _updateDslPreview();
     return;
   }
 
@@ -895,7 +996,7 @@ function _placeNode(locStr) {
   }
 
   const type = _activeTool === 'offboard' ? 'offboard' : _activeTool;
-  const defaultPhase = (_bg === 'gray' || _bg === 'red') && (type === 'city' || type === 'offboard');
+  const defaultPhase = (type === 'offboard');  // offboard always starts in phase mode; cities/towns default off
   const node = {
     id:           _nextId(),
     type,
@@ -1001,8 +1102,13 @@ window.staticHexCode = function staticHexCode(hex) {
   const parts  = [];
   const exits  = hex.exits || [];
   const rot    = hex.rotation || 0;
-  const isPhase = hex.bg==='gray' || hex.bg==='red';
-  const noExits = exits.length===0;
+  // Phase revenue is node-driven (hex.activePhases set when any node has phaseMode).
+  // Color does not gate phase revenue — a gray map hex can have phase revenue too.
+  const isPhase = !!(hex.activePhases && Object.values(hex.activePhases).some(Boolean));
+  // noExits: true when no node has any connected edges (bypass-only or isolated node).
+  // Check exitPairs if available; fall back to full exits array for imported hexes.
+  const nodeExitCount = (hex.exitPairs || []).reduce((n, arr) => n + (arr||[]).length, 0);
+  const noExits = hex.exitPairs ? nodeExitCount === 0 : exits.length === 0;
 
   function phaseRevStr() {
     const pr = hex.phaseRevenue || {};
@@ -1055,35 +1161,50 @@ window.staticHexCode = function staticHexCode(hex) {
   }
 
   // ── Path directives ───────────────────────────────────────────────────────
-  if (!hex.feature || hex.feature==='none') {
-    // Blank hex: use stored blankPaths if available
-    (hex.blankPaths||[]).forEach(([a,b])=>parts.push(`path=a:${(a+rot)%6},b:${(b+rot)%6}`));
-  } else if (hex.feature==='oo'||hex.feature==='c') {
-    const ep = hex.exitPairs;
-    const [a0,a1] = (ep&&ep.length>=2) ? ep : [exits.slice(0,Math.ceil(exits.length/2)), exits.slice(Math.ceil(exits.length/2))];
-    (a0||[]).forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
-    (a1||[]).forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
-  } else if (hex.feature==='m') {
-    const ep = hex.exitPairs||[];
-    if (ep.length>=3) {
-      [0,1,2].forEach(i=>(ep[i]||[]).forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_${i}${termSuffix}`)));
-    } else {
-      exits.forEach((e,i)=>parts.push(`path=a:${(e+rot)%6},b:_${i%3}${termSuffix}`));
-    }
-  } else if (hex.feature==='dualTown') {
-    const ep = hex.exitPairs;
-    const [a0,a1] = (ep&&ep.length>=2&&(ep[0].length||ep[1].length)) ? ep : [exits.slice(0,Math.ceil(exits.length/2)),exits.slice(Math.ceil(exits.length/2))];
-    (a0||[]).forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
-    (a1||[]).forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
-  } else if (hex.feature==='city'&&hex.pathMode==='directed'&&(hex.pathPairs||[]).length) {
-    const paired={};
-    (hex.pathPairs||[]).forEach(([pa,pb])=>{
-      parts.push(`path=a:${(pa+rot)%6},b:${(pb+rot)%6}`);
-      paired[pa]=paired[pb]=true;
-    });
-    exits.forEach(e=>{ if(!paired[e]) parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`); });
+  //
+  // Two orthogonal path types — never derive one from the other:
+  //   Node stubs  → use exitPairs[i] (per-node edge lists), emit as path=a:X,b:_i
+  //   Bypass paths → use blankPaths ([[ea,eb],...]),       emit as path=a:X,b:Y
+  //
+  // exitPairs[i] is authoritative for which edges stub into node i.
+  // For imported hexes that lack exitPairs, fall back to exits÷nodes heuristic.
+  // blankPaths are ALWAYS emitted after node stubs for every feature type.
+  //
+  const ep   = hex.exitPairs || [];
+  const byp  = hex.blankPaths || [];
+  const emitBypass = () => byp.forEach(([a,b]) => parts.push(`path=a:${(a+rot)%6},b:${(b+rot)%6}`));
+
+  // Helper: get per-node exits, falling back to heuristic split of exits[] when
+  // exitPairs is absent (e.g. hexes imported from Ruby DSL before exitPairs was added).
+  function nodeExits(i, total) {
+    if (ep.length > i) return ep[i] || [];
+    // Fallback: split exits evenly across nodes
+    const chunk = Math.ceil(exits.length / total);
+    return exits.slice(i * chunk, (i + 1) * chunk);
+  }
+
+  if (!hex.feature || hex.feature === 'none') {
+    // Pure bypass hex — no nodes at all
+    emitBypass();
+
+  } else if (hex.feature === 'oo' || hex.feature === 'c') {
+    nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+    nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
+    emitBypass();
+
+  } else if (hex.feature === 'm') {
+    [0,1,2].forEach(i => nodeExits(i,3).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_${i}${termSuffix}`)));
+    emitBypass();
+
+  } else if (hex.feature === 'dualTown') {
+    nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+    nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
+    emitBypass();
+
   } else {
-    exits.forEach(e=>parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+    // city (single), town, offboard
+    nodeExits(0,1).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+    emitBypass();
   }
 
   if (hex.label) parts.push(`label=${hex.label}`);
