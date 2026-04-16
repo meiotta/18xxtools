@@ -974,10 +974,11 @@ function hexToSvgInner(hex, tileDef) {
       svg += `<path d="M ${hw} 37.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 37.5 L 0 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
     }
 
-  } else if (hex.pathPairs && hex.pathPairs.length > 0) {
-    // Pure edge-to-edge path hex (no nodes at all — pathMode==='pairs')
-    // dualTown hexes are now handled above via nodes[]; this branch handles only
-    // true no-feature track hexes (e.g. straight-through water crossing).
+  } else if ((hex.pathPairs && hex.pathPairs.length > 0) || (hex.blankPaths && hex.blankPaths.length > 0)) {
+    // Pure edge-to-edge path hex (no nodes at all).
+    // hex.pathPairs  — used by import-ruby.js for pairs-mode DSL hexes
+    // hex.blankPaths — used by static-hex-builder.js wizard for manually drawn blank paths
+    // Both carry [[ea,eb], …] arrays; we merge them so either source renders correctly.
     const drawSeg = (e1, e2) => {
       const p1 = ep(e1), p2 = ep(e2);
       const diff = Math.abs(e1 - e2);
@@ -988,7 +989,8 @@ function hexToSvgInner(hex, tileDef) {
         svg += `<path d="M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
       }
     };
-    for (const [ea, eb] of hex.pathPairs) drawSeg(ea, eb);
+    for (const [ea, eb] of (hex.pathPairs  || [])) drawSeg(ea, eb);
+    for (const [ea, eb] of (hex.blankPaths || [])) drawSeg(ea, eb);
   }
 
   // ── Stubs — drawn unconditionally, can appear on any hex ───────────────────
@@ -1080,8 +1082,9 @@ function buildHexSvg(r, c, hex) {
     // Tile / DSL geometry
     const hasDslContent = !hex?.tile && hex && (
       (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
-      (hex.exits  && hex.exits.length  > 0) ||
+      (hex.exits      && hex.exits.length      > 0) ||
       (hex.pathPairs  && hex.pathPairs.length  > 0) ||
+      (hex.blankPaths && hex.blankPaths.length > 0) ||
       (hex.exitPairs  && hex.exitPairs.length  > 0) ||
       (hex.label  && hex.label !== '')
     );
