@@ -1226,10 +1226,10 @@ function buildHexSvg(r, c, hex) {
           if (hasPhaseRev && i === 0) return;
 
           // Resolve revenue from whichever field the builder populated:
-          //   cities (all counts) → cityRevenues[i]  (legacy: ooFlatRevenues)
+          //   cities (all counts) → cityRevenues[i]
           //   dualTown           → townRevenues[i]
           //   single town        → townRevenue (index 0 only)
-          const rev = (hex.cityRevenues?.[i] ?? hex.ooFlatRevenues?.[i])
+          const rev = hex.cityRevenues?.[i]
                    ?? (hex.townRevenues?.[i])
                    ?? (i === 0 ? (hex.townRevenue ?? null) : null);
           if (!rev || rev === 0) return;
