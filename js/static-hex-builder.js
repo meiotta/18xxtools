@@ -118,8 +118,8 @@ let _nodes          = [];   // [{id, type, slots, locStr, revenue, phaseRevenue:
 let _nodeEdges      = {};   // {nodeId: [edge,...]}  edges connected to each node
 let _label          = '';
 let _selectedNodeId = null;
-let _pendingEdge    = null;
-let _activeTool     = 'track';
+let _pendingEdge    = null;   // edge index waiting for a second endpoint
+let _activeTool     = 'city'; // 'town'|'city'|'offboard'|'erase' — determines node type on snap drop
 let _uid            = 1;
 let _mousePos       = { x: 0, y: 0 };
 let _highlightSnap  = null;  // locStr of currently highlighted snap pos
@@ -139,7 +139,7 @@ function _reset(hexId) {
   _uid = 1;
   _selectedNodeId = null;
   _pendingEdge = null;
-  _activeTool = 'track';
+  _activeTool = 'city';
   _mousePos = { x: 0, y: 0 };
   _highlightSnap = null;
   _showManifest = false;
@@ -456,21 +456,24 @@ function _panelHtml() {
 }
 
 function _toolbarHtml() {
+  // Node type — determines what gets created when you drag an edge to an empty snap.
+  // No Track tool: edge→edge clicks create bypasses automatically.
+  // No "selected node then edge" model: click edge then click node/snap to connect.
   const showOff = (_bg === 'red');
   const tools = [
-    { id: 'track',    label: 'Track',    icon: '&#9135;' },
-    { id: 'town',     label: 'Town',     icon: '&#9670;' },
-    { id: 'city',     label: 'City',     icon: '&#9675;' },
-    ...(showOff ? [{ id: 'offboard', label: 'Offboard', icon: '&#10022;' }] : []),
-    { id: 'erase',    label: 'Erase',    icon: '&#10006;' },
+    { id: 'town',     label: 'Town',     icon: '&#9670;', title: 'Place towns (click edge then snap, or click snap directly)' },
+    { id: 'city',     label: 'City',     icon: '&#9675;', title: 'Place cities (click edge then snap, or click snap directly)' },
+    ...(showOff ? [{ id: 'offboard', label: 'Offboard', icon: '&#10022;', title: 'Place offboard revenue hex' }] : []),
+    { id: 'erase',    label: 'Erase',    icon: '&#10006;', title: 'Erase nodes and connections' },
   ];
   return `<div class="hb-section">
-    <div class="hb-section-label">Tool</div>
+    <div class="hb-section-label">Node Type</div>
     <div class="hb-toolbar" id="hbToolbar">
       ${tools.map(t => `
         <button class="hb-tool-btn${_activeTool === t.id ? ' active' : ''}"
-          data-tool="${t.id}" title="${t.label}">${t.icon} ${t.label}</button>`).join('')}
+          data-tool="${t.id}" title="${t.title}">${t.icon} ${t.label}</button>`).join('')}
     </div>
+    <div class="hb-hint">Click an edge, then: another edge (bypass), a node (connect), or empty space (place &amp; connect)</div>
   </div>`;
 }
 
@@ -500,7 +503,8 @@ function _nodeConfigHtml() {
         </div>`).join('')}
     </div></div>`;
 
-  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>`;
+  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>
+    <div class="hb-hint" style="margin-bottom:4px;">Click edge dots to connect/disconnect</div>`;
 
   if (isRedOrOff) {
     // Red / offboard: phase revenue always shown, no toggle
@@ -604,17 +608,22 @@ function _renderCanvas() {
     if (state && state.meta) state.meta.orientation = savedOrientation;
   }
 
-  // ── Snap targets for Town/City/Offboard tools ──────────────────────────────
-  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
+  // ── Snap targets ──────────────────────────────────────────────────────────
+  // Always show when a pending edge is set (any node type can be connected).
+  // Also show when in town/city/offboard mode for direct placement.
+  const showSnaps = (_pendingEdge !== null) || (_activeTool !== 'erase');
+  if (showSnaps) {
     for (const snap of SNAP_POSITIONS) {
-      // Don't show snap dot where a non-expandable node already sits
       const existing = _nodes.find(n => n.locStr === snap.locStr);
+      // Hide dot where node already sits (unless it's an expandable city)
       if (existing && !(existing.type === 'city' && (existing.slots || 1) < 4)) continue;
 
       const isHighlight = (_highlightSnap === snap.locStr);
-      const fill   = isHighlight ? '#ffd700' : 'rgba(200,200,200,0.25)';
-      const stroke = isHighlight ? '#ffd700' : 'rgba(200,200,200,0.5)';
-      s += `<circle cx="${snap.x.toFixed(1)}" cy="${snap.y.toFixed(1)}" r="7"
+      // Highlight more strongly when a pending edge is set (these are valid drop targets)
+      const isPendingTarget = _pendingEdge !== null;
+      const fill   = isHighlight ? '#ffd700' : (isPendingTarget ? 'rgba(255,215,0,0.15)' : 'rgba(200,200,200,0.15)');
+      const stroke = isHighlight ? '#ffd700' : (isPendingTarget ? 'rgba(255,215,0,0.4)'  : 'rgba(200,200,200,0.4)');
+      s += `<circle cx="${snap.x.toFixed(1)}" cy="${snap.y.toFixed(1)}" r="8"
                fill="${fill}" stroke="${stroke}" stroke-width="1.5"
                pointer-events="none"/>`;
     }
@@ -628,14 +637,22 @@ function _renderCanvas() {
   }
 
   // ── Edge circles (always visible) ─────────────────────────────────────────
+  // Color key: yellow = pending start, green = has a connection, dark = unconnected
+  // When a node is selected, its connected edges glow brighter green.
+  const selEdges = _selectedNodeId ? (_nodeEdges[_selectedNodeId] || []) : [];
   for (let e = 0; e < 6; e++) {
     const [ex, ey] = EMP[e];
-    const connected = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e)) ||
-                      _segments.some(seg => seg.ea === e || seg.eb === e);
+    const connectedToNode = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e));
+    const connectedSeg    = _segments.some(seg => seg.ea === e || seg.eb === e);
+    const isSelEdge  = selEdges.includes(e);
     const isPending  = (_pendingEdge === e);
-    const fill = isPending ? '#c8a000' : (connected ? '#2a6a1a' : '#333');
-    const stroke = isPending ? '#ffd700' : '#111';
-    const sw     = isPending ? 2.5 : 1.5;
+    const fill   = isPending  ? '#c8a000'
+                 : isSelEdge  ? '#3d9a2a'
+                 : connectedToNode ? '#2a6a1a'
+                 : connectedSeg    ? '#1a4a6a'
+                 : '#333';
+    const stroke = isPending ? '#ffd700' : isSelEdge ? '#7ddf60' : '#111';
+    const sw     = isPending ? 2.5 : isSelEdge ? 2 : 1.5;
 
     s += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="${EDGE_R}"
              fill="${fill}" stroke="${stroke}" stroke-width="${sw}"
@@ -861,8 +878,9 @@ function _onCanvasMouseMove(e) {
   _mousePos.x = e.clientX - rect.left;
   _mousePos.y = e.clientY - rect.top;
 
-  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
-    const snap = _nearestSnap(_mousePos.x, _mousePos.y);
+  // Highlight nearest snap whenever snaps are visible
+  if (_activeTool !== 'erase') {
+    const snap = _nearestSnapAt(_mousePos.x, _mousePos.y);
     const newHl = snap?.locStr || null;
     if (newHl !== _highlightSnap) {
       _highlightSnap = newHl;
@@ -871,107 +889,150 @@ function _onCanvasMouseMove(e) {
   }
 }
 
+// ── Unified canvas interaction ────────────────────────────────────────────────
+//
+// One model for all connections:
+//   1. Click an edge  → sets pending edge (glows yellow)
+//   2a. Click another edge → toggle bypass between the two edges
+//   2b. Click a node       → toggle stub from pending edge into that node
+//   2c. Click empty snap   → place node of current type + stub from pending edge
+//   2d. Click same edge    → cancel
+//
+// No tool switching required.  "Node Type" toolbar only determines what gets
+// created when you click an empty snap (town vs city).
+//
+// Erase: click edge → remove all connections through it; click node → remove node.
+
 function _onCanvasClick(e) {
   const rect = e.currentTarget.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
 
-  // Check if an edge circle was clicked
-  const clickedEdge = _edgeAtPoint(mx, my);
-  if (clickedEdge !== null) {
-    _handleEdgeClick(clickedEdge);
-    return;
-  }
-
-  if (_activeTool === 'track') {
-    // In track mode outside edges — cancel pending
-    if (_pendingEdge !== null) { _pendingEdge = null; _renderCanvas(); }
-    return;
-  }
-
-  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
-    const snap = _nearestSnap(mx, my);
-    if (snap) _handleNodePlacement(snap.locStr);
-    return;
-  }
-
   if (_activeTool === 'erase') {
-    _handleErase(mx, my);
+    const clickedEdge = _edgeAtPoint(mx, my);
+    if (clickedEdge !== null) {
+      _segments = _segments.filter(s => s.ea !== clickedEdge && s.eb !== clickedEdge);
+      _nodes.forEach(n => {
+        _nodeEdges[n.id] = (_nodeEdges[n.id] || []).filter(e => e !== clickedEdge);
+      });
+    } else {
+      _handleErase(mx, my);
+    }
+    _renderCanvas();
+    _updateDslPreview();
+    return;
   }
+
+  const clickedEdge = _edgeAtPoint(mx, my);
+
+  // ── Edge clicked ──────────────────────────────────────────────────────────
+  if (clickedEdge !== null) {
+    if (_pendingEdge === null) {
+      // First endpoint — set pending, deselect node config
+      _pendingEdge = clickedEdge;
+      _selectedNodeId = null;
+      _refreshNodeConfig();
+      _renderCanvas();
+    } else if (_pendingEdge === clickedEdge) {
+      // Same edge — cancel
+      _pendingEdge = null;
+      _renderCanvas();
+    } else {
+      // Second endpoint is another edge — toggle bypass
+      const ea = _pendingEdge, eb = clickedEdge;
+      _pendingEdge = null;
+      const xi = _segments.findIndex(s => (s.ea===ea&&s.eb===eb)||(s.ea===eb&&s.eb===ea));
+      if (xi >= 0) _segments.splice(xi, 1);
+      else _segments.push({ id: _nextId(), ea, eb });
+      _renderCanvas();
+      _updateDslPreview();
+    }
+    return;
+  }
+
+  // ── Node or snap clicked ──────────────────────────────────────────────────
+  const snap = _nearestSnapAt(mx, my);
+
+  if (_pendingEdge !== null) {
+    // Completing a connection to a node or snap
+    if (snap) {
+      const existing = _nodes.find(n => n.locStr === snap.locStr);
+      if (existing) {
+        // Toggle stub: pending edge ↔ existing node
+        const edges = _nodeEdges[existing.id] || [];
+        const idx = edges.indexOf(_pendingEdge);
+        if (idx >= 0) edges.splice(idx, 1);
+        else edges.push(_pendingEdge);
+        _nodeEdges[existing.id] = edges;
+        _selectedNodeId = existing.id;
+        _refreshNodeConfig();
+      } else {
+        // Create node at snap + connect pending edge
+        const nodeId = _placeNode(snap.locStr);
+        if (nodeId !== null) {
+          const edges = _nodeEdges[nodeId] || [];
+          if (!edges.includes(_pendingEdge)) edges.push(_pendingEdge);
+          _nodeEdges[nodeId] = edges;
+        }
+      }
+    }
+    // Whether we connected or not, clear pending
+    _pendingEdge = null;
+    _renderCanvas();
+    _updateDslPreview();
+    return;
+  }
+
+  // ── No pending: click snap to place/select/configure ─────────────────────
+  if (snap) {
+    const existing = _nodes.find(n => n.locStr === snap.locStr);
+    if (existing) {
+      if (_selectedNodeId === existing.id) {
+        // Re-click selected node: cycle city slots, deselect town
+        if (existing.type === 'city') {
+          existing.slots = ((existing.slots || 1) % 4) + 1;
+          _refreshNodeConfig();
+          _updateDslPreview();
+        } else {
+          _selectedNodeId = null;
+          _refreshNodeConfig();
+        }
+      } else {
+        _selectedNodeId = existing.id;
+        _refreshNodeConfig();
+      }
+      _renderCanvas();
+    } else {
+      // Empty snap — place new node (unconnected; connect edges after)
+      _placeNode(snap.locStr);
+    }
+    return;
+  }
+
+  // Click on empty canvas — deselect
+  _selectedNodeId = null;
+  _refreshNodeConfig();
+  _renderCanvas();
 }
 
 function _edgeAtPoint(mx, my) {
   for (let e = 0; e < 6; e++) {
     const [ex, ey] = EMP[e];
-    if (Math.hypot(mx - ex, my - ey) <= EDGE_R + 4) return e;
+    if (Math.hypot(mx - ex, my - ey) <= EDGE_R + 10) return e;  // generous hit area
   }
   return null;
 }
 
-function _handleEdgeClick(edge) {
-  if (_activeTool === 'track') {
-    if (_pendingEdge === null) {
-      _pendingEdge = edge;
-    } else if (_pendingEdge === edge) {
-      // Same edge twice — cancel
-      _pendingEdge = null;
-    } else {
-      // Create blank segment
-      const ea = _pendingEdge, eb = edge;
-      _pendingEdge = null;
-      if (!_segments.some(s => (s.ea === ea && s.eb === eb) || (s.ea === eb && s.eb === ea))) {
-        _segments.push({ id: _nextId(), ea, eb });
-      }
-      _updateDslPreview();
-    }
-    _renderCanvas();
-    return;
+// Returns the nearest snap if within SNAP_HIT_R of (mx,my), else null.
+// Unlike _nearestSnap(), this won't snap to faraway positions on misclicks.
+const SNAP_HIT_R = 30;
+function _nearestSnapAt(mx, my) {
+  let best = null, bestD = Infinity;
+  for (const snap of SNAP_POSITIONS) {
+    const d = Math.hypot(mx - snap.x, my - snap.y);
+    if (d < bestD && d <= SNAP_HIT_R) { bestD = d; best = snap; }
   }
-
-  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
-    if (_selectedNodeId !== null) {
-      // A node is selected — single-click toggles this edge's connection to it
-      const edges = _nodeEdges[_selectedNodeId] || [];
-      const idx = edges.indexOf(edge);
-      if (idx >= 0) {
-        edges.splice(idx, 1);   // disconnect
-      } else {
-        edges.push(edge);       // connect
-      }
-      _nodeEdges[_selectedNodeId] = edges;
-      _pendingEdge = null;
-    } else {
-      // No node selected yet — two-click shortcut: place a node at center
-      // connecting both clicked edges (quicker than clicking canvas + edges separately)
-      if (_pendingEdge === null) {
-        _pendingEdge = edge;
-      } else if (_pendingEdge === edge) {
-        _pendingEdge = null;
-      } else {
-        const nodeId = _placeNode('center');
-        if (nodeId !== null) {
-          const nodeEdges = _nodeEdges[nodeId] || [];
-          if (!nodeEdges.includes(_pendingEdge)) nodeEdges.push(_pendingEdge);
-          if (!nodeEdges.includes(edge))         nodeEdges.push(edge);
-          _nodeEdges[nodeId] = nodeEdges;
-        }
-        _pendingEdge = null;
-      }
-    }
-    _renderCanvas();
-    _updateDslPreview();
-    return;
-  }
-
-  if (_activeTool === 'erase') {
-    // Remove all connections through this edge
-    _segments = _segments.filter(s => s.ea !== edge && s.eb !== edge);
-    _nodes.forEach(n => {
-      _nodeEdges[n.id] = (_nodeEdges[n.id] || []).filter(e => e !== edge);
-    });
-    _renderCanvas();
-    _updateDslPreview();
-  }
+  return best;
 }
 
 function _placeNode(locStr) {
@@ -995,7 +1056,8 @@ function _placeNode(locStr) {
     }
   }
 
-  const type = _activeTool === 'offboard' ? 'offboard' : _activeTool;
+  const type = _activeTool === 'offboard' ? 'offboard'
+             : (_activeTool === 'town' ? 'town' : 'city');  // default city if somehow called in wrong mode
   const defaultPhase = (type === 'offboard');  // offboard always starts in phase mode; cities/towns default off
   const node = {
     id:           _nextId(),
@@ -1016,38 +1078,6 @@ function _placeNode(locStr) {
   return node.id;
 }
 
-function _handleNodePlacement(locStr) {
-  const existing = _nodes.find(n => n.locStr === locStr);
-
-  if (_pendingEdge !== null) {
-    // Connect pending edge to node at this locStr
-    let nodeId;
-    if (existing) {
-      nodeId = existing.id;
-    } else {
-      nodeId = _placeNode(locStr);
-    }
-    if (nodeId !== null) {
-      const edges = _nodeEdges[nodeId] || [];
-      if (!edges.includes(_pendingEdge)) edges.push(_pendingEdge);
-      _nodeEdges[nodeId] = edges;
-    }
-    _pendingEdge = null;
-    _renderCanvas();
-    _updateDslPreview();
-    return;
-  }
-
-  if (existing) {
-    // Select existing node for config
-    _selectedNodeId = existing.id;
-    _refreshNodeConfig();
-    _renderCanvas();
-    return;
-  }
-
-  _placeNode(locStr);
-}
 
 function _removeNode(nodeId) {
   _nodes = _nodes.filter(n => n.id !== nodeId);
@@ -1121,40 +1151,47 @@ window.staticHexCode = function staticHexCode(hex) {
     : (hex.terminal?',terminal:1':'');
 
   // ── Node directives ───────────────────────────────────────────────────────
+  // hex.nodes[i].locStr holds the snap position ('center', '0'–'5', '0.5'–'5.5').
+  // Emit loc:X whenever a node is not at center.
+  const savedNodes = hex.nodes || [];
+  function locAttr(i) {
+    const ls = savedNodes[i]?.locStr;
+    return (ls && ls !== 'center') ? `,loc:${ls}` : '';
+  }
+
   switch (hex.feature) {
     case 'town': {
       // Phase revenue for towns is unusual but valid in custom games
       const hasPhase = Object.keys(hex.phaseRevenue||{}).length && hex.activePhases?.yellow;
-      parts.push(`town=revenue:${noExits?0:(hasPhase?phaseRevStr():(hex.townRevenue??10))}`);
+      parts.push(`town=revenue:${noExits?0:(hasPhase?phaseRevStr():(hex.townRevenue??10))}${locAttr(0)}`);
       break;
     }
     case 'dualTown': {
       const [r0,r1] = hex.townRevenues||[10,10];
-      parts.push(`town=revenue:${noExits?0:r0}`);
-      parts.push(`town=revenue:${noExits?0:r1}`);
+      parts.push(`town=revenue:${noExits?0:r0}${locAttr(0)}`);
+      parts.push(`town=revenue:${noExits?0:r1}${locAttr(1)}`);
       break;
     }
     case 'offboard':
-      parts.push(`offboard=revenue:${isPhase?phaseRevStr():'0'}`);
+      parts.push(`offboard=revenue:${isPhase?phaseRevStr():'0'}${locAttr(0)}`);
       break;
     case 'oo':
     case 'c': {
       const revs = hex.ooFlatRevenues||[20,20];
       const sl   = hex.ooSlots||[1,1];
-      [0,1].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${sl[i]>1?`,slots:${sl[i]}`:''}`));
+      [0,1].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${sl[i]>1?`,slots:${sl[i]}`:''}${locAttr(i)}`));
       break;
     }
     case 'm': {
       const revs = hex.mFlatRevenues||[20,20,20];
-      [0,1,2].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}`));
+      [0,1,2].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${locAttr(i)}`));
       break;
     }
     case 'city': {
       const slots = hex.slots||1;
       const rev   = isPhase ? phaseRevStr() : (noExits?0:(hex.ooFlatRevenues?.[0]??20));
       const sl    = slots>1?`,slots:${slots}`:'';
-      const loc   = slots===3?',loc:1':'';
-      parts.push(`city=revenue:${rev}${sl}${loc}`);
+      parts.push(`city=revenue:${rev}${sl}${locAttr(0)}`);
       break;
     }
     default: break;
