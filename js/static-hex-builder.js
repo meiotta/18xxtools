@@ -1,12 +1,13 @@
-// ─── STATIC HEX BUILDER (Track-First Wizard) ──────────────────────────────────
-// 3-step modal: (1) background → (2) draw tracks & nodes → (3) label + finish
+// ─── STATIC HEX BUILDER ────────────────────────────────────────────────────────
+// Single-panel non-modal hex editor with live preview.
+// Replaces the 3-step wizard with a persistent overlay panel.
+//
 // Load order: SEVENTH — after context-menu.js
 //
-// Tracks drive topology. Nodes (cities/towns) live on tracks, not before them.
-//
 // Public API:
-//   window.openStaticHexWizard(hexId)
-//   window.staticHexCode(hex)  — generate map.rb DSL from saved hex model
+//   window.openHexBuilder(hexId)
+//   window.openStaticHexWizard(hexId)  — alias, kept for backward compatibility
+//   window.staticHexCode(hex)          — generate map.rb DSL from saved hex model
 
 (function () {
 'use strict';
@@ -16,147 +17,261 @@
 const PHASES       = ['yellow', 'green', 'brown', 'gray'];
 const PHASE_COLORS = { yellow:'#F0D070', green:'#71BF44', brown:'#CB7745', gray:'#BCBDC0' };
 
+// Color rail definitions (no "Blank" option)
 const BG_OPTS = [
-  { v:'',       label:'Blank',  hex:'#1e1e1e', border:'#555'    },
-  { v:'white',  label:'White',  hex:'#D4B483', border:'#bba060' },
-  { v:'yellow', label:'Yellow', hex:'#F0D070', border:'#c8a800' },
-  { v:'green',  label:'Green',  hex:'#71BF44', border:'#3a8a1a' },
-  { v:'brown',  label:'Brown',  hex:'#CB7745', border:'#8a4010' },
-  { v:'gray',   label:'Gray',   hex:'#BCBDC0', border:'#888'    },
-  { v:'red',    label:'Red',    hex:'#E05050', border:'#900'    },
-  { v:'blue',   label:'Blue',   hex:'#4080c0', border:'#205090' },
+  { v:'white',  label:'White',  hex:'#D4B483', border:'#bba060', title:'White — upgrades to Yellow'  },
+  { v:'yellow', label:'Yellow', hex:'#F0D070', border:'#c8a800', title:'Yellow — upgrades to Green'  },
+  { v:'green',  label:'Green',  hex:'#71BF44', border:'#3a8a1a', title:'Green — upgrades to Brown'   },
+  { v:'brown',  label:'Brown',  hex:'#CB7745', border:'#8a4010', title:'Brown — fully upgraded'      },
+  { v:'gray',   label:'Gray',   hex:'#BCBDC0', border:'#888',    title:'Gray — cannot be upgraded'   },
+  { v:'red',    label:'Red',    hex:'#E05050', border:'#900',    title:'Red — cannot be upgraded'    },
+  { v:'blue',   label:'Blue',   hex:'#4080c0', border:'#205090', title:'Blue — water hex'            },
 ];
 
-// Canvas — flat-top hex matching existing wizard edge numbering:
-//   0=lower-right  1=bottom  2=lower-left  3=upper-left  4=top  5=upper-right
-const SC  = 1.56;
-const OR  = 50   * SC;   // outer (circum) radius ≈ 78
-const IR  = 43.3 * SC;   // inner (in)     radius ≈ 67.5
-const CW  = 200, CH = 210;
-const CCX = 100, CCY = 102;
+// Canvas geometry — flat-top hex, 280×300 canvas
+const CW  = 280, CH  = 300;
+const CCX = 140, CCY = 150;
+const SC  = 2.2;           // scale: tile 50-unit space → canvas pixels
+const OR  = 50   * SC;     // outer (circum) radius
+const IR  = 43.3 * SC;     // inner (apothem)
 
-// Edge midpoints (absolute canvas coords)
+// Edge midpoints in canvas space (absolute).
+// Tile-space vectors: EDGE_MIDPOINTS from constants.js, scaled by SC, offset by center.
 const EMP = [
-  [CCX+37.5*SC, CCY+21.65*SC],
-  [CCX,         CCY+43.3*SC ],
-  [CCX-37.5*SC, CCY+21.65*SC],
-  [CCX-37.5*SC, CCY-21.65*SC],
-  [CCX,         CCY-43.3*SC ],
-  [CCX+37.5*SC, CCY-21.65*SC],
+  [CCX + 37.5 * SC,  CCY + 21.65 * SC],  // 0 lower-right
+  [CCX,              CCY + 43.3  * SC],  // 1 bottom
+  [CCX - 37.5 * SC,  CCY + 21.65 * SC],  // 2 lower-left
+  [CCX - 37.5 * SC,  CCY - 21.65 * SC],  // 3 upper-left
+  [CCX,              CCY - 43.3  * SC],  // 4 top
+  [CCX + 37.5 * SC,  CCY - 21.65 * SC],  // 5 upper-right
 ];
 
-// Unit direction from center → each edge (for node positioning)
-const EDIR = EMP.map(([x,y]) => {
-  const dx = x-CCX, dy = y-CCY, len = Math.hypot(dx,dy);
-  return [dx/len, dy/len];
-});
-
-// Hex corners
+// Flat-top hex corners
 const CORNERS = [
-  [CCX+OR,    CCY      ], [CCX+OR/2,  CCY+IR   ],
-  [CCX-OR/2,  CCY+IR   ], [CCX-OR,    CCY      ],
-  [CCX-OR/2,  CCY-IR   ], [CCX+OR/2,  CCY-IR   ],
+  [CCX + OR,      CCY       ],
+  [CCX + OR / 2,  CCY + IR  ],
+  [CCX - OR / 2,  CCY + IR  ],
+  [CCX - OR,      CCY       ],
+  [CCX - OR / 2,  CCY - IR  ],
+  [CCX + OR / 2,  CCY - IR  ],
 ];
 
-const EDGE_R   = 12;               // edge circle radius (label inside)
-const NODE_R   = 13;               // city circle radius
-const TOWN_SZ  = 11;               // town square half-size
-const NODE_D   = IR * 0.52;        // multi-node offset from center
+const EDGE_R = 14;   // edge circle radius
 
-// ── Wizard state ──────────────────────────────────────────────────────────────
+// Snap positions for node placement (canvas space, relative to canvas origin)
+// Center loc
+const SNAP_CENTER = { locStr: 'center', x: CCX, y: CCY };
+// Integer locs 0-5 and half locs 0.5-5.5
+function _snapPositions() {
+  const positions = [SNAP_CENTER];
+  const offsets = [];
+  for (let n = 0; n < 6; n++) offsets.push(n);
+  for (let n = 0; n < 6; n++) offsets.push(n + 0.5);
+  for (const n of offsets) {
+    const a  = n * Math.PI / 3;
+    const cx = CCX + (-Math.sin(a) * 25 * SC);
+    const cy = CCY + ( Math.cos(a) * 25 * SC);
+    positions.push({ locStr: String(n), x: cx, y: cy });
+  }
+  return positions;
+}
+const SNAP_POSITIONS = _snapPositions();
 
-let _hexId     = null;
-let _step      = 1;
-let _bg        = '';
-let _nodes     = [];      // [{id, type, slots, revenue, phaseRevenue, terminal}]
-let _eePaths   = [];      // [{id, ea, eb}] blank edge-to-edge tracks
-let _nodeLinks = [];      // [{id, edge, nodeId}]
-let _label     = '';
-let _uid       = 1;
+// ── Internal state ────────────────────────────────────────────────────────────
 
-let _pendingEdge  = null; // first edge selected, waiting for second
-let _editNodeId   = null; // node chip open for editing
-let _pickerEdges  = null; // {ea, eb|null} — type picker is showing
+let _hexId          = null;
+let _bg             = 'white';
+let _segments       = [];   // [{id, ea, eb}]  blank edge-to-edge paths
+let _nodes          = [];   // [{id, type, slots, locStr, revenue, phaseRevenue:{y,g,br,gr}, terminal, phaseMode}]
+let _nodeEdges      = {};   // {nodeId: [edge,...]}  edges connected to each node
+let _label          = '';
+let _selectedNodeId = null;
+let _pendingEdge    = null;
+let _activeTool     = 'track';
+let _uid            = 1;
+let _mousePos       = { x: 0, y: 0 };
+let _highlightSnap  = null;  // locStr of currently highlighted snap pos
+let _showManifest   = false;
+let _manifestId     = '';
+let _manifestCount  = 1;
 
-function _id() { return _uid++; }
+function _nextId() { return _uid++; }
 
 function _reset(hexId) {
-  _hexId=hexId; _step=1; _bg=''; _nodes=[]; _eePaths=[];
-  _nodeLinks=[]; _label=''; _uid=1;
-  _pendingEdge=null; _editNodeId=null; _pickerEdges=null;
-  const h = (state.hexes||{})[hexId];
-  if (h && h.static) { _bg=h.bg||''; _label=h.label||''; }
+  _hexId = hexId;
+  _bg = 'white';
+  _segments = [];
+  _nodes = [];
+  _nodeEdges = {};
+  _label = '';
+  _uid = 1;
+  _selectedNodeId = null;
+  _pendingEdge = null;
+  _activeTool = 'track';
+  _mousePos = { x: 0, y: 0 };
+  _highlightSnap = null;
+  _showManifest = false;
+  _manifestId = '';
+  _manifestCount = 1;
+
+  // Load existing static hex data if present
+  const h = (state.hexes || {})[hexId];
+  if (h && h.static) {
+    _bg    = h.bg    || 'white';
+    _label = h.label || '';
+    // Re-hydrate nodes and segments from saved model
+    _loadFromModel(h);
+  }
 }
 
-// ── Open / close ──────────────────────────────────────────────────────────────
+// Re-hydrate internal state from a saved model (best-effort)
+function _loadFromModel(h) {
+  // Restore nodes from feature + exits + exitPairs
+  const feature  = h.feature || 'none';
+  const exitPairs = h.exitPairs || [];
 
-window.openStaticHexWizard = function (hexId) {
-  _reset(hexId);
-  document.getElementById('staticHexWizard').style.display = 'flex';
-  _renderWiz();
-};
+  if (feature === 'town' || feature === 'dualTown') {
+    const revs = feature === 'dualTown' ? (h.townRevenues || [10, 10]) : [h.townRevenue || 10];
+    const exits = h.exits || [];
+    const pairs = exitPairs.length ? exitPairs : [exits];
+    revs.forEach((rev, i) => {
+      const nodeId = _nextId();
+      const edges  = pairs[i] || [];
+      _nodes.push({ id: nodeId, type: 'town', slots: 1, locStr: 'center', revenue: rev, phaseRevenue: { yellow: 20, green: 30, brown: 40, gray: 60 }, terminal: false, phaseMode: false });
+      _nodeEdges[nodeId] = edges;
+    });
+  } else if (feature === 'city' || feature === 'oo' || feature === 'm') {
+    const revs  = h.ooFlatRevenues || h.mFlatRevenues || [];
+    const slots = feature === 'city' ? [h.slots || 1] : (h.ooSlots || [1, 1]);
+    const count = feature === 'm' ? 3 : (feature === 'oo' ? 2 : 1);
+    const pairs = exitPairs.length ? exitPairs : [];
+    for (let i = 0; i < count; i++) {
+      const nodeId = _nextId();
+      const edges  = pairs[i] || [];
+      const rev    = revs[i] || 20;
+      _nodes.push({ id: nodeId, type: 'city', slots: slots[i] || 1, locStr: 'center', revenue: rev, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: h.terminal || false, phaseMode: (_bg === 'gray' || _bg === 'red') });
+      _nodeEdges[nodeId] = edges;
+    }
+  } else if (feature === 'offboard') {
+    const nodeId = _nextId();
+    _nodes.push({ id: nodeId, type: 'offboard', slots: 1, locStr: 'center', revenue: 0, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: true, phaseMode: true });
+    _nodeEdges[nodeId] = h.exits || [];
+  }
 
-function _closeWiz() {
-  document.getElementById('staticHexWizard').style.display = 'none';
+  // Restore blank segments
+  (h.blankPaths || []).forEach(([ea, eb]) => {
+    _segments.push({ id: _nextId(), ea, eb });
+  });
 }
 
-// ── Save model ────────────────────────────────────────────────────────────────
+// ── DSL hex conversion (for hexToSvgInner + save) ─────────────────────────────
 
-function _buildModel() {
-  const cityNodes = _nodes.filter(n => n.type==='city');
-  const townNodes = _nodes.filter(n => n.type==='town');
-  const offNodes  = _nodes.filter(n => n.type==='offboard');
+function _toDslHex() {
+  // Build nodes[] and paths[] that hexToSvgInner understands
+  const nodes = _nodes.map(n => ({
+    type:   n.type === 'offboard' ? 'city' : n.type,
+    slots:  n.slots  || 1,
+    locStr: n.locStr || 'center',
+  }));
+
+  const paths = [];
+
+  // Edge-to-node paths
+  _nodes.forEach((node, ni) => {
+    const edges = _nodeEdges[node.id] || [];
+    edges.forEach(edge => {
+      paths.push({ a: { type: 'edge', e: edge }, b: { type: 'node', n: ni }, terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
+    });
+  });
+
+  // Blank edge-to-edge segments become paths too
+  _segments.forEach(seg => {
+    paths.push({ a: { type: 'edge', e: seg.ea }, b: { type: 'edge', e: seg.eb } });
+  });
+
+  // Compute exits: union of all edge endpoints
+  const exitSet = new Set();
+  _nodes.forEach(node => {
+    (_nodeEdges[node.id] || []).forEach(e => exitSet.add(e));
+  });
+  _segments.forEach(seg => { exitSet.add(seg.ea); exitSet.add(seg.eb); });
+  const exits = Array.from(exitSet).sort((a, b) => a - b);
+
+  // blankPaths for DSL
+  const blankPaths = _segments.map(s => [s.ea, s.eb]);
+
+  // Derive feature
+  const cityNodes    = _nodes.filter(n => n.type === 'city');
+  const townNodes    = _nodes.filter(n => n.type === 'town');
+  const offNodes     = _nodes.filter(n => n.type === 'offboard');
+  let feature = 'none';
+  if      (offNodes.length)           feature = 'offboard';
+  else if (cityNodes.length >= 3)     feature = 'm';
+  else if (cityNodes.length === 2)    feature = 'oo';
+  else if (cityNodes.length === 1)    feature = 'city';
+  else if (townNodes.length >= 2)     feature = 'dualTown';
+  else if (townNodes.length === 1)    feature = 'town';
+
+  return { nodes, paths, exits, blankPaths, feature, bg: _bg };
+}
+
+// ── Final model builder ───────────────────────────────────────────────────────
+
+function _buildFinalModel() {
+  const cityNodes = _nodes.filter(n => n.type === 'city');
+  const townNodes = _nodes.filter(n => n.type === 'town');
+  const offNodes  = _nodes.filter(n => n.type === 'offboard');
 
   let feature = 'none';
-  if      (offNodes.length)          feature = 'offboard';
-  else if (cityNodes.length >= 3)    feature = 'm';
-  else if (cityNodes.length === 2)   feature = 'oo';
-  else if (cityNodes.length === 1)   feature = 'city';
-  else if (townNodes.length >= 2)    feature = 'dualTown';
-  else if (townNodes.length === 1)   feature = 'town';
+  if      (offNodes.length)         feature = 'offboard';
+  else if (cityNodes.length >= 3)   feature = 'm';
+  else if (cityNodes.length === 2)  feature = 'oo';
+  else if (cityNodes.length === 1)  feature = 'city';
+  else if (townNodes.length >= 2)   feature = 'dualTown';
+  else if (townNodes.length === 1)  feature = 'town';
 
   const exitSet = new Set();
-  _nodeLinks.forEach(l => exitSet.add(l.edge));
-  _eePaths.forEach(p => { exitSet.add(p.ea); exitSet.add(p.eb); });
-  const exits = Array.from(exitSet).sort((a,b)=>a-b);
+  _nodes.forEach(node => (_nodeEdges[node.id] || []).forEach(e => exitSet.add(e)));
+  _segments.forEach(s => { exitSet.add(s.ea); exitSet.add(s.eb); });
+  const exits = Array.from(exitSet).sort((a, b) => a - b);
 
+  // exitPairs: for multi-node tiles, each node's connected edges
   const exitPairs = _nodes.length > 1
-    ? _nodes.map(n => _nodeLinks.filter(l=>l.nodeId===n.id).map(l=>l.edge))
+    ? _nodes.map(n => _nodeEdges[n.id] || [])
     : undefined;
 
   const p0 = _nodes[0];
 
-  // Phase revenue: auto for cities/offboards on gray/red; towns only if opted in via phaseMode.
-  const usesPhaseRev = (_bg==='gray'||_bg==='red') && (
-    feature==='city' || feature==='offboard' ||
-    (feature==='town' && (townNodes[0]?.phaseMode || false)) ||
-    (feature==='dualTown' && townNodes.some(t=>t.phaseMode))
+  const usesPhaseRev = (_bg === 'gray' || _bg === 'red') && (
+    feature === 'city' || feature === 'offboard' ||
+    (feature === 'town'     && (townNodes[0]?.phaseMode || false)) ||
+    (feature === 'dualTown' && townNodes.some(t => t.phaseMode))
   );
   const phaseRevenue = usesPhaseRev
-    ? (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length ? {...p0.phaseRevenue} : {yellow:20,green:30,brown:40,gray:60})
+    ? (p0?.phaseRevenue && Object.keys(p0.phaseRevenue).length ? { ...p0.phaseRevenue } : { yellow: 20, green: 30, brown: 40, gray: 60 })
     : {};
   const activePhases = usesPhaseRev
-    ? {yellow:true,green:true,brown:true,gray:true}
+    ? { yellow: true, green: true, brown: true, gray: true }
     : {};
 
   return {
     static:         true,
     bg:             _bg,
     feature,
-    slots:          cityNodes.length===1 ? (cityNodes[0].slots||1) : undefined,
-    ooSlots:        cityNodes.length>=2  ? cityNodes.map(c=>c.slots||1) : undefined,
+    slots:          cityNodes.length === 1 ? (cityNodes[0].slots || 1) : undefined,
+    ooSlots:        cityNodes.length >= 2  ? cityNodes.map(c => c.slots || 1) : undefined,
     exits,
     exitPairs,
-    blankPaths:     _eePaths.map(p=>[p.ea,p.eb]),
+    blankPaths:     _segments.map(s => [s.ea, s.eb]),
     rotation:       0,
     terminal:       p0?.terminal || false,
     taperStyle:     1,
     pathMode:       'star',
     pathPairs:      [],
     townRevenue:    townNodes[0]?.revenue ?? 10,
-    townRevenues:   townNodes.map(t=>t.revenue||10),
-    ooFlatRevenues: cityNodes.map(c=>c.revenue||20),
-    mFlatRevenues:  cityNodes.map(c=>c.revenue||20),
+    townRevenues:   townNodes.map(t => t.revenue || 10),
+    ooFlatRevenues: cityNodes.map(c => c.revenue || 20),
+    mFlatRevenues:  cityNodes.map(c => c.revenue || 20),
     phaseRevenue,
     activePhases,
     label:          _label,
@@ -164,369 +279,722 @@ function _buildModel() {
   };
 }
 
+// ── Save ──────────────────────────────────────────────────────────────────────
+
 function _save() {
   if (!_hexId) return;
+  const model = _buildFinalModel();
   ensureHex(_hexId);
-  Object.assign(state.hexes[_hexId], _buildModel());
+  Object.assign(state.hexes[_hexId], model);
   if (typeof updateHexPanel === 'function') updateHexPanel(_hexId);
   render();
   autosave();
-  _closeWiz();
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
+// ── Open / close ──────────────────────────────────────────────────────────────
 
-function _renderWiz() {
-  document.querySelectorAll('.shw-step-dot').forEach((d,i) => {
-    d.classList.toggle('active', i===_step-1);
-    d.classList.toggle('done',   i<_step-1);
-  });
-  const lbl = document.getElementById('shwStepLabel');
-  if (lbl) lbl.textContent = `Step ${_step} of 3`;
+window.openHexBuilder = function (hexId) {
+  _reset(hexId);
+  const el = document.getElementById('hexBuilder');
+  if (el) { el.style.display = 'flex'; }
+  _buildPanel();
+};
 
-  const body    = document.getElementById('shwBody');
-  const btnBack = document.getElementById('shwBtnBack');
-  const btnNext = document.getElementById('shwBtnNext');
+// Backward-compatibility alias
+window.openStaticHexWizard = window.openHexBuilder;
 
-  btnBack.disabled    = (_step===1);
-  btnNext.textContent = _step===3 ? 'Finish ✓' : 'Next →';
-
-  btnBack.onclick = () => { if (_step>1) { _step--; _pendingEdge=null; _pickerEdges=null; _renderWiz(); } };
-  btnNext.onclick = () => { if (_step<3) { _step++; _renderWiz(); } else _save(); };
-  document.getElementById('shwBtnCancel').onclick = _closeWiz;
-
-  if      (_step===1) { body.innerHTML=_html1(); _bindStep1(body); }
-  else if (_step===2) { body.innerHTML=_html2(); _bind2(); if(_editNodeId!==null) _renderNodeEdit(_editNodeId); }
-  else                { body.innerHTML=_html3(); }
+function _close() {
+  const el = document.getElementById('hexBuilder');
+  if (el) el.style.display = 'none';
 }
 
-// ── Step 1: Background ────────────────────────────────────────────────────────
+// ── Next manifest ID helper ───────────────────────────────────────────────────
 
-function _html1() {
-  const swatches = BG_OPTS.map(o => {
-    const sel = _bg===o.v;
-    return `<div class="shw-swatch${sel?' selected':''}"
-      style="background:${o.hex};border-color:${sel?'#ffd700':o.border};"
-      data-bg="${o.v}"><span>${o.label}</span></div>`;
-  }).join('');
-  return `<div class="shw-title">Hex Background</div><div class="shw-bg-grid">${swatches}</div>`;
+function _nextManifestId() {
+  const ct = state.customTiles || {};
+  let max = 0;
+  for (const key of Object.keys(ct)) {
+    const m = key.match(/^ch(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return 'ch' + String(max + 1).padStart(2, '0');
 }
 
-function _bindStep1(body) {
-  body.querySelectorAll('.shw-swatch').forEach(sw => {
-    sw.addEventListener('click', () => {
-      _bg = sw.dataset.bg;
-      body.querySelectorAll('.shw-swatch').forEach(s => {
-        const isNow = s.dataset.bg===_bg;
-        s.classList.toggle('selected', isNow);
-        const opt = BG_OPTS.find(o=>o.v===s.dataset.bg);
-        s.style.borderColor = isNow ? '#ffd700' : (opt?.border||'#555');
-      });
-    });
-  });
+// ── Panel builder ─────────────────────────────────────────────────────────────
+
+function _buildPanel() {
+  const panel = document.getElementById('hbPanel');
+  if (!panel) return;
+
+  panel.innerHTML = _panelHtml();
+  _bindPanel();
+  _renderCanvas();
+  _updateDslPreview();
 }
 
-// ── Step 2: Draw tracks ───────────────────────────────────────────────────────
+function _bgHexColor() {
+  return BG_OPTS.find(o => o.v === _bg)?.hex || '#D4B483';
+}
 
-function _html2() {
+function _panelHtml() {
+  const hexLabel = _hexId ? `[${_hexId}]` : '';
   return `
-    <div class="shw-title">Draw Tracks</div>
-    <div style="text-align:center;">${_svgCanvas()}</div>
-    <div id="shwInstr" class="shw-subtitle" style="text-align:center;min-height:16px;margin-top:5px;">${_instrHtml()}</div>
-    <div id="shwPicker">${_pickerHtml()}</div>
-    <div id="shwChips" style="margin-top:8px;">${_chipsHtml()}</div>
-    <div id="shwNodeEdit" style="margin-top:4px;"></div>`;
-}
-
-function _instrHtml() {
-  if (_pickerEdges) return '';
-  if (_pendingEdge!==null) return `Edge <b>${_pendingEdge}</b> selected — click another edge or a node`;
-  return 'Click an edge to start a track';
-}
-
-function _bgHexColor() { return BG_OPTS.find(o=>o.v===_bg)?.hex||'#2a2a2a'; }
-
-function _nodePos(nodeId) {
-  const links = _nodeLinks.filter(l=>l.nodeId===nodeId);
-  if (_nodes.length<=1 || links.length===0) return [CCX, CCY];
-  let dx=0, dy=0;
-  links.forEach(l => { dx+=EDIR[l.edge][0]; dy+=EDIR[l.edge][1]; });
-  const len = Math.hypot(dx,dy)||1;
-  return [CCX+(dx/len)*NODE_D, CCY+(dy/len)*NODE_D];
-}
-
-function _svgCanvas() {
-  const cornerPts = CORNERS.map(([x,y])=>`${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  let s = `<svg id="shwCanvas" width="${CW}" height="${CH}" viewBox="0 0 ${CW} ${CH}" style="cursor:pointer;display:inline-block;user-select:none;">`;
-  s += `<polygon points="${cornerPts}" fill="${_bgHexColor()}" stroke="#888" stroke-width="1.5"/>`;
-
-  // Blank edge-to-edge tracks
-  _eePaths.forEach(ep => {
-    const [ax,ay]=EMP[ep.ea], [bx,by]=EMP[ep.eb];
-    s += `<line x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" stroke="#ddd" stroke-width="6" stroke-linecap="round" pointer-events="none"/>`;
-  });
-
-  // Tracks from edges to nodes
-  _nodes.forEach(n => {
-    const [nx,ny] = _nodePos(n.id);
-    _nodeLinks.filter(l=>l.nodeId===n.id).forEach(l => {
-      const [ex,ey]=EMP[l.edge];
-      s += `<line x1="${ex.toFixed(1)}" y1="${ey.toFixed(1)}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="#ddd" stroke-width="6" stroke-linecap="round" pointer-events="none"/>`;
-    });
-  });
-
-  // Node shapes
-  _nodes.forEach(n => {
-    const [nx,ny] = _nodePos(n.id);
-    const isEd    = _editNodeId===n.id;
-    const stroke  = isEd ? '#ffd700' : '#333';
-    const sw      = isEd ? 2.5 : 2;
-    if (n.type==='town') {
-      s += `<rect x="${(nx-TOWN_SZ).toFixed(1)}" y="${(ny-TOWN_SZ).toFixed(1)}" width="${TOWN_SZ*2}" height="${TOWN_SZ*2}" fill="white" stroke="${stroke}" stroke-width="${sw}" data-nid="${n.id}" style="cursor:pointer;"/>`;
-    } else {
-      s += `<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="${NODE_R}" fill="white" stroke="${stroke}" stroke-width="${sw}" data-nid="${n.id}" style="cursor:pointer;"/>`;
-      const slots = Math.min(n.slots||1, 4);
-      if (slots>1) {
-        for (let k=0; k<slots; k++) {
-          const a=(k/slots)*Math.PI*2-Math.PI/2, dr=NODE_R*0.52;
-          s += `<circle cx="${(nx+Math.cos(a)*dr).toFixed(1)}" cy="${(ny+Math.sin(a)*dr).toFixed(1)}" r="2.5" fill="#555" pointer-events="none"/>`;
-        }
-      }
-    }
-  });
-
-  // Pending edge glow
-  if (_pendingEdge!==null) {
-    const [px,py]=EMP[_pendingEdge];
-    s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${EDGE_R+5}" fill="#ffd700" opacity="0.3" pointer-events="none"/>`;
-  }
-
-  // Edge circles with number labels inside
-  for (let e=0; e<6; e++) {
-    const [ex,ey] = EMP[e];
-    const used = _nodeLinks.some(l=>l.edge===e)||_eePaths.some(p=>p.ea===e||p.eb===e);
-    const fill = used ? '#3a7a2a' : (_pendingEdge===e ? '#c8a000' : '#444');
-    s += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="${EDGE_R}" fill="${fill}" stroke="#111" stroke-width="1.5" data-edge="${e}" style="cursor:pointer;"/>`;
-    s += `<text x="${ex.toFixed(1)}" y="${(ey+4).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="bold" fill="white" pointer-events="none">${e}</text>`;
-  }
-
-  s += '</svg>';
-  return s;
-}
-
-function _pickerHtml() {
-  if (!_pickerEdges) return '';
-  const {ea,eb} = _pickerEdges;
-  const isStub = eb===null;
-  const show0  = _bg==='red'||_bg==='gray';
-  return `<div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:10px 12px;margin-top:6px;">
-    <div class="shw-subtitle" style="margin-bottom:8px;">${isStub?`Stub at edge <b>${ea}</b>:`:`Track edge <b>${ea}</b> ↔ <b>${eb}</b>:`}</div>
-    <div style="display:flex;gap:7px;flex-wrap:wrap;">
-      ${!isStub?'<button class="shw-btn-sec" id="shwPkBlank">── Blank</button>':''}
-      <button class="shw-btn-sec" id="shwPkTown">◇ Town</button>
-      <button class="shw-btn-sec" id="shwPkCity">○ City</button>
-      ${show0?'<button class="shw-btn-sec" id="shwPkOff">✦ Offboard</button>':''}
+    <div class="hb-titlebar">
+      <span class="hb-title">Hex Builder <span class="hb-hexid">${hexLabel}</span></span>
+      <button class="hb-close" id="hbClose" title="Close">&#x2715;</button>
     </div>
-    <button class="shw-btn-cancel" style="margin-top:8px;font-size:11px;padding:4px 10px;" id="shwPkCancel">Cancel</button>
+
+    <div class="hb-color-rail" id="hbColorRail">
+      ${BG_OPTS.map(o => `
+        <button class="hb-color-btn${_bg === o.v ? ' active' : ''}"
+          style="background:${o.hex};border-color:${_bg === o.v ? '#ffd700' : 'transparent'};"
+          data-bg="${o.v}" title="${o.title}">
+          <span class="hb-color-label">${o.label}</span>
+        </button>`).join('')}
+    </div>
+
+    <div class="hb-main">
+      <div class="hb-canvas-col">
+        <svg id="hbCanvas" width="${CW}" height="${CH}" viewBox="0 0 ${CW} ${CH}"
+             style="cursor:crosshair;user-select:none;display:block;"></svg>
+      </div>
+
+      <div class="hb-right-col">
+        ${_toolbarHtml()}
+        <div id="hbNodeConfig" class="hb-section">
+          ${_nodeConfigHtml()}
+        </div>
+        <div class="hb-section">
+          <div class="hb-section-label">Label</div>
+          <input type="text" id="hbLabelInput" class="hb-text-input" value="${_esc(_label)}"
+                 placeholder="e.g. P, OO, NY" autocomplete="off" maxlength="8">
+        </div>
+      </div>
+    </div>
+
+    <div class="hb-dsl-row">
+      <pre id="hbDslPreview" class="hb-dsl-pre"></pre>
+    </div>
+
+    <div class="hb-footer">
+      <button class="hb-btn-cancel" id="hbBtnCancel">Cancel</button>
+      <div class="hb-footer-right">
+        <button class="hb-btn-primary" id="hbBtnPlace">Place</button>
+        <div class="hb-dropdown-wrap">
+          <button class="hb-btn-dropdown" id="hbBtnDropdown" title="More options">&#9660;</button>
+          <div class="hb-dropdown-menu" id="hbDropdownMenu" style="display:none;">
+            <button class="hb-dropdown-item" id="hbMenuManifest">Place &amp; Save to Manifest</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="hbManifestForm" class="hb-manifest-form" style="display:none;">
+      ${_manifestFormHtml()}
+    </div>`;
+}
+
+function _toolbarHtml() {
+  const showOff = (_bg === 'red' || _bg === 'gray');
+  const tools = [
+    { id: 'track',    label: 'Track',    icon: '&#9135;' },
+    { id: 'town',     label: 'Town',     icon: '&#9670;' },
+    { id: 'city',     label: 'City',     icon: '&#9675;' },
+    ...(showOff ? [{ id: 'offboard', label: 'Offboard', icon: '&#10022;' }] : []),
+    { id: 'erase',    label: 'Erase',    icon: '&#10006;' },
+  ];
+  return `<div class="hb-section">
+    <div class="hb-section-label">Tool</div>
+    <div class="hb-toolbar" id="hbToolbar">
+      ${tools.map(t => `
+        <button class="hb-tool-btn${_activeTool === t.id ? ' active' : ''}"
+          data-tool="${t.id}" title="${t.label}">${t.icon} ${t.label}</button>`).join('')}
+    </div>
   </div>`;
 }
 
-function _chipsHtml() {
-  if (!_nodes.length && !_eePaths.length)
-    return '<div style="text-align:center;color:#555;font-size:11px;padding:4px 0;">No tracks yet — click two edge points above</div>';
-  let h = '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
-  _eePaths.forEach(ep => {
-    h += `<div class="shw-chip">── ${ep.ea}↔${ep.eb}<button class="shw-chip-x" data-dep="${ep.id}">×</button></div>`;
-  });
-  _nodes.forEach(n => {
-    const edges = _nodeLinks.filter(l=>l.nodeId===n.id).map(l=>l.edge).join(',');
-    const icon  = n.type==='town'?'◇':n.type==='offboard'?'✦':'○';
-    const sinfo = n.type==='city'&&(n.slots||1)>1 ? ` ${n.slots}-slot` : '';
-    const rev   = n.type!=='offboard' ? ` ${n.revenue||0}` : '';
-    const sel   = _editNodeId===n.id;
-    h += `<div class="shw-chip${sel?' shw-chip-sel':''}" data-nedit="${n.id}" style="cursor:pointer;">${icon}${sinfo}${rev} [${edges||'—'}]<button class="shw-chip-x" data-dn="${n.id}">×</button></div>`;
-  });
-  h += '</div>';
-  return h;
+function _nodeConfigHtml() {
+  const node = _nodes.find(n => n.id === _selectedNodeId);
+  if (!node) {
+    return `<div class="hb-section-label">Node Config</div>
+            <div class="hb-hint">Select a node to configure it</div>`;
+  }
+  const isPhaseMode = node.phaseMode && (_bg === 'gray' || _bg === 'red');
+  const canTogglePhase = (_bg === 'gray' || _bg === 'red') && node.type === 'town';
+  const showRevGrid    = (_bg === 'gray' || _bg === 'red') && (node.type === 'city' || node.type === 'offboard' || isPhaseMode);
+
+  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>`;
+
+  if (node.type !== 'offboard') {
+    if (canTogglePhase) {
+      html += `<div class="hb-check-row">
+        <input type="checkbox" id="hbPhaseMode" ${node.phaseMode ? 'checked' : ''}>
+        <label for="hbPhaseMode">Phase revenue</label>
+      </div>`;
+    }
+    if (showRevGrid) {
+      html += `<div class="hb-field"><div class="hb-field-label">Revenue by phase</div>
+        <div class="hb-phase-rows">
+          ${PHASES.map(p => `
+            <div class="hb-phase-row">
+              <span class="hb-phase-dot" style="background:${PHASE_COLORS[p]};"></span>
+              <span class="hb-phase-label">${p}</span>
+              <input class="hb-rev-input shw-rev-input" type="number" min="0" step="10"
+                value="${node.phaseRevenue?.[p] ?? 0}" data-phase="${p}">
+            </div>`).join('')}
+        </div></div>`;
+    } else {
+      html += `<div class="hb-field">
+        <div class="hb-field-label">Revenue</div>
+        <input type="number" id="hbRevenue" class="hb-num-input" min="0" step="10" value="${node.revenue || 0}">
+      </div>`;
+    }
+  }
+
+  if (node.type === 'city') {
+    html += `<div class="hb-field">
+      <div class="hb-field-label">Slots</div>
+      <div class="hb-slot-btns">
+        ${[1, 2, 3, 4].map(s => `<button class="hb-slot-btn${(node.slots || 1) === s ? ' active' : ''}" data-slots="${s}">${s}</button>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (node.type === 'city' || node.type === 'offboard') {
+    html += `<div class="hb-check-row">
+      <input type="checkbox" id="hbTerminal" ${node.terminal ? 'checked' : ''}>
+      <label for="hbTerminal">Terminal (dead-end)</label>
+    </div>`;
+  }
+
+  return html;
 }
 
-function _bind2() {
-  const canvas = document.getElementById('shwCanvas');
+function _manifestFormHtml() {
+  const nextId = _nextManifestId();
+  if (!_manifestId) _manifestId = nextId;
+  return `<div class="hb-manifest-inner">
+    <div class="hb-section-label">Save to Manifest</div>
+    <div class="hb-manifest-row">
+      <div class="hb-field" style="flex:1;">
+        <div class="hb-field-label">ID</div>
+        <input type="text" id="hbManId" class="hb-text-input" value="${_esc(_manifestId)}" placeholder="${nextId}">
+      </div>
+      <div class="hb-field" style="width:80px;">
+        <div class="hb-field-label">Count</div>
+        <input type="number" id="hbManCount" class="hb-num-input" min="1" max="99" value="${_manifestCount}">
+      </div>
+      <div class="hb-field" style="flex:2;">
+        <div class="hb-field-label">Label</div>
+        <input type="text" id="hbManLabel" class="hb-text-input" value="${_esc(_label)}" placeholder="optional">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="hb-btn-primary" id="hbManSave">Save to Manifest</button>
+      <button class="hb-btn-cancel"  id="hbManFork">Fork as Upgrade &#8594;</button>
+    </div>
+  </div>`;
+}
+
+function _esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Canvas rendering ──────────────────────────────────────────────────────────
+
+function _renderCanvas() {
+  const svg = document.getElementById('hbCanvas');
+  if (!svg) return;
+
+  const cornerPts = CORNERS.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  let s = '';
+
+  // Hex background
+  s += `<polygon points="${cornerPts}" fill="${_bgHexColor()}" stroke="#888" stroke-width="2"/>`;
+
+  // ── Live hex content via hexToSvgInner ─────────────────────────────────────
+  const dsl = _toDslHex();
+  if (typeof hexToSvgInner === 'function' && (dsl.nodes.length > 0 || dsl.paths.length > 0)) {
+    const savedOrientation = state?.meta?.orientation;
+    if (state && state.meta) state.meta.orientation = 'flat';
+    try {
+      const inner = hexToSvgInner(dsl, null);
+      if (inner) {
+        s += `<g transform="translate(${CCX},${CCY}) scale(${SC})">${inner}</g>`;
+      }
+    } catch (e) {
+      // silently ignore render errors in preview
+    }
+    if (state && state.meta) state.meta.orientation = savedOrientation;
+  }
+
+  // ── Snap targets for Town/City/Offboard tools ──────────────────────────────
+  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
+    for (const snap of SNAP_POSITIONS) {
+      // Don't show snap dot where a non-expandable node already sits
+      const existing = _nodes.find(n => n.locStr === snap.locStr);
+      if (existing && !(existing.type === 'city' && (existing.slots || 1) < 4)) continue;
+
+      const isHighlight = (_highlightSnap === snap.locStr);
+      const fill   = isHighlight ? '#ffd700' : 'rgba(200,200,200,0.25)';
+      const stroke = isHighlight ? '#ffd700' : 'rgba(200,200,200,0.5)';
+      s += `<circle cx="${snap.x.toFixed(1)}" cy="${snap.y.toFixed(1)}" r="7"
+               fill="${fill}" stroke="${stroke}" stroke-width="1.5"
+               pointer-events="none"/>`;
+    }
+  }
+
+  // ── Pending edge glow ──────────────────────────────────────────────────────
+  if (_pendingEdge !== null) {
+    const [px, py] = EMP[_pendingEdge];
+    s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${EDGE_R + 6}"
+             fill="#ffd700" opacity="0.35" pointer-events="none"/>`;
+  }
+
+  // ── Edge circles (always visible) ─────────────────────────────────────────
+  for (let e = 0; e < 6; e++) {
+    const [ex, ey] = EMP[e];
+    const connected = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e)) ||
+                      _segments.some(seg => seg.ea === e || seg.eb === e);
+    const isPending  = (_pendingEdge === e);
+    const fill = isPending ? '#c8a000' : (connected ? '#2a6a1a' : '#333');
+    const stroke = isPending ? '#ffd700' : '#111';
+    const sw     = isPending ? 2.5 : 1.5;
+
+    s += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="${EDGE_R}"
+             fill="${fill}" stroke="${stroke}" stroke-width="${sw}"
+             data-edge="${e}" style="cursor:pointer;"/>`;
+    s += `<text x="${ex.toFixed(1)}" y="${(ey + 4).toFixed(1)}"
+             text-anchor="middle" font-size="11" font-weight="bold" fill="white"
+             pointer-events="none">${e}</text>`;
+  }
+
+  svg.innerHTML = s;
+}
+
+// ── DSL preview ───────────────────────────────────────────────────────────────
+
+function _updateDslPreview() {
+  const pre = document.getElementById('hbDslPreview');
+  if (!pre) return;
+  const model = _buildFinalModel();
+  const dsl = (typeof window.staticHexCode === 'function') ? window.staticHexCode(model) : '';
+  pre.textContent = dsl || '(blank hex — no tracks)';
+}
+
+// ── Nearest snap position ─────────────────────────────────────────────────────
+
+function _nearestSnap(mx, my) {
+  let best = null, bestD = Infinity;
+  for (const snap of SNAP_POSITIONS) {
+    const d = Math.hypot(mx - snap.x, my - snap.y);
+    if (d < bestD) { bestD = d; best = snap; }
+  }
+  return best;
+}
+
+// ── Panel event binding ───────────────────────────────────────────────────────
+
+function _bindPanel() {
+  // Close
+  const closeBtn = document.getElementById('hbClose');
+  if (closeBtn) closeBtn.onclick = _close;
+
+  // Cancel
+  const cancelBtn = document.getElementById('hbBtnCancel');
+  if (cancelBtn) cancelBtn.onclick = _close;
+
+  // Place
+  const placeBtn = document.getElementById('hbBtnPlace');
+  if (placeBtn) placeBtn.onclick = () => { _save(); _close(); };
+
+  // Dropdown toggle
+  const dropBtn  = document.getElementById('hbBtnDropdown');
+  const dropMenu = document.getElementById('hbDropdownMenu');
+  if (dropBtn && dropMenu) {
+    dropBtn.onclick = (e) => {
+      e.stopPropagation();
+      const vis = dropMenu.style.display !== 'none';
+      dropMenu.style.display = vis ? 'none' : 'block';
+    };
+    document.addEventListener('click', () => { if (dropMenu) dropMenu.style.display = 'none'; }, { once: true });
+  }
+
+  // Manifest menu item
+  const manItem = document.getElementById('hbMenuManifest');
+  if (manItem) manItem.onclick = () => {
+    if (dropMenu) dropMenu.style.display = 'none';
+    _save();
+    _showManifest = !_showManifest;
+    const mf = document.getElementById('hbManifestForm');
+    if (mf) {
+      mf.style.display = _showManifest ? 'block' : 'none';
+      if (_showManifest) mf.innerHTML = _manifestFormHtml(), _bindManifestForm();
+    }
+  };
+
+  // Color rail
+  const rail = document.getElementById('hbColorRail');
+  if (rail) rail.addEventListener('click', e => {
+    const btn = e.target.closest('[data-bg]');
+    if (!btn) return;
+    _bg = btn.dataset.bg;
+    // Rebuild panel (bg change affects toolbar, node config, etc.)
+    _buildPanel();
+  });
+
+  // Toolbar
+  const toolbar = document.getElementById('hbToolbar');
+  if (toolbar) toolbar.addEventListener('click', e => {
+    const btn = e.target.closest('[data-tool]');
+    if (!btn) return;
+    _activeTool = btn.dataset.tool;
+    _pendingEdge = null;
+    _refreshToolbar();
+    _renderCanvas();
+  });
+
+  // Canvas
+  const canvas = document.getElementById('hbCanvas');
   if (canvas) {
-    canvas.addEventListener('click', e => {
-      const el = e.target;
-      if (el.dataset.edge!==undefined && el.dataset.edge!=='') _onEdgeClick(parseInt(el.dataset.edge));
-      else if (el.dataset.nid!==undefined && el.dataset.nid!=='')  _onNodeClick(parseInt(el.dataset.nid));
+    canvas.addEventListener('click', _onCanvasClick);
+    canvas.addEventListener('mousemove', _onCanvasMouseMove);
+    canvas.addEventListener('mouseleave', () => {
+      _highlightSnap = null;
+      _renderCanvas();
     });
   }
 
-  const chips = document.getElementById('shwChips');
-  if (chips) chips.addEventListener('click', e => {
-    if (e.target.dataset.dep) {
-      _eePaths = _eePaths.filter(p=>p.id!==parseInt(e.target.dataset.dep));
-      _refresh2(); return;
-    }
-    if (e.target.dataset.dn) {
-      const nid=parseInt(e.target.dataset.dn);
-      _nodes=_nodes.filter(n=>n.id!==nid);
-      _nodeLinks=_nodeLinks.filter(l=>l.nodeId!==nid);
-      if (_editNodeId===nid) _editNodeId=null;
-      _refresh2(); return;
-    }
-    const ne = e.target.closest('[data-nedit]');
-    if (ne && !e.target.dataset.dn) { _editNodeId=parseInt(ne.dataset.nedit); _refresh2(); }
+  // Label input
+  const lblInput = document.getElementById('hbLabelInput');
+  if (lblInput) lblInput.addEventListener('input', e => {
+    _label = e.target.value.trim();
+    _updateDslPreview();
   });
 
-  const bindPick = (id,type) => { const b=document.getElementById(id); if(b) b.onclick=()=>_commitTrack(type); };
-  bindPick('shwPkBlank','blank');
-  bindPick('shwPkTown', 'town');
-  bindPick('shwPkCity', 'city');
-  bindPick('shwPkOff',  'offboard');
-  const cancel = document.getElementById('shwPkCancel');
-  if (cancel) cancel.onclick = () => { _pendingEdge=null; _pickerEdges=null; _refresh2(); };
+  // Node config events (delegated to hbNodeConfig)
+  _bindNodeConfig();
+
+  // Backdrop click to close
+  const overlay = document.getElementById('hexBuilder');
+  if (overlay) overlay.addEventListener('click', e => {
+    if (e.target === overlay) _close();
+  });
 }
 
-function _onEdgeClick(edge) {
-  if (_pickerEdges) return;
-  if (_pendingEdge===null)        { _pendingEdge=edge; _refresh2(); }
-  else if (_pendingEdge===edge)   { _pickerEdges={ea:edge,eb:null}; _pendingEdge=null; _refresh2(); }
-  else                            { _pickerEdges={ea:_pendingEdge,eb:edge}; _pendingEdge=null; _refresh2(); }
+function _refreshToolbar() {
+  const toolbar = document.getElementById('hbToolbar');
+  if (!toolbar) return;
+  toolbar.querySelectorAll('[data-tool]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === _activeTool);
+  });
 }
 
-function _onNodeClick(nodeId) {
-  if (_pickerEdges) return;
-  if (_pendingEdge!==null) {
-    if (!_nodeLinks.some(l=>l.nodeId===nodeId&&l.edge===_pendingEdge))
-      _nodeLinks.push({id:_id(),edge:_pendingEdge,nodeId});
-    _pendingEdge=null; _refresh2();
-  } else {
-    _editNodeId = _editNodeId===nodeId ? null : nodeId;
-    _refresh2();
+function _bindNodeConfig() {
+  const cfg = document.getElementById('hbNodeConfig');
+  if (!cfg) return;
+
+  // Revenue input
+  cfg.addEventListener('input', e => {
+    const node = _nodes.find(n => n.id === _selectedNodeId);
+    if (!node) return;
+    if (e.target.id === 'hbRevenue') {
+      node.revenue = parseInt(e.target.value) || 0;
+      _updateDslPreview();
+    }
+    if (e.target.dataset.phase) {
+      if (!node.phaseRevenue) node.phaseRevenue = {};
+      node.phaseRevenue[e.target.dataset.phase] = parseInt(e.target.value) || 0;
+      _updateDslPreview();
+    }
+  });
+
+  cfg.addEventListener('change', e => {
+    const node = _nodes.find(n => n.id === _selectedNodeId);
+    if (!node) return;
+    if (e.target.id === 'hbPhaseMode') {
+      node.phaseMode = e.target.checked;
+      _refreshNodeConfig();
+    }
+    if (e.target.id === 'hbTerminal') {
+      node.terminal = e.target.checked;
+      _updateDslPreview();
+    }
+  });
+
+  cfg.addEventListener('click', e => {
+    const slotBtn = e.target.closest('[data-slots]');
+    if (!slotBtn) return;
+    const node = _nodes.find(n => n.id === _selectedNodeId);
+    if (!node) return;
+    node.slots = parseInt(slotBtn.dataset.slots);
+    _refreshNodeConfig();
+    _renderCanvas();
+    _updateDslPreview();
+  });
+}
+
+function _refreshNodeConfig() {
+  const cfg = document.getElementById('hbNodeConfig');
+  if (!cfg) return;
+  cfg.innerHTML = _nodeConfigHtml();
+  _bindNodeConfig();
+  _updateDslPreview();
+}
+
+function _bindManifestForm() {
+  const saveBtn = document.getElementById('hbManSave');
+  if (saveBtn) saveBtn.onclick = () => {
+    const idInput    = document.getElementById('hbManId');
+    const countInput = document.getElementById('hbManCount');
+    const lblInput   = document.getElementById('hbManLabel');
+    const id    = (idInput?.value.trim()    || _nextManifestId());
+    const count = parseInt(countInput?.value || '1');
+    const label = lblInput?.value.trim() || _label;
+    const model = { ...(_buildFinalModel()), label };
+    state.customTiles = state.customTiles || {};
+    state.customTiles[id] = { count, hex: model };
+    console.log('[HexBuilder] Saved to manifest:', id, state.customTiles[id]);
+    // Visual feedback
+    if (saveBtn) { saveBtn.textContent = 'Saved ✓'; setTimeout(() => { saveBtn.textContent = 'Save to Manifest'; }, 1500); }
+  };
+
+  const forkBtn = document.getElementById('hbManFork');
+  if (forkBtn) forkBtn.onclick = () => {
+    console.log('[HexBuilder] Fork as Upgrade — stub');
+  };
+}
+
+// ── Canvas interaction ────────────────────────────────────────────────────────
+
+function _onCanvasMouseMove(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  _mousePos.x = e.clientX - rect.left;
+  _mousePos.y = e.clientY - rect.top;
+
+  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
+    const snap = _nearestSnap(_mousePos.x, _mousePos.y);
+    const newHl = snap?.locStr || null;
+    if (newHl !== _highlightSnap) {
+      _highlightSnap = newHl;
+      _renderCanvas();
+    }
   }
 }
 
-function _commitTrack(type) {
-  const {ea,eb} = _pickerEdges;
-  _pickerEdges=null; _pendingEdge=null;
-  if (type==='blank') {
-    if (eb!==null) _eePaths.push({id:_id(),ea,eb});
-  } else {
-    // Cities/offboards on gray/red default to phase revenue; towns default to flat
-    const defaultPhase = (_bg==='gray'||_bg==='red') && (type==='city'||type==='offboard');
-    const node = {
-      id:           _id(),
-      type,
-      slots:        1,
-      revenue:      type==='town'?10:20,
-      phaseMode:    defaultPhase,   // towns can opt in via toggle; cities/offboards auto-on
-      phaseRevenue: {yellow:20,green:30,brown:40,gray:60},
-      terminal:     type==='offboard',
-    };
-    _nodes.push(node);
-    _nodeLinks.push({id:_id(),edge:ea,nodeId:node.id});
-    if (eb!==null) _nodeLinks.push({id:_id(),edge:eb,nodeId:node.id});
-    _editNodeId = node.id;
+function _onCanvasClick(e) {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // Check if an edge circle was clicked
+  const clickedEdge = _edgeAtPoint(mx, my);
+  if (clickedEdge !== null) {
+    _handleEdgeClick(clickedEdge);
+    return;
   }
-  _refresh2();
+
+  if (_activeTool === 'track') {
+    // In track mode outside edges — cancel pending
+    if (_pendingEdge !== null) { _pendingEdge = null; _renderCanvas(); }
+    return;
+  }
+
+  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
+    const snap = _nearestSnap(mx, my);
+    if (snap) _handleNodePlacement(snap.locStr);
+    return;
+  }
+
+  if (_activeTool === 'erase') {
+    _handleErase(mx, my);
+  }
 }
 
-function _refresh2() {
-  const body = document.getElementById('shwBody');
-  if (!body) return;
-  body.innerHTML = _html2();
-  _bind2();
-  if (_editNodeId!==null) _renderNodeEdit(_editNodeId);
+function _edgeAtPoint(mx, my) {
+  for (let e = 0; e < 6; e++) {
+    const [ex, ey] = EMP[e];
+    if (Math.hypot(mx - ex, my - ey) <= EDGE_R + 4) return e;
+  }
+  return null;
 }
 
-// ── Node edit panel ───────────────────────────────────────────────────────────
+function _handleEdgeClick(edge) {
+  if (_activeTool === 'track') {
+    if (_pendingEdge === null) {
+      _pendingEdge = edge;
+    } else if (_pendingEdge === edge) {
+      // Same edge twice — cancel
+      _pendingEdge = null;
+    } else {
+      // Create blank segment
+      const ea = _pendingEdge, eb = edge;
+      _pendingEdge = null;
+      if (!_segments.some(s => (s.ea === ea && s.eb === eb) || (s.ea === eb && s.eb === ea))) {
+        _segments.push({ id: _nextId(), ea, eb });
+      }
+      _updateDslPreview();
+    }
+    _renderCanvas();
+    return;
+  }
 
-function _renderNodeEdit(nodeId) {
-  const panel = document.getElementById('shwNodeEdit');
-  if (!panel) return;
-  const n = _nodes.find(x=>x.id===nodeId);
-  if (!n) return;
-  const canTogglePhase = (_bg==='gray'||_bg==='red') && n.type==='town';
-  const isPhase = n.phaseMode === true;
-  panel.innerHTML = `
-    <div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:11px 12px;">
-      <div class="shw-subtitle" style="margin-bottom:9px;text-transform:capitalize;">${n.type} settings</div>
-      ${n.type==='city'?`
-        <div class="shw-field"><label>Token slots</label>
-          <div style="display:flex;gap:6px;">
-            ${[1,2,3,4].map(s=>`<button class="shw-btn-sec${n.slots===s?' shw-btn-sel':''}" onclick="window._shwSlots(${n.id},${s})">${s}</button>`).join('')}
-          </div></div>`:''}
-      ${n.type!=='offboard'?(`
-        ${canTogglePhase?`
-          <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
-            <input type="checkbox" id="shwPhMode${n.id}" ${isPhase?'checked':''} onchange="window._shwPhMode(${n.id},this.checked)">
-            <label for="shwPhMode${n.id}" style="margin:0;cursor:pointer;font-size:12px;color:#777;">Use phase revenue</label>
-          </div>`:''}
-        ${isPhase ? `
-        <div class="shw-field"><label>Revenue by phase</label>
-          <div class="shw-phase-rows">
-            ${PHASES.map(p=>`
-              <div class="shw-phase-row">
-                <span class="shw-phase-dot" style="background:${PHASE_COLORS[p]};"></span>
-                <span class="shw-phase-label">${p}</span>
-                <input class="shw-rev-input" type="number" min="0" step="10" value="${n.phaseRevenue?.[p]??0}" oninput="window._shwPhRev(${n.id},'${p}',this.value)">
-              </div>`).join('')}
-          </div></div>` : `
-        <div class="shw-field"><label>Revenue</label>
-          <input type="number" min="0" step="10" value="${n.revenue||0}" style="width:80px;" oninput="window._shwRev(${n.id},this.value)">
-        </div>`}`) :''}
-      ${n.type==='city'?`
-        <div class="shw-field" style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
-          <input type="checkbox" id="shwTerm${n.id}" ${n.terminal?'checked':''} onchange="window._shwTerm(${n.id},this.checked)">
-          <label for="shwTerm${n.id}" style="margin:0;cursor:pointer;font-size:12px;color:#aaa;">Terminal (dead-end)</label>
-        </div>`:''}
-      <button class="shw-btn-primary" style="margin-top:4px;" onclick="window._shwDone()">Done</button>
-    </div>`;
+  if (_activeTool === 'town' || _activeTool === 'city' || _activeTool === 'offboard') {
+    // Edge click while in node tool — connect pending or place at nearest snap
+    if (_pendingEdge === null) {
+      _pendingEdge = edge;
+    } else if (_pendingEdge === edge) {
+      _pendingEdge = null;
+    } else {
+      // Connect pending edge to current edge via a new node
+      const locStr = _nearestSnap(EMP[edge][0], EMP[edge][1])?.locStr || 'center';
+      const nodeId = _placeNode(locStr);
+      if (nodeId !== null) {
+        const nodeEdges = _nodeEdges[nodeId] || [];
+        if (!nodeEdges.includes(_pendingEdge)) nodeEdges.push(_pendingEdge);
+        if (!nodeEdges.includes(edge))         nodeEdges.push(edge);
+        _nodeEdges[nodeId] = nodeEdges;
+      }
+      _pendingEdge = null;
+      _updateDslPreview();
+    }
+    _renderCanvas();
+    return;
+  }
+
+  if (_activeTool === 'erase') {
+    // Remove all connections through this edge
+    _segments = _segments.filter(s => s.ea !== edge && s.eb !== edge);
+    _nodes.forEach(n => {
+      _nodeEdges[n.id] = (_nodeEdges[n.id] || []).filter(e => e !== edge);
+    });
+    _renderCanvas();
+    _updateDslPreview();
+  }
 }
 
-window._shwSlots  = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.slots=v; _refresh2();} };
-window._shwRev    = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.revenue=parseInt(v)||0; _updateChips();} };
-window._shwPhRev  = (id,p,v) => { const n=_nodes.find(x=>x.id===id); if(n){if(!n.phaseRevenue)n.phaseRevenue={};n.phaseRevenue[p]=parseInt(v)||0;} };
-window._shwTerm   = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n) n.terminal=v; };
-window._shwPhMode = (id,v)   => { const n=_nodes.find(x=>x.id===id); if(n){n.phaseMode=v; _refresh2();} };
-window._shwDone   = ()       => { _editNodeId=null; const p=document.getElementById('shwNodeEdit'); if(p)p.innerHTML=''; _updateChips(); };
+function _placeNode(locStr) {
+  // Return existing city id if we're incrementing slots, else create new node
+  const existing = _nodes.find(n => n.locStr === locStr);
 
-function _updateChips() {
-  const el=document.getElementById('shwChips'); if(el) el.innerHTML=_chipsHtml();
+  if (existing) {
+    if (existing.type === 'city') {
+      // Increment slots (1→2→3→4→1)
+      existing.slots = ((existing.slots || 1) % 4) + 1;
+      _selectedNodeId = existing.id;
+      _refreshNodeConfig();
+      _renderCanvas();
+      _updateDslPreview();
+      return existing.id;
+    }
+    if (existing.type === 'town') {
+      // Toggle — remove town
+      _removeNode(existing.id);
+      return null;
+    }
+  }
+
+  const type = _activeTool === 'offboard' ? 'offboard' : _activeTool;
+  const defaultPhase = (_bg === 'gray' || _bg === 'red') && (type === 'city' || type === 'offboard');
+  const node = {
+    id:           _nextId(),
+    type,
+    slots:        1,
+    locStr,
+    revenue:      type === 'town' ? 10 : 20,
+    phaseRevenue: { yellow: 20, green: 30, brown: 40, gray: 60 },
+    terminal:     type === 'offboard',
+    phaseMode:    defaultPhase,
+  };
+  _nodes.push(node);
+  _nodeEdges[node.id] = [];
+  _selectedNodeId = node.id;
+  _refreshNodeConfig();
+  _renderCanvas();
+  _updateDslPreview();
+  return node.id;
 }
 
-// ── Step 3: Label + preview ───────────────────────────────────────────────────
+function _handleNodePlacement(locStr) {
+  const existing = _nodes.find(n => n.locStr === locStr);
 
-function _html3() {
-  const model = _buildModel();
-  const dsl   = typeof window.staticHexCode==='function' ? window.staticHexCode(model) : '';
-  const esc   = s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  return `
-    <div class="shw-title">Label & Finish</div>
-    <div class="shw-field">
-      <label>Label <span style="color:#555;font-size:11px;">(optional — e.g. P, OO, B, NY)</span></label>
-      <input type="text" id="shwLbl" value="${esc(_label)}" placeholder="P" autocomplete="off"
-        style="width:120px;" oninput="window._shwLbl(this.value)">
-    </div>
-    <div style="margin-top:14px;">
-      <div class="shw-subtitle" style="margin-bottom:5px;">DSL preview</div>
-      <pre style="background:#111;border:1px solid #2a2a2a;border-radius:4px;padding:8px 10px;font-size:10px;color:#888;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto;margin:0;">${esc(dsl||'(blank hex — no tracks)')}</pre>
-    </div>`;
+  if (_pendingEdge !== null) {
+    // Connect pending edge to node at this locStr
+    let nodeId;
+    if (existing) {
+      nodeId = existing.id;
+    } else {
+      nodeId = _placeNode(locStr);
+    }
+    if (nodeId !== null) {
+      const edges = _nodeEdges[nodeId] || [];
+      if (!edges.includes(_pendingEdge)) edges.push(_pendingEdge);
+      _nodeEdges[nodeId] = edges;
+    }
+    _pendingEdge = null;
+    _renderCanvas();
+    _updateDslPreview();
+    return;
+  }
+
+  if (existing) {
+    // Select existing node for config
+    _selectedNodeId = existing.id;
+    _refreshNodeConfig();
+    _renderCanvas();
+    return;
+  }
+
+  _placeNode(locStr);
 }
 
-window._shwLbl = v => { _label=v.trim(); };
+function _removeNode(nodeId) {
+  _nodes = _nodes.filter(n => n.id !== nodeId);
+  delete _nodeEdges[nodeId];
+  if (_selectedNodeId === nodeId) _selectedNodeId = null;
+  _refreshNodeConfig();
+  _renderCanvas();
+  _updateDslPreview();
+}
+
+function _handleErase(mx, my) {
+  // Check for node click (in canvas space, nodes render at snap positions)
+  for (const node of _nodes) {
+    const snap = SNAP_POSITIONS.find(s => s.locStr === node.locStr);
+    if (!snap) continue;
+    if (Math.hypot(mx - snap.x, my - snap.y) <= 20 * SC) {
+      _removeNode(node.id);
+      return;
+    }
+  }
+
+  // Check for segment midpoint click
+  for (const seg of _segments) {
+    const [ax, ay] = EMP[seg.ea];
+    const [bx, by] = EMP[seg.eb];
+    const mx2 = (ax + bx) / 2, my2 = (ay + by) / 2;
+    if (Math.hypot(mx - mx2, my - my2) <= 18) {
+      _segments = _segments.filter(s => s.id !== seg.id);
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 (function _init() {
-  const modal = document.getElementById('staticHexWizard');
-  if (!modal) { document.addEventListener('DOMContentLoaded', _init); return; }
-  modal.addEventListener('click', e => {
-    if (e.target===modal && confirm('Discard this hex build?')) _closeWiz();
-  });
-}());
+  const overlay = document.getElementById('hexBuilder');
+  if (!overlay) {
+    document.addEventListener('DOMContentLoaded', _init);
+    return;
+  }
+})();
 
 // ── Public: staticHexCode ─────────────────────────────────────────────────────
 // Generates tobymao map.rb DSL from a saved static hex model.
+// KEPT EXACTLY AS-IS from the original file — do not modify.
 
 window.staticHexCode = function staticHexCode(hex) {
   if (!hex || !hex.static) return '';
