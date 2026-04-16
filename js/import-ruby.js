@@ -463,6 +463,64 @@ function parseDslHex(code, bg, locationName) {
   return hex;
 }
 
+// ── Parse the TILES block ─────────────────────────────────────────────────────
+// Returns { tileId: count } matching state.manifest format.
+// Handles both simple form ('1' => 2) and complex custom-tile form
+// ('X1' => { 'count' => 2, 'color' => 'yellow', 'code' => '...' }).
+// Custom tile definitions (color/code) are stored in state.customTiles so the
+// exporter can round-trip them even when TileRegistry doesn't know the tile.
+function parseTilesBlock(content) {
+  // Locate TILES = { ... } using brace counting (handles no .freeze too)
+  const tStart = content.search(/\bTILES\s*=\s*\{/);
+  if (tStart === -1) return { manifest: {}, customTiles: {} };
+
+  let i = tStart + content.slice(tStart).indexOf('{') + 1;
+  let depth = 1;
+  const bodyStart = i;
+  while (i < content.length && depth > 0) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') depth--;
+    i++;
+  }
+  const body = content.substring(bodyStart, i - 1);
+
+  const manifest    = {};
+  const customTiles = {};
+
+  // Simple form: 'id' => integer
+  const simpleRe = /'([^']+)'\s*=>\s*(\d+)/g;
+  let m;
+  while ((m = simpleRe.exec(body)) !== null) {
+    manifest[m[1]] = parseInt(m[2]);
+  }
+
+  // Complex form: 'id' => { 'count' => N, 'color' => 'X', 'code' => '...' }
+  // [^}]* is safe here because the inner hash values contain no braces.
+  const complexRe = /'([^']+)'\s*=>\s*\{([^}]+)\}/g;
+  while ((m = complexRe.exec(body)) !== null) {
+    const id    = m[1];
+    const inner = m[2];
+    // Skip entries already captured by simpleRe (won't match — they have no {)
+    const cntM   = inner.match(/'count'\s*=>\s*(\d+)/);
+    const colM   = inner.match(/'color'\s*=>\s*'([^']+)'/);
+    const codeM  = inner.match(/'code'\s*=>\s*'([^']*)'/);
+    const count  = cntM ? parseInt(cntM[1]) : 1;
+    manifest[id] = count;
+    if (colM || codeM) {
+      customTiles[id] = {
+        count,
+        color: colM  ? colM[1]  : 'white',
+        code:  codeM ? codeM[1] : '',
+      };
+    }
+  }
+
+  const tileCount = Object.keys(manifest).length;
+  const customCount = Object.keys(customTiles).length;
+  console.log(`[parseTilesBlock] ${tileCount} tiles (${customCount} custom)`);
+  return { manifest, customTiles };
+}
+
 // ── Extract the text body of a color sub-block from HEXES ───────────────────
 function extractColorBlock(hexesText, color) {
   const marker = color + ':';
@@ -805,7 +863,13 @@ function importRubyMap(content) {
   const killed  = Object.values(newHexes).filter(h =>  h.killed).length;
   const statics = Object.values(newHexes).filter(h => h.static).length;
   console.log(`[importRubyMap] done → live=${live} static=${statics} killed=${killed}`);
-  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation, staggerParity: transposedAxes ? 1 : 0, coordParity, pointyStaggerParity, maxRowPerCol };
+
+  // ── Parse TILES block if present ────────────────────────────────────────────
+  const { manifest, customTiles } = parseTilesBlock(content);
+
+  return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation,
+           staggerParity: transposedAxes ? 1 : 0, coordParity, pointyStaggerParity,
+           maxRowPerCol, manifest, customTiles };
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -828,7 +892,13 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       state.meta.staggerParity      = result.staggerParity;
       state.meta.coordParity        = result.coordParity;
       state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
-      state.meta.maxRowPerCol       = result.maxRowPerCol;
+      state.meta.maxRowPerCol        = result.maxRowPerCol;
+      // Tile manifest — overwrite only if the file had a TILES block
+      if (Object.keys(result.manifest).length > 0) {
+        state.manifest = result.manifest;
+        if (!state.customTiles) state.customTiles = {};
+        Object.assign(state.customTiles, result.customTiles);
+      }
       // Sync orientation select and dimension inputs in the toolbar/config panel
       syncOrientationSelect();
       syncDimInputs();
@@ -837,7 +907,9 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       render();
       autosave();
       const staticCount = Object.values(result.hexes).filter(h => h.static).length;
-      updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes`);
+      const tileCount   = Object.keys(result.manifest).length;
+      const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
+      updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
     } catch (err) {
       console.error('[importRubyMap] error:', err);
       alert('Import failed: ' + err.message);

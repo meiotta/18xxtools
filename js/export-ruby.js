@@ -257,6 +257,36 @@ function exportRubyMap() {
     out += `}.freeze\n\n`;
   }
 
+  // TILES — only emit if the manifest has entries
+  const manifest    = state.manifest    || {};
+  const customTiles = state.customTiles || {};
+  const manifestIds = Object.keys(manifest).filter(id => (manifest[id] || 0) > 0);
+  if (manifestIds.length > 0) {
+    // Sort: numeric IDs first (ascending), then X-ids, then others
+    manifestIds.sort((a, b) => {
+      const aNum = /^\d+$/.test(a), bNum = /^\d+$/.test(b);
+      if (aNum && bNum) return parseInt(a) - parseInt(b);
+      if (aNum) return -1; if (bNum) return 1;
+      const aX = /^X\d+$/i.test(a), bX = /^X\d+$/i.test(b);
+      if (aX && bX) return parseInt(a.slice(1)) - parseInt(b.slice(1));
+      if (aX) return -1; if (bX) return 1;
+      return a.localeCompare(b);
+    });
+    out += `TILES = {\n`;
+    for (const id of manifestIds) {
+      const count  = manifest[id];
+      const custom = customTiles[id];
+      if (custom) {
+        // Round-trip custom tile definition
+        const code = (custom.code || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        out += `  '${id}' => { 'count' => ${count}, 'color' => '${custom.color}', 'code' => '${code}' },\n`;
+      } else {
+        out += `  '${id}' => ${count},\n`;
+      }
+    }
+    out += `}.freeze\n\n`;
+  }
+
   // HEXES
   out += `HEXES = {\n`;
   for (const color of colorOrder) {
