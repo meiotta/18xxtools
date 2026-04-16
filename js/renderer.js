@@ -1212,6 +1212,59 @@ function buildHexSvg(r, c, hex) {
           }
         }
       }
+
+      // DSL flat revenue — builder hexes store per-node revenue in ooFlatRevenues[]/townRevenue(s).
+      // Position each bubble just outside its node circle, in the direction away from hex center.
+      // Revenue bubbles are placed in hex-local coords (post rotation+scale), same as phase bubbles above.
+      if (!tileDef && hex?.nodes && hex.nodes.length > 0) {
+        const hasPhaseRev = hex.activePhases && Object.values(hex.activePhases).some(Boolean);
+        const rotRad = totalDeg * Math.PI / 180;
+        const cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
+
+        hex.nodes.forEach((node, i) => {
+          // Don't double-render: skip nodes covered by phase revenue (single-node only, i=0)
+          if (hasPhaseRev && i === 0) return;
+
+          // Resolve revenue from whichever field the builder populated:
+          //   cities (all counts) → ooFlatRevenues[i]
+          //   dualTown           → townRevenues[i]
+          //   single town        → townRevenue (index 0 only)
+          const rev = (hex.ooFlatRevenues?.[i])
+                   ?? (hex.townRevenues?.[i])
+                   ?? (i === 0 ? (hex.townRevenue ?? null) : null);
+          if (!rev || rev === 0) return;
+
+          // Node center in 50-unit tile space from locStr
+          let nx = 0, ny = 0;
+          if (node.locStr && node.locStr !== 'center') {
+            const f = parseFloat(node.locStr);
+            if (!isNaN(f)) {
+              const a = f * Math.PI / 3;
+              nx = -Math.sin(a) * DSL_CITY_D;
+              ny =  Math.cos(a) * DSL_CITY_D;
+            }
+          }
+
+          // Offset bubble past the node circle (DSL_SLOT_R=12.5) in the outward direction
+          const dist = Math.hypot(nx, ny);
+          let bx, by;
+          if (dist < 0.5) {
+            // Center node: place bubble below (positive y = toward bottom edge)
+            bx = 0; by = DSL_SLOT_R + 8;
+          } else {
+            const ux = nx / dist, uy = ny / dist;
+            bx = nx + ux * (DSL_SLOT_R + 8);
+            by = ny + uy * (DSL_SLOT_R + 8);
+          }
+
+          // Rotate with tile and scale to hex-local coords
+          const rx = (bx * cosR - by * sinR) * sc;
+          const ry = (bx * sinR + by * cosR) * sc;
+
+          g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+          g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
+        });
+      }
     }
   }
 
