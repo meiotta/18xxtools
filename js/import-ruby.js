@@ -489,7 +489,10 @@ function importRubyMap(content) {
   // ── Detect axis convention ──────────────────────────────────────────────
   const axesMatch = content.match(/AXES\s*=\s*\{\s*x:\s*:(\w+),\s*y:\s*:(\w+)/);
   const xAxis = axesMatch ? axesMatch[1] : 'letter';
-  const transposedAxes = (xAxis === 'number');
+  // transposedAxes only applies to flat-top maps.  For pointy maps,
+  // AXES={x:number, y:letter} is the standard convention (letter=row, number=col)
+  // and falls through to the normal pointy-path in coordToGrid.
+  const transposedAxes = (xAxis === 'number');  // refined below after orientation is known
   console.log(`[importRubyMap] AXES: x=${xAxis} transposed=${transposedAxes}`);
 
   // ── Detect LAYOUT (:flat or :pointy) ───────────────────────────────────
@@ -500,7 +503,7 @@ function importRubyMap(content) {
   // ── LOCATION_NAMES ─────────────────────────────────────────────────────
   const locationNames = {};
   const namesBlock = (content.match(/LOCATION_NAMES\s*=\s*\{([^}]+)\}/) || [])[1] || '';
-  const nameRe = /'([A-Z]\d{1,2})'\s*=>\s*'([^']+)'/g;
+  const nameRe = /'([A-Z]{1,2}\d{1,3})'\s*=>\s*'([^']+)'/g;
   let nm;
   while ((nm = nameRe.exec(namesBlock)) !== null) locationNames[nm[1]] = nm[2];
 
@@ -569,6 +572,19 @@ function importRubyMap(content) {
   const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 
+  // Helper: parse a Ruby hex coord string into {letterIdx, numPart}.
+  // Handles single-letter (A-Z) and double-letter (AA-ZZ) prefixes.
+  // letterIdx: A=0, B=1, …, Z=25, AA=26, AB=27, …
+  function parseCoordParts(coord) {
+    const m = coord.match(/^([A-Z]{1,2})(\d{1,3})$/);
+    if (!m) return null;
+    const lp = m[1], np = parseInt(m[2]);
+    const li = lp.length === 1
+      ? lp.charCodeAt(0) - 65
+      : 26 * (lp.charCodeAt(0) - 64) + (lp.charCodeAt(1) - 65);
+    return { letterIdx: li, numPart: np };
+  }
+
   // ── Detect coordinate parity ───────────────────────────────────────────────
   // coordParity=0: even-index cols (A,C,E…) use even row-numbers (2,4,6…) — e.g. 1889
   // coordParity=1: even-index cols (A,C,E…) use odd  row-numbers (1,3,5…) — e.g. 1830, 1846
@@ -576,10 +592,9 @@ function importRubyMap(content) {
   let _evenColEven = 0, _evenColOdd = 0;
   if (!transposedAxes && orientation !== 'pointy') {
     for (const coord of allCoords) {
-      const letterIdx = coord.charCodeAt(0) - 65;
-      const numPart   = parseInt(coord.slice(1));
-      if (letterIdx % 2 === 0) {
-        if (numPart % 2 === 0) _evenColEven++; else _evenColOdd++;
+      const p = parseCoordParts(coord); if (!p) continue;
+      if (p.letterIdx % 2 === 0) {
+        if (p.numPart % 2 === 0) _evenColEven++; else _evenColOdd++;
       }
     }
   }
@@ -593,13 +608,14 @@ function importRubyMap(content) {
   // We detect this by checking what column-numbers even letter-rows (A,C,E…) use:
   //   If they mostly use EVEN numbers → even rows stagger → psp=1
   //   If they mostly use ODD  numbers → standard odd-row stagger → psp=0
+  // Run for ALL pointy maps regardless of transposedAxes — pointy+transposed
+  // (e.g. 18OEUKFR) still uses letter=row and needs the same parity detection.
   let _evenRowEven = 0, _evenRowOdd = 0;
-  if (!transposedAxes && orientation === 'pointy') {
+  if (orientation === 'pointy') {
     for (const coord of allCoords) {
-      const letterIdx = coord.charCodeAt(0) - 65;
-      const numPart   = parseInt(coord.slice(1));
-      if (letterIdx % 2 === 0) {
-        if (numPart % 2 === 0) _evenRowEven++; else _evenRowOdd++;
+      const p = parseCoordParts(coord); if (!p) continue;
+      if (p.letterIdx % 2 === 0) {
+        if (p.numPart % 2 === 0) _evenRowEven++; else _evenRowOdd++;
       }
     }
   }
@@ -652,22 +668,29 @@ function importRubyMap(content) {
   //   apply  (col + sp) % 2 === 0  instead of  col % 2 === 0.
   //   This corrects the visual layout without touching any other code.
   function coordToGrid(coord) {
-    if (!/^[A-Z]\d{1,2}$/.test(coord)) return null;
+    // Support single-letter (A-Z) and double-letter (AA-AZ, BA-BZ …) prefixes.
+    const coordMatch = coord.match(/^([A-Z]{1,2})(\d{1,3})$/);
+    if (!coordMatch) return null;
+    const letterPart = coordMatch[1];
+    const numPart    = parseInt(coordMatch[2]);
+
+    // Convert letter prefix to 0-based index: A=0, B=1, …, Z=25, AA=26, AB=27 …
+    const letterIdx = letterPart.length === 1
+      ? letterPart.charCodeAt(0) - 65
+      : 26 * (letterPart.charCodeAt(0) - 64) + (letterPart.charCodeAt(1) - 65);
+
     let col, row;
-    if (transposedAxes) {
-      // Transposed: letter=row-indicator, number=col-indicator.
+    if (transposedAxes && orientation !== 'pointy') {
+      // Flat-top transposed (e.g. 1882 Saskatchewan):
+      //   AXES={x:number, y:letter} on a flat map — letter=row, number=col.
       // col = numPart - 1  (1-based → 0-based)
       // row = letterIdx/2 for even cols, (letterIdx-1)/2 for odd cols
-      //   (same stagger arithmetic as standard, but now applied to letterIdx
-      //    rather than to the numeric part)
-      const numPart   = parseInt(coord.slice(1));
-      const letterIdx = coord.charCodeAt(0) - 65;
       col = numPart - 1;
       row = (col % 2 === 0) ? letterIdx / 2 : (letterIdx - 1) / 2;
     } else if (orientation === 'pointy') {
-      // Pointy-top: letter=row, number=col
-      const letterIdx = coord.charCodeAt(0) - 65;
-      const numPart   = parseInt(coord.slice(1));
+      // Pointy-top: letter=row, number encodes col with stagger.
+      // Works for both AXES={x:letter,y:number} and AXES={x:number,y:letter} —
+      // in both cases the letter prefix is the row indicator for pointy maps.
       row = letterIdx;
       col = (letterIdx % 2 === 0) ? (numPart - 1) / 2 : (numPart - 2) / 2;
       if (!Number.isInteger(col)) {
@@ -678,8 +701,8 @@ function importRubyMap(content) {
       // Use the detected coordParity to pick the correct formula directly.
       //   coordParity=0: even cols use even row-nums (A2,A4…), odd cols odd (B1,B3…)
       //   coordParity=1: even cols use odd  row-nums (A1,A3…), odd cols even (B2,B4…)
-      col = coord.charCodeAt(0) - 65;
-      const coordRow = parseInt(coord.slice(1));
+      col = letterIdx;
+      const coordRow = numPart;
       const evenColUsesEven = (coordParity === 0);
       row = ((col % 2 === 0) === evenColUsesEven)
         ? (coordRow - 2) / 2   // even row-number formula: (n-2)/2
