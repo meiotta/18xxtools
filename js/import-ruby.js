@@ -237,7 +237,7 @@ function parseDslHex(code, bg, locationName) {
     exitPairs: [],
     townRevenue: 0,
     townRevenues: [0, 0],
-    ooFlatRevenues: [0, 0],
+    cityRevenues: [0, 0],
     phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0 },
     activePhases: { yellow: true, green: true, brown: true, gray: true },
     name: locationName || '',
@@ -403,13 +403,13 @@ function parseDslHex(code, bg, locationName) {
     if (cityCount >= 3) {
       hex.feature = 'city';
       hex.slots   = cityCount;
-      hex.ooFlatRevenues = [
+      hex.cityRevenues = [
         cityRevs[0]?.flat ?? (cityRevs[0]?.phases?.yellow || 0),
         cityRevs[1]?.flat ?? (cityRevs[1]?.phases?.yellow || 0),
       ];
     } else if (cityCount === 2) {
       hex.feature = 'oo';
-      hex.ooFlatRevenues = [
+      hex.cityRevenues = [
         cityRevs[0]?.flat !== null ? (cityRevs[0]?.flat || 0) : (cityRevs[0]?.phases?.yellow || 0),
         cityRevs[1]?.flat !== null ? (cityRevs[1]?.flat || 0) : (cityRevs[1]?.phases?.yellow || 0),
       ];

@@ -1213,7 +1213,7 @@ function buildHexSvg(r, c, hex) {
         }
       }
 
-      // DSL flat revenue — builder hexes store per-node revenue in ooFlatRevenues[]/townRevenue(s).
+      // DSL flat revenue — builder hexes store per-node revenue in cityRevenues[]/townRevenue(s).
       // Position each bubble just outside its node circle, in the direction away from hex center.
       // Revenue bubbles are placed in hex-local coords (post rotation+scale), same as phase bubbles above.
       if (!tileDef && hex?.nodes && hex.nodes.length > 0) {
@@ -1226,10 +1226,10 @@ function buildHexSvg(r, c, hex) {
           if (hasPhaseRev && i === 0) return;
 
           // Resolve revenue from whichever field the builder populated:
-          //   cities (all counts) → ooFlatRevenues[i]
+          //   cities (all counts) → cityRevenues[i]  (legacy: ooFlatRevenues)
           //   dualTown           → townRevenues[i]
           //   single town        → townRevenue (index 0 only)
-          const rev = (hex.ooFlatRevenues?.[i])
+          const rev = (hex.cityRevenues?.[i] ?? hex.ooFlatRevenues?.[i])
                    ?? (hex.townRevenues?.[i])
                    ?? (i === 0 ? (hex.townRevenue ?? null) : null);
           if (!rev || rev === 0) return;

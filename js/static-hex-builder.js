@@ -178,7 +178,7 @@ function _loadFromModel(h) {
       _nodeEdges[nodeId] = edges;
     });
   } else if (feature === 'city' || feature === 'oo' || feature === 'm') {
-    const revs  = h.ooFlatRevenues || h.mFlatRevenues || [];
+    const revs  = h.cityRevenues || h.ooFlatRevenues || h.mFlatRevenues || [];  // ooFlatRevenues/mFlatRevenues: legacy field names
     const slots = feature === 'city' ? [h.slots || 1] : (h.ooSlots || [1, 1]);
     const count = feature === 'm' ? 3 : (feature === 'oo' ? 2 : 1);
     const pairs = exitPairs.length ? exitPairs : [];
@@ -336,8 +336,7 @@ function _buildFinalModel() {
     pathPairs:      [],
     townRevenue:    townNodes[0]?.revenue ?? 10,
     townRevenues:   townNodes.map(t => t.revenue || 10),
-    ooFlatRevenues: cityNodes.map(c => c.revenue || 20),
-    mFlatRevenues:  cityNodes.map(c => c.revenue || 20),
+    cityRevenues:   cityNodes.map(c => c.revenue || 20),
     phaseRevenue,
     activePhases,
     label:          _label,
@@ -1177,19 +1176,19 @@ window.staticHexCode = function staticHexCode(hex) {
       break;
     case 'oo':
     case 'c': {
-      const revs = hex.ooFlatRevenues||[20,20];
+      const revs = hex.cityRevenues || hex.ooFlatRevenues || [20,20];
       const sl   = hex.ooSlots||[1,1];
       [0,1].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${sl[i]>1?`,slots:${sl[i]}`:''}${locAttr(i)}`));
       break;
     }
     case 'm': {
-      const revs = hex.mFlatRevenues||[20,20,20];
+      const revs = hex.cityRevenues || hex.mFlatRevenues || [20,20,20];
       [0,1,2].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${locAttr(i)}`));
       break;
     }
     case 'city': {
       const slots = hex.slots||1;
-      const rev   = isPhase ? phaseRevStr() : (noExits?0:(hex.ooFlatRevenues?.[0]??20));
+      const rev   = isPhase ? phaseRevStr() : (noExits?0:((hex.cityRevenues??hex.ooFlatRevenues)?.[0]??20));
       const sl    = slots>1?`,slots:${slots}`:'';
       parts.push(`city=revenue:${rev}${sl}${locAttr(0)}`);
       break;
