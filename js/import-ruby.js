@@ -736,10 +736,14 @@ function importRubyMap(content) {
     const key  = hexId(g.row, g.col);
     const name = locationNames[coord] || '';
 
-    // ── Blue ocean: no content → killed hex ──────────────────────────────────
+    // ── Blue ocean: no content → plain blue hex (not killed) ────────────────
+    // killed=true would draw a black overlay; ocean tiles must show as blue.
+    // Only the auto-filled boundary positions (grid-fill loop below) are killed.
     if (color === 'blue' && !code.trim()) {
-      newHexes[key] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0,
-                        city: null, town: null, label: '', killed: true };
+      newHexes[key] = { bg: 'blue', static: true, terrain: '', terrainCost: 0,
+                        tile: 0, rotation: 0, nodes: [], paths: [],
+                        stubs: [], exits: [], borders: [], icons: [],
+                        killed: false };
       continue;
     }
 
