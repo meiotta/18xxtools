@@ -1933,9 +1933,71 @@ function buildHexSvg(r, c, hex) {
         }
       }
 
-      // DSL hex label (OO, NY, etc.)
+      // DSL hex label (C, Y, OO, NY, etc.)
+      // Port of tobymao label.rb preferred_render_locations + base.rb render_location.
       if (!tileDef && hex?.label && hex.label !== '') {
-        g += `<text x="${(-sz*0.62).toFixed(1)}" y="${(-sz*0.45).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
+        const _lNodes     = hex.nodes || [];
+        const _lCities    = _lNodes.filter(n => n.type === 'city');
+        const _lCityTowns = _lNodes.filter(n => n.type === 'city' || n.type === 'town');
+
+        // region_use: exits → TRACK_TO_EDGE_N, cities → CENTER (label renders after cities)
+        const _lTTE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]];
+        const _lCTR = [7,8,9,14,15,16];
+        const _lRU  = new Array(24).fill(0);
+        for (const p of (hex.paths || [])) {
+          if (p.a?.type === 'edge') { const rr = _lTTE[p.a.n]; if (rr) for (const r of rr) _lRU[r] += 1; }
+          if (p.b?.type === 'edge') { const rr = _lTTE[p.b.n]; if (rr) for (const r of rr) _lRU[r] += 1; }
+        }
+        for (const n of _lNodes) { if (n.type === 'city') for (const r of _lCTR) _lRU[r] += 1; }
+
+        // Candidate positions (tobymao label.rb, flat layout).
+        // Each: { rw: [[regions[], weight], …], x, y } in tobymao 100-unit space.
+        //   LEFT_MID=[6,13]  LEFT_CORNER=[5,12]   LEFT_CENTER=[7,14]
+        //   RIGHT_MID=[10,17] RIGHT_CORNER=[11,18] RIGHT_CENTER=[9,16]
+        //   UPPER_LEFT_CORNER=[0,1]  UPPER_RIGHT_CORNER=[3,4]
+        //   BOTTOM_LEFT_CORNER=[19,20]  BOTTOM_RIGHT_CORNER=[22,23]
+        let _lCands;
+        if (_lCityTowns.length === 1) {
+          if (_lCities.length === 1 && (_lCities[0].slots || 1) > 1) {
+            // single city, 2+ slots → P_LEFT_CORNER only (label.rb line 188)
+            _lCands = [{ rw:[[[5,12],1.0]],                         x:-71.25, y:0 }];
+          } else {
+            // single city 1-slot or single town (label.rb line 190)
+            _lCands = [
+              { rw:[[[5,6,12,13],1],[[7,14],0.5]],     x:-55,    y:0 }, // SINGLE_CITY_ONE_SLOT
+              { rw:[[[10,11,17,18],1],[[9,16],0.5]],   x: 55,    y:0 }, // SINGLE_CITY_ONE_SLOT_RIGHT
+              { rw:[[[11,18],1.0]],                    x: 71.25, y:0 }, // P_RIGHT_CORNER
+            ];
+          }
+        } else if (_lCityTowns.length > 1) {
+          // MULTI_CITY_LOCATIONS flat (label.rb line 193)
+          _lCands = [
+            { rw:[[[2],1.0],[[1,3],0.5]],        x:   0,    y:-60 }, // top center
+            { rw:[[[6],1.0],[[5,7],0.5]],         x: -50,    y:-31 }, // edge 2
+            { rw:[[[17],1.0],[[16,18],0.5]],      x:  50,    y: 37 }, // edge 5
+            { rw:[[[0,1],1.0]],                   x: -40,    y:-65 }, // top left corner
+            { rw:[[[3,4],1.0]],                   x:  40,    y:-65 }, // top right corner
+            { rw:[[[5,12],1.0]],                  x: -71.25, y:  0 }, // P_LEFT_CORNER
+            { rw:[[[11,18],1.0]],                 x:  71.25, y:  0 }, // P_RIGHT_CORNER
+            { rw:[[[19,20],1.0]],                 x: -30,    y: 65 }, // P_BOTTOM_LEFT_CORNER
+            { rw:[[[22,23],1.0]],                 x:  40,    y: 65 }, // bottom right corner
+            { rw:[[[12,13],1.0]],                 x: -50,    y: 25 }, // edge 1
+            { rw:[[[21],1.0],[[20,22],0.5]],      x:   0,    y: 60 }, // bottom center
+          ];
+        } else {
+          // no city_towns → P_LEFT_CORNER (label.rb line 197)
+          _lCands = [{ rw:[[[5,12],1.0]], x:-71.25, y:0 }];
+        }
+
+        // Pick min_by combined_cost; tiebreak by index (first minimum wins).
+        let _lx = _lCands[0].x, _ly = _lCands[0].y, _lBest = Infinity;
+        for (const c of _lCands) {
+          const cost = _locNameCost(_lRU, c.rw);
+          if (cost < _lBest) { _lBest = cost; _lx = c.x; _ly = c.y; }
+        }
+
+        // tobymao 100-unit → world units (× sz/100)
+        g += `<text x="${(_lx*sz/100).toFixed(1)}" y="${(_ly*sz/100).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
       }
 
       // DSL phase revenue — for offboards and phase-coloured city nodes (flat=null).
