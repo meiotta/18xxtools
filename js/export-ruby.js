@@ -73,7 +73,11 @@ function hexToDslCode(hex) {
     const a = path.a.type === 'node' ? `_${path.a.n}` : String(path.a.n);
     const b = path.b.type === 'node' ? `_${path.b.n}` : String(path.b.n);
     let s = `path=a:${a},b:${b}`;
-    if (path.terminal) s += `,terminal:${path.terminal}`;
+    if (path.terminal)            s += `,terminal:${path.terminal}`;
+    if (path.lanes)               s += `,lanes:${path.lanes}`;
+    // aLane/bLane stored as [total, idx]; tobymao DSL format is N.I (e.g. "2.0", "2.1")
+    if (Array.isArray(path.aLane)) s += `,a_lane:${path.aLane[0]}.${path.aLane[1]}`;
+    if (Array.isArray(path.bLane)) s += `,b_lane:${path.bLane[0]}.${path.bLane[1]}`;
     parts.push(s);
   }
 

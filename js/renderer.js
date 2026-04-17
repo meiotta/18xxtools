@@ -8,7 +8,7 @@
 // buildHexSvg(r,c,hex) — returns SVG string for one hex group
 // hexToSvgInner(hex,tileDef) — inner track/city/town geometry (shared with swatches)
 
-const RENDERER_VERSION = '2026-04-14-pure-svg';
+const RENDERER_VERSION = '2026-04-17-label-fix';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
 
 // ── Debug: inspect a hex by grid key or by clicking ──────────────────────────
@@ -147,7 +147,7 @@ function buildBordersSvg(hex) {
       svg += `<line x1="${(bx-edgeDx*halfLen).toFixed(2)}" y1="${(by-edgeDy*halfLen).toFixed(2)}" x2="${(bx+edgeDx*halfLen).toFixed(2)}" y2="${(by+edgeDy*halfLen).toFixed(2)}" stroke="${col}" stroke-width="3" stroke-linecap="round"/>`;
       if (border.cost) {
         const radDx = bx / len, radDy = by / len;
-        svg += `<text x="${(bx-radDx*8*sc).toFixed(2)}" y="${(by-radDy*8*sc).toFixed(2)}" font-family="Arial" font-size="7" font-weight="bold" fill="${col}" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
+        svg += `<text x="${(bx-radDx*8*sc).toFixed(2)}" y="${(by-radDy*8*sc).toFixed(2)}" font-family="Lato,Arial,sans-serif" font-size="7" font-weight="bold" fill="${col}" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
       }
     }
   }
@@ -370,7 +370,7 @@ function buildTerrainSvg(hex) {
   // Cost text — upgrade.rb line 97 + main.css "text.number"
   // !! font-weight MUST be 300 — NOT bold.  fill MUST be 'black' not '#000'. !!
   if (hex.terrainCost && hex.terrainCost > 0) {
-    svg += `<text text-anchor="middle" font-family="Arial"` +
+    svg += `<text text-anchor="middle" font-family="Lato,Arial,sans-serif"` +
            ` font-size="${(HEX_SIZE * 0.21).toFixed(1)}"` + // 21px × 0.4
            ` font-weight="300" fill="black">${escSvg(String(hex.terrainCost))}</text>`;
   }
@@ -607,6 +607,25 @@ const DSL_BAR_RH  = 4;     // town bar half-height
 function ep(edge) {
   const a = edge * Math.PI / 3;
   return { x: -Math.sin(a) * 43.5, y: Math.cos(a) * 43.5 };
+}
+
+// ── Lane helpers ──────────────────────────────────────────────────────────────
+// Tobymao formula (view/game/part/track_node_path.rb TrackNodePath#calculate_shift):
+//   shift = ((idx * 2) - total + 1) * (width + PARALLEL_SPACING[total-2]) / 2.0
+//   PARALLEL_SPACING = [8, 7, 6, 5]  (tobymao 100-unit space, for 2/3/4/5 total lanes)
+//   width = 9  (tobymao 100-unit track stroke-width)
+// Scaled ×0.5 for our 50-unit system: PARALLEL_SPACING → [4, 3.5, 3, 2.5], width → 5.
+// DSL_TRACK_W is 5, so (DSL_TRACK_W + spacing)/2 acts as the per-step scale factor.
+const _LANE_SPACING = [4, 3.5, 3, 2.5]; // ×0.5 of tobymao's [8,7,6,5] for total=2..5
+function _laneShift(total, idx) {
+  const spacing = (total >= 2 && total <= 5) ? _LANE_SPACING[total - 2] : 2.5;
+  return ((idx * 2) - total + 1) * (DSL_TRACK_W + spacing) / 2.0;
+}
+// Shift a point laterally (perpendicular to the edge direction) by `shift` units.
+// Edge direction vector: (-sin, cos).  Perpendicular: (cos, sin).
+function _shiftPt(pt, edgeNum, shift) {
+  const a = edgeNum * Math.PI / 3;
+  return { x: pt.x + shift * Math.cos(a), y: pt.y + shift * Math.sin(a) };
 }
 
 // cityEdgePos: city center when placed at an edge (distance DSL_CITY_D=25).
@@ -862,30 +881,53 @@ function hexToSvgInner(hex, tileDef) {
     }
 
     // ── STEP 1: Draw track segments (paths) — rendered UNDER nodes ──────────
+    // source: tobymao view/game/part/track.rb + track_node_path.rb
+    // Lane support: tobymao TrackNodePath#load_from_tile shifts both endpoints of a
+    // path by calculate_shift(lane) in direction (cos,sin) of the reference edge, so
+    // the track segment moves laterally as a whole unit (parallel, not fan-shaped).
+    // begin_shift_edge = begin_edge || end_edge; end_shift_edge = end_edge || begin_edge
+    // i.e. whichever endpoint IS an edge determines the perpendicular shift direction.
     for (const path of (hex.paths || [])) {
-      const posA = path.a.type === 'edge' ? ep(path.a.n) : (nodePos[path.a.n] || { x: 0, y: 0 });
-      const posB = path.b.type === 'edge' ? ep(path.b.n) : (nodePos[path.b.n] || { x: 0, y: 0 });
+      const aL = path.aLane || null;   // [total, idx] or null
+      const bL = path.bLane || null;
+
+      // Base positions
+      let posA = path.a.type === 'edge' ? ep(path.a.n) : (nodePos[path.a.n] || { x: 0, y: 0 });
+      let posB = path.b.type === 'edge' ? ep(path.b.n) : (nodePos[path.b.n] || { x: 0, y: 0 });
+
+      // Edge endpoints shift in their own perpendicular direction.
+      if (path.a.type === 'edge' && aL && aL[0] > 1) posA = _shiftPt(posA, path.a.n, _laneShift(aL[0], aL[1]));
+      if (path.b.type === 'edge' && bL && bL[0] > 1) posB = _shiftPt(posB, path.b.n, _laneShift(bL[0], bL[1]));
+      // Node endpoints shift using their OWN lane spec (tobymao: end_lane = @path.lanes[b_side]).
+      // Direction = the edge number on the other endpoint (end_shift_edge = @end_edge || @begin_edge).
+      // This handles both: lanes:N (aLane=bLane, parallel result) and explicit b_lane: only
+      // (only node side shifts, track fans toward the city — correct for boundary entry paths).
+      const _edgeN = path.a.type === 'edge' ? path.a.n : (path.b.type === 'edge' ? path.b.n : null);
+      if (path.b.type === 'node' && bL && bL[0] > 1 && _edgeN !== null) posB = _shiftPt(posB, _edgeN, _laneShift(bL[0], bL[1]));
+      if (path.a.type === 'node' && aL && aL[0] > 1 && _edgeN !== null) posA = _shiftPt(posA, _edgeN, _laneShift(aL[0], aL[1]));
 
       if (path.a.type === 'node' && path.b.type === 'node') {
         // Internal path (node→node, e.g. city→town in 1822 D35): straight line.
         // No arc needed — both endpoints are interior points, not edge midpoints.
         svg += `<line x1="${posA.x.toFixed(1)}" y1="${posA.y.toFixed(1)}" x2="${posB.x.toFixed(1)}" y2="${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
       } else {
-        // Edge→node path
+        // Edge→node or edge→edge path
         const ePt = path.a.type === 'edge' ? posA : posB;
         const nPt = path.a.type === 'edge' ? posB : posA;
 
         if (path.terminal) {
           // Terminal path: tobymao track_node_path.rb build_props terminal branch.
-          // Pentagon drawn in the rotated edge frame (edge at y=43.5, tobymao y=87 × 0.5):
-          //   hw = width/2 = 4 (tobymao) → 2 (×0.5); we use DSL_TRACK_W/2 to match our track width.
-          //   terminal:1 → M hw 35 L hw 43.5 L -hw 43.5 L -hw 35 L 0 17.5 Z   (tobymao: M hw 70 L hw 87 L -hw 87 L -hw 70 L 0 35)
-          //   terminal:2 → M hw 42.5 L hw 43.5 L -hw 43.5 L -hw 42.5 L 0 32.5 Z (tobymao: M hw 85 L hw 87 L -hw 87 L -hw 85 L 0 65)
+          // Lane shift applied to terminal_start_x / terminal_end_x BEFORE the rotate transform
+          // (tobymao build_props lines 435-440: terminal_start_x += begin_shift).
+          // tLane = the edge side's lane spec (a if a is edge, else b).
           const edgeNum = path.a.type === 'edge' ? path.a.n : path.b.n;
-          const hw = (DSL_TRACK_W / 2).toFixed(2);
+          const tLane   = path.a.type === 'edge' ? aL : bL;
+          const tShift  = (tLane && tLane[0] > 1) ? _laneShift(tLane[0], tLane[1]) : 0;
+          const hw = DSL_TRACK_W / 2;
+          const x1 = (hw + tShift).toFixed(2), x2 = (-hw + tShift).toFixed(2), xm = tShift.toFixed(2);
           const d = path.terminal === 2
-            ? `M ${hw} 42.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 42.5 L 0 32.5 Z`
-            : `M ${hw} 35.0 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 35.0 L 0 17.5 Z`;
+            ? `M ${x1} 42.5 L ${x1} 43.5 L ${x2} 43.5 L ${x2} 42.5 L ${xm} 32.5 Z`
+            : `M ${x1} 35.0 L ${x1} 43.5 L ${x2} 43.5 L ${x2} 35.0 L ${xm} 17.5 Z`;
           svg += `<path d="${d}" transform="rotate(${edgeNum * 60})" fill="#222"/>`;
         } else {
           // Normal edge→node path: arc when off-center and not colinear through origin
@@ -902,7 +944,12 @@ function hexToSvgInner(hex, tileDef) {
 
     // Edge-to-edge bypass paths (e.g. Altoona path=a:1,b:4 alongside city)
     // Also renders blankPaths (from hex builder) that coexist with a node feature.
-    for (const [ea, eb] of [...(hex.pathPairs || []), ...(hex.blankPaths || [])]) {
+    // hex.paths is the canonical source for imported maps (already rendered above with
+    // lane offsets in STEP 1). Rendering pathPairs again here would double-draw those
+    // tracks without the lane shift, cancelling the visual effect. Skip pathPairs when
+    // hex.paths is populated; keep the blankPaths source for hex-builder-drawn tracks.
+    const _eeBypass = (hex.paths && hex.paths.length > 0) ? [] : (hex.pathPairs || []);
+    for (const [ea, eb] of [..._eeBypass, ...(hex.blankPaths || [])]) {
       const pa = ep(ea), pb = ep(eb);
       const diff = Math.abs(ea - eb);
       if (diff === 3 || diff === 0) {
@@ -1020,11 +1067,33 @@ function hexToSvgInner(hex, tileDef) {
       svg += `<path d="M ${hw} 37.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 37.5 L 0 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
     }
 
-  } else if ((hex.pathPairs && hex.pathPairs.length > 0) || (hex.blankPaths && hex.blankPaths.length > 0)) {
+  } else if ((hex.paths && hex.paths.length > 0) || (hex.pathPairs && hex.pathPairs.length > 0) || (hex.blankPaths && hex.blankPaths.length > 0)) {
     // Pure edge-to-edge path hex (no nodes at all).
-    // hex.pathPairs  — used by import-ruby.js for pairs-mode DSL hexes
-    // hex.blankPaths — used by static-hex-builder.js wizard for manually drawn blank paths
-    // Both carry [[ea,eb], …] arrays; we merge them so either source renders correctly.
+    // hex.paths      — canonical paths model with lane support (from import-ruby.js)
+    // hex.pathPairs  — legacy edge pairs (fallback when hex.paths is empty)
+    // hex.blankPaths — paths drawn manually in the hex builder
+
+    // Render hex.paths with lane offsets (same logic as STEP 1, nodePos unused here).
+    for (const path of (hex.paths || [])) {
+      const aL = path.aLane || null;
+      const bL = path.bLane || null;
+      let posA = path.a.type === 'edge' ? ep(path.a.n) : { x: 0, y: 0 };
+      let posB = path.b.type === 'edge' ? ep(path.b.n) : { x: 0, y: 0 };
+      if (path.a.type === 'edge' && aL && aL[0] > 1) posA = _shiftPt(posA, path.a.n, _laneShift(aL[0], aL[1]));
+      if (path.b.type === 'edge' && bL && bL[0] > 1) posB = _shiftPt(posB, path.b.n, _laneShift(bL[0], bL[1]));
+      const _eN2 = path.a.type === 'edge' ? path.a.n : (path.b.type === 'edge' ? path.b.n : null);
+      if (path.b.type === 'node' && bL && bL[0] > 1 && _eN2 !== null) posB = _shiftPt(posB, _eN2, _laneShift(bL[0], bL[1]));
+      if (path.a.type === 'node' && aL && aL[0] > 1 && _eN2 !== null) posA = _shiftPt(posA, _eN2, _laneShift(aL[0], aL[1]));
+      if (!checkColinear(posA.x, posA.y, posB.x, posB.y)) {
+        const arc = calcArc(posA.x, posA.y, posB.x, posB.y);
+        svg += `<path d="M ${posA.x.toFixed(1)} ${posA.y.toFixed(1)} A ${arc.radius.toFixed(2)} ${arc.radius.toFixed(2)} 0 0 ${arc.sweep} ${posB.x.toFixed(1)} ${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
+      } else {
+        svg += `<line x1="${posA.x.toFixed(1)}" y1="${posA.y.toFixed(1)}" x2="${posB.x.toFixed(1)}" y2="${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
+      }
+    }
+
+    // Legacy pathPairs fallback (only when hex.paths is absent — pre-DSL saves).
+    const _legacyPairs = (hex.paths && hex.paths.length > 0) ? [] : (hex.pathPairs || []);
     const drawSeg = (e1, e2) => {
       const p1 = ep(e1), p2 = ep(e2);
       const diff = Math.abs(e1 - e2);
@@ -1035,7 +1104,7 @@ function hexToSvgInner(hex, tileDef) {
         svg += `<path d="M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
       }
     };
-    for (const [ea, eb] of (hex.pathPairs  || [])) drawSeg(ea, eb);
+    for (const [ea, eb] of _legacyPairs) drawSeg(ea, eb);
     for (const [ea, eb] of (hex.blankPaths || [])) drawSeg(ea, eb);
   }
 
@@ -1051,6 +1120,34 @@ function hexToSvgInner(hex, tileDef) {
 
 function escSvg(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── _nameSegments ─────────────────────────────────────────────────────────────
+// Splits a location name across multiple lines when it exceeds max_size chars.
+// Direct port of tobymao location_name.rb self.name_segments (lines 156-188).
+// max_size defaults to 12 (tobymao default).
+function _nameSegments(name) {
+  if (!name) return [];
+  if (name.length <= 12) return [name];
+  const words = name.split(' ');
+  switch (words.length) {
+    case 3:
+      // join middle with shorter of first/last; prefer first if equal length
+      return words[0].length > words[2].length
+        ? [words[0], words[1] + ' ' + words[2]]
+        : [words[0] + ' ' + words[1], words[2]];
+    case 4:
+      return [words[0] + ' ' + words[1], words[2] + ' ' + words[3]];
+    case 5: {
+      const front = words[0] + ' ' + words[1];
+      const back  = words[3] + ' ' + words[4];
+      return front.length > back.length
+        ? [front + ' ' + words[2], back]
+        : [front, words[2] + ' ' + back];
+    }
+    default:
+      return words;
+  }
 }
 
 // ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
@@ -1107,17 +1204,92 @@ function buildHexSvg(r, c, hex) {
 
     // City name (placed tile or DSL city/oo)
     if (hex?.cityName && hasCityFeature) {
-      g += `<text x="0" y="${(-sz*0.5).toFixed(1)}" font-family="Arial" font-size="9" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.85)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(hex.cityName)}</text>`;
+      g += `<text x="0" y="${(-sz*0.5).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.85)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(hex.cityName)}</text>`;
     }
 
-    // Location name (unplaced hexes)
+    // Location name (unplaced hexes with city/town content).
+    // Pure pass-through path hexes (e.g. red border lanes, N23-style edge connectors)
+    // have hex.name set from LOCATION_NAMES but should NOT show a label — in tobymao
+    // the location name only renders for hexes that have an actual city or town stop.
     const locName = !hex ? '' :
       (hex.city  && !hex.tile) ? (hex.city.name  || '') :
       (hex.town  && !hex.tile) ? (hex.town.name  || '') :
-      (!hex.tile) ? (hex.featureName || hex.name || '') : '';
+      (!hex.tile && hex.nodes && hex.nodes.length > 0) ? (hex.featureName || hex.name || '') : '';
     if (locName) {
-      const ny = (hex?.feature === 'city') ? -sz * 0.42 : sz * 0.58;
-      g += `<text x="0" y="${ny.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.75)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(locName)}</text>`;
+      // ── tobymao location_name.rb preferred_render_locations ─────────────────
+      // CRITICAL: hex.feature is a derived summary field (set to 'city' ONLY for
+      // 3+ city hexes, 'offboard' for red hexes, 'none' for everything else).
+      // It MUST NOT be used to determine label position — it cannot distinguish a
+      // single-city from a town from an offboard-city hex.
+      //
+      // Instead we use hex.nodes[] (the actual node model populated by import-ruby.js)
+      // and map to tobymao's location_name.rb preferred_render_locations constants:
+      //
+      //   Tobymao 100-unit scale → our sz (HEX_SIZE=40) via × (sz/100):
+      //     l_up40   y=-40 → -sz*0.40    l_up24  y=-24 → -sz*0.24
+      //     l_center y=  0 →          0  l_down24 y=24 →  sz*0.24
+      //     l_down40 y= 40 →  sz*0.40    l_down50 y=50 →  sz*0.50
+      //     l_top    y=-61 → -sz*0.61    l_bottom y=56 →  sz*0.56
+      //
+      //   Per location_name.rb:
+      //     offboard             → [l_center, l_up24]         → l_up24 (exits raise center cost)
+      //     single town (no city)→ [l_center, l_up40, l_down40] → l_up40 (town in CENTER)
+      //     single city 1-2 slot → [l_center, l_up40, l_down40] → l_down40 (city in CENTER)
+      //     single city 3 slot   → [l_down50, l_top]
+      //     single city 4+ slot  → [l_top, l_bottom]
+      //     multi city_towns     → l_center (complex edge logic; center is safe default)
+      let ny;
+      if (hex.city && !hex.tile) {
+        // Legacy hex.city model — treat as single 1-slot city
+        ny = sz * 0.40;                              // l_down40
+      } else if (hex.town && !hex.tile) {
+        // Legacy hex.town model — treat as single town
+        ny = -sz * 0.40;                             // l_up40
+      } else {
+        const _nodes  = hex.nodes || [];
+        const _cities = _nodes.filter(n => n.type === 'city');
+        const _towns  = _nodes.filter(n => n.type === 'town');
+        if (hex.feature === 'offboard') {
+          // Offboard: revenue shown below → name goes above center
+          ny = -sz * 0.24;                           // l_up24
+        } else if (_cities.length === 1 && _towns.length === 0) {
+          const _slots = _cities[0].slots || 1;
+          if (_slots >= 4) ny = -sz * 0.61;          // l_top  (4-slot city)
+          else if (_slots === 3) ny = sz * 0.50;     // l_down50 (3-slot city)
+          else ny = sz * 0.40;                       // l_down40 (1-2 slot city)
+        } else if (_towns.length >= 1 && _cities.length === 0) {
+          ny = -sz * 0.40;                           // l_up40 (town-only hex)
+        } else if (_nodes.length > 1) {
+          ny = 0;                                    // l_center (multi stop)
+        } else {
+          ny = sz * 0.40;                            // fallback l_down40
+        }
+      }
+      // ── Background box + text (tobymao location_name.rb render_background_box) ─
+      // tobymao: white rect fill-opacity=0.5 behind all text segments, then text on top.
+      // CHARACTER_WIDTH=8, LINE_HEIGHT=15, buffer_x=8, buffer_y=4 (tobymao 100-unit).
+      // We use empirical values tuned for our font-size at sz=40 rather than the
+      // raw ×0.4 scale (which underestimates our larger relative font).
+      const _segs = _nameSegments(locName);
+      const _fz   = 7;    // font-size in world units (tobymao ~14×0.4≈5.6 + our larger text)
+      const _cw   = 4.2;  // approx char width for Lato at _fz (proportional)
+      const _lh   = 9;    // line height (≈ 1.3 × _fz)
+      const _padX = 5;    // horizontal padding total (±2.5 each side)
+      const _padY = 3;    // vertical padding total (±1.5 each side)
+      const _maxC = Math.max(..._segs.map(s => s.length));
+      const _bw   = _maxC * _cw + _padX;
+      const _bh   = _segs.length * _lh + _padY;
+      // Rect centered on ny (tobymao box_dimensions + render_background_box logic)
+      g += `<rect x="${(-_bw / 2).toFixed(1)}" y="${(ny - _bh / 2).toFixed(1)}" ` +
+           `width="${_bw.toFixed(1)}" height="${_bh.toFixed(1)}" ` +
+           `fill="white" fill-opacity="0.5" stroke="none"/>`;
+      // Text segments vertically centered around ny, one per line
+      for (let i = 0; i < _segs.length; i++) {
+        const _ty = ny + (i - (_segs.length - 1) / 2) * _lh;
+        g += `<text x="0" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
+             `font-size="${_fz}" font-weight="bold" fill="#111" stroke-width="0.5" ` +
+             `text-anchor="middle" dominant-baseline="middle">${escSvg(_segs[i])}</text>`;
+      }
     }
 
     // Resource icons
@@ -1129,6 +1301,7 @@ function buildHexSvg(r, c, hex) {
     const hasDslContent = !hex?.tile && hex && (
       (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
       (hex.exits      && hex.exits.length      > 0) ||
+      (hex.paths      && hex.paths.length      > 0) ||
       (hex.pathPairs  && hex.pathPairs.length  > 0) ||
       (hex.blankPaths && hex.blankPaths.length > 0) ||
       (hex.exitPairs  && hex.exitPairs.length  > 0) ||
@@ -1145,7 +1318,7 @@ function buildHexSvg(r, c, hex) {
 
       // Tile label (upright)
       if (tileDef?.tileLabel) {
-        g += `<text x="${(-sz*0.62).toFixed(1)}" y="0" font-family="Arial" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
+        g += `<text x="${(-sz*0.62).toFixed(1)}" y="0" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
       }
 
       // Revenue bubbles (orbit with tile rotation, text stays upright)
@@ -1170,20 +1343,20 @@ function buildHexSvg(r, c, hex) {
               for (const { ph, val } of segs) {
                 const pc = TILE_HEX_COLORS[ph] || '#ccc';
                 g += `<rect x="${bx.toFixed(1)}" y="${byp.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${pc}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-                g += `<text x="${(bx+bw/2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
+                g += `<text x="${(bx+bw/2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
                 bx += bw + gapW;
               }
             }
           } else {
             g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-            g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
+            g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
           }
         }
       }
 
       // DSL hex label (OO, NY, etc.)
       if (!tileDef && hex?.label && hex.label !== '') {
-        g += `<text x="${(-sz*0.62).toFixed(1)}" y="${(-sz*0.45).toFixed(1)}" font-family="Arial" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
+        g += `<text x="${(-sz*0.62).toFixed(1)}" y="${(-sz*0.45).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
       }
 
       // DSL phase revenue (offboards, gray cities, etc.)
@@ -1196,7 +1369,7 @@ function buildHexSvg(r, c, hex) {
           const ryn = sz * 0.44;
           if (allSame && revVals[0] > 0) {
             g += `<circle cx="0" cy="${ryn.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-            g += `<text x="0" y="${ryn.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
+            g += `<text x="0" y="${ryn.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
           } else if (!allSame) {
             const bw2 = 13*sc, bh2 = 9*sc, gapW2 = sc;
             const tw2 = activeP.length * bw2 + (activeP.length - 1) * gapW2;
@@ -1205,7 +1378,7 @@ function buildHexSvg(r, c, hex) {
             for (const ph of activeP) {
               const pc2 = TILE_HEX_COLORS[ph] || '#ccc';
               g += `<rect x="${bx2.toFixed(1)}" y="${byp2.toFixed(1)}" width="${bw2.toFixed(1)}" height="${bh2.toFixed(1)}" fill="${pc2}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-              g += `<text x="${(bx2+bw2/2).toFixed(1)}" y="${ryn.toFixed(1)}" font-family="Arial" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
+              g += `<text x="${(bx2+bw2/2).toFixed(1)}" y="${ryn.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
               bx2 += bw2 + gapW2;
             }
           }
@@ -1261,7 +1434,7 @@ function buildHexSvg(r, c, hex) {
           const ry = (bx * sinR + by * cosR) * sc;
 
           g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-          g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Arial" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
+          g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
         });
       }
     }
@@ -1276,7 +1449,7 @@ function buildHexSvg(r, c, hex) {
   g += buildBordersSvg(hex);
 
   // Coordinate label
-  g += `<text x="0" y="${(-sz*0.62).toFixed(1)}" font-family="Arial" font-size="7" fill="rgba(140,140,140,0.7)" text-anchor="middle" dominant-baseline="middle">${escSvg(id)}</text>`;
+  g += `<text x="0" y="${(-sz*0.62).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="7" fill="rgba(140,140,140,0.7)" text-anchor="middle" dominant-baseline="middle">${escSvg(id)}</text>`;
 
   g += '</g>';
   return g;

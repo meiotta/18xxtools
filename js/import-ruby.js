@@ -332,14 +332,43 @@ function parseDslHex(code, bg, locationName) {
       if (townCount === 2) { hex.townRevenues[1] = rev ?? 0; }
 
     } else if (part.startsWith('path=')) {
-      // Parse path=a:X,b:Y[,terminal:N] where X/Y may be 'N' (edge) or '_N' (node ref)
-      // terminal:N marks a tapered stub end (spike) — tobymao track_node_path.rb
+      // Parse path=a:X,b:Y[,terminal:N][,lanes:N][,a_lane:T.I][,b_lane:T.I]
+      // terminal:N  — tapered stub end (spike) — tobymao track_node_path.rb
+      // lanes:N     — EXPANDS into N separate paths (source: Path.make_lanes in engine/part/path.rb)
+      //               Each has its own index; edge→edge reverses b_lane index.
+      //               lane index i: a_lane=[N,i], b_lane=[N,N-i-1] if edge→edge, else [N,i]
+      // a_lane:T.I  — tobymao decimal: T=totalLanes, I=laneIndex (0-based); explicit per-endpoint
+      // b_lane:T.I  — same for b endpoint
+      // source: Engine::Part::Path.decode_lane_spec (engine/part/path.rb)
       const pm = part.match(/^path=a:(_?\d+),b:(_?\d+)/);
       if (pm) {
         const a = parseEndpt(pm[1]), b = parseEndpt(pm[2]);
-        const termM = part.match(/terminal:(\d+)/);
+        const termM   = part.match(/terminal:(\d+)/);
         const terminal = termM ? parseInt(termM[1]) : 0;
-        hex.paths.push({ a, b, terminal });
+        const lanesM  = part.match(/\blanes:(\d+)/);
+        const aLaneM  = part.match(/\ba_lane:(\d+)\.(\d+)/);
+        const bLaneM  = part.match(/\bb_lane:(\d+)\.(\d+)/);
+        const bothEdge = (a.type === 'edge' && b.type === 'edge');
+
+        if (lanesM && !aLaneM && !bLaneM) {
+          // lanes:N shorthand → expand into N parallel paths, mirroring Path.make_lanes
+          const N = parseInt(lanesM[1]);
+          for (let i = 0; i < N; i++) {
+            const pathObj = { a, b, terminal,
+              aLane: [N, i],
+              bLane: bothEdge ? [N, N - i - 1] : [N, i],
+            };
+            hex.paths.push(pathObj);
+            if (bothEdge) pathPairList.push([a.n, b.n]);
+          }
+        } else {
+          // Explicit a_lane/b_lane (or no lane info at all) → single path
+          const pathObj = { a, b, terminal };
+          if (aLaneM) pathObj.aLane = [parseInt(aLaneM[1]), parseInt(aLaneM[2])];
+          if (bLaneM) pathObj.bLane = [parseInt(bLaneM[1]), parseInt(bLaneM[2])];
+          hex.paths.push(pathObj);
+          if (bothEdge) pathPairList.push([a.n, b.n]);
+        }
         // Collect edge exits
         if (a.type === 'edge') {
           exitSet.add(a.n);
@@ -349,7 +378,6 @@ function parseDslHex(code, bg, locationName) {
           exitSet.add(b.n);
           if (a.type === 'node') (exitsByNode[a.n] = exitsByNode[a.n] || []).push(b.n);
         }
-        if (a.type === 'edge' && b.type === 'edge') pathPairList.push([a.n, b.n]);
       }
 
     } else if (part.startsWith('label=')) {

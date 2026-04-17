@@ -109,6 +109,23 @@ function _snapPositions() {
 }
 const SNAP_POSITIONS = _snapPositions();
 
+// ── Orientation helpers ───────────────────────────────────────────────────────
+// The builder canvas is always drawn in flat-top internal space.
+// For pointy-top maps the whole canvas group is rotated 30° visually, and mouse
+// coordinates are counter-rotated before hit-testing flat-top constants.
+function _orientOff() {
+  return (typeof state !== 'undefined' && state?.meta?.orientation === 'pointy') ? 30 : 0;
+}
+function _unrotate(mx, my) {
+  const r = -_orientOff() * Math.PI / 180;
+  if (r === 0) return { x: mx, y: my };
+  const dx = mx - CCX, dy = my - CCY;
+  return {
+    x: CCX + dx * Math.cos(r) - dy * Math.sin(r),
+    y: CCY + dx * Math.sin(r) + dy * Math.cos(r),
+  };
+}
+
 // ── Internal state ────────────────────────────────────────────────────────────
 
 let _hexId          = null;
@@ -146,9 +163,9 @@ function _reset(hexId) {
   _manifestId = '';
   _manifestCount = 1;
 
-  // Load existing static hex data if present
+  // Load existing hex data if present (works for static map hexes and placed tiles)
   const h = (state.hexes || {})[hexId];
-  if (h && h.static) {
+  if (h) {
     _bg    = h.bg    || 'white';
     _label = h.label || '';
     // Re-hydrate nodes and segments from saved model
@@ -586,7 +603,11 @@ function _renderCanvas() {
   if (!svg) return;
 
   const cornerPts = CORNERS.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  let s = '';
+  const off = _orientOff();
+  // Everything inside this group rotates together: hex polygon, content, snaps, edge circles.
+  // hexToSvgInner always works in flat-top space; the outer rotate(off) brings the result
+  // to pointy orientation for pointy-top maps — same contract as the main render loop.
+  let s = `<g transform="rotate(${off}, ${CCX}, ${CCY})">`;
 
   // Hex background
   s += `<polygon points="${cornerPts}" fill="${_bgHexColor()}" stroke="#888" stroke-width="2"/>`;
@@ -594,8 +615,6 @@ function _renderCanvas() {
   // ── Live hex content via hexToSvgInner ─────────────────────────────────────
   const dsl = _toDslHex();
   if (typeof hexToSvgInner === 'function' && (dsl.nodes.length > 0 || dsl.paths.length > 0)) {
-    const savedOrientation = state?.meta?.orientation;
-    if (state && state.meta) state.meta.orientation = 'flat';
     try {
       const inner = hexToSvgInner(dsl, null);
       if (inner) {
@@ -604,7 +623,6 @@ function _renderCanvas() {
     } catch (e) {
       // silently ignore render errors in preview
     }
-    if (state && state.meta) state.meta.orientation = savedOrientation;
   }
 
   // ── Snap targets ──────────────────────────────────────────────────────────
@@ -661,6 +679,7 @@ function _renderCanvas() {
              pointer-events="none">${e}</text>`;
   }
 
+  s += `</g>`; // close rotate group
   svg.innerHTML = s;
 }
 
@@ -1015,9 +1034,10 @@ function _onCanvasClick(e) {
 }
 
 function _edgeAtPoint(mx, my) {
+  const p = _unrotate(mx, my);
   for (let e = 0; e < 6; e++) {
     const [ex, ey] = EMP[e];
-    if (Math.hypot(mx - ex, my - ey) <= EDGE_R + 10) return e;  // generous hit area
+    if (Math.hypot(p.x - ex, p.y - ey) <= EDGE_R + 10) return e;  // generous hit area
   }
   return null;
 }
@@ -1026,9 +1046,10 @@ function _edgeAtPoint(mx, my) {
 // Unlike _nearestSnap(), this won't snap to faraway positions on misclicks.
 const SNAP_HIT_R = 30;
 function _nearestSnapAt(mx, my) {
+  const p = _unrotate(mx, my);
   let best = null, bestD = Infinity;
   for (const snap of SNAP_POSITIONS) {
-    const d = Math.hypot(mx - snap.x, my - snap.y);
+    const d = Math.hypot(p.x - snap.x, p.y - snap.y);
     if (d < bestD && d <= SNAP_HIT_R) { bestD = d; best = snap; }
   }
   return best;
@@ -1088,11 +1109,12 @@ function _removeNode(nodeId) {
 }
 
 function _handleErase(mx, my) {
+  const p = _unrotate(mx, my);
   // Check for node click (in canvas space, nodes render at snap positions)
   for (const node of _nodes) {
     const snap = SNAP_POSITIONS.find(s => s.locStr === node.locStr);
     if (!snap) continue;
-    if (Math.hypot(mx - snap.x, my - snap.y) <= 20 * SC) {
+    if (Math.hypot(p.x - snap.x, p.y - snap.y) <= 20 * SC) {
       _removeNode(node.id);
       return;
     }
@@ -1103,7 +1125,7 @@ function _handleErase(mx, my) {
     const [ax, ay] = EMP[seg.ea];
     const [bx, by] = EMP[seg.eb];
     const mx2 = (ax + bx) / 2, my2 = (ay + by) / 2;
-    if (Math.hypot(mx - mx2, my - my2) <= 18) {
+    if (Math.hypot(p.x - mx2, p.y - my2) <= 18) {
       _segments = _segments.filter(s => s.id !== seg.id);
       _renderCanvas();
       _updateDslPreview();

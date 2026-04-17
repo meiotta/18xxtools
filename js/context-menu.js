@@ -3,19 +3,18 @@
 // Load order: SIXTH — after canvas-input.js (uses ensureHex, render, autosave).
 
 // ── Terrain definitions ───────────────────────────────────────────────────────
-// costs[]: values shown in the cost-picker radial when the icon is clicked.
-// Tree uses a smaller cost range (10/20) — light forest cost in most games.
-// Legacy keys (forest, desert, swamp, pass) still render correctly via the
-// renderer's switch; they just don't appear as buttons in the picker anymore.
+// Keys match tobymao's canonical terrain strings (upgrade.rb):
+//   mountain, water, river, lake, hill, swamp, desert, forest
+// Forest uses a smaller cost range (10/20) — light forest cost in most games.
 const TERRAIN_TYPES = [
   { label: 'Hill',     key: 'hill',     costs: [20,40,60,80,100,120] },
   { label: 'Mountain', key: 'mountain', costs: [20,40,60,80,100,120] },
   { label: 'Water',    key: 'water',    costs: [20,40,60,80,100,120] },
   { label: 'River',    key: 'river',    costs: [20,40,60,80,100,120] },
   { label: 'Lake',     key: 'lake',     costs: [20,40,60,80,100,120] },
-  { label: 'Marsh',    key: 'marsh',    costs: [20,40,60,80,100,120] },
-  { label: 'Cactus',   key: 'cactus',   costs: [20,40,60,80,100,120] },
-  { label: 'Tree',     key: 'tree',     costs: [10,20] },
+  { label: 'Swamp',    key: 'swamp',    costs: [20,40,60,80,100,120] },
+  { label: 'Desert',   key: 'desert',   costs: [20,40,60,80,100,120] },
+  { label: 'Forest',   key: 'forest',   costs: [10,20] },
 ];
 
 // ── Resource icon definitions (no default cost, canvas-drawn) ────────────────
@@ -81,18 +80,49 @@ function _drawTerrainIcon(bCtx, key, s) {
       bCtx.fill();
       break;
     case 'water':
+      // 2 wavy lines, light blue — matches tile__water CSS (#147ebe)
+      bCtx.strokeStyle = '#147ebe';
+      bCtx.lineWidth = 1.2;
+      bCtx.lineCap = 'round';
+      bCtx.lineJoin = 'round';
+      for (const wy of [-s * 0.55, s * 0.55]) {
+        bCtx.beginPath();
+        bCtx.moveTo(-s * 1.1, wy);
+        bCtx.quadraticCurveTo(-s * 0.55, wy - s * 0.6, 0, wy);
+        bCtx.quadraticCurveTo( s * 0.55, wy + s * 0.6, s * 1.1, wy);
+        bCtx.stroke();
+      }
+      break;
     case 'river':
+      // 2 wavy lines, dark blue — matches river.svg (#0a2ebe)
+      bCtx.strokeStyle = '#0a2ebe';
+      bCtx.lineWidth = 1.6;
+      bCtx.lineCap = 'round';
+      bCtx.lineJoin = 'round';
+      for (const wy of [-s * 0.55, s * 0.55]) {
+        bCtx.beginPath();
+        bCtx.moveTo(-s * 1.1, wy);
+        bCtx.quadraticCurveTo(-s * 0.55, wy - s * 0.6, 0, wy);
+        bCtx.quadraticCurveTo( s * 0.55, wy + s * 0.6, s * 1.1, wy);
+        bCtx.stroke();
+      }
+      break;
     case 'lake':
-      bCtx.beginPath();
-      bCtx.moveTo(0, -s);
-      bCtx.bezierCurveTo(s * 0.8, -s * 0.2, s * 0.8, s * 0.6, 0, s * 0.7);
-      bCtx.bezierCurveTo(-s * 0.8, s * 0.6, -s * 0.8, -s * 0.2, 0, -s);
-      bCtx.fillStyle = '#3366CC';
-      bCtx.fill();
+      // 3 wavy lines, medium blue — matches lake.svg (#67a7c4)
+      bCtx.strokeStyle = '#67a7c4';
+      bCtx.lineWidth = 1.2;
+      bCtx.lineCap = 'round';
+      bCtx.lineJoin = 'round';
+      for (const wy of [-s * 0.85, 0, s * 0.85]) {
+        bCtx.beginPath();
+        bCtx.moveTo(-s * 1.1, wy);
+        bCtx.quadraticCurveTo(-s * 0.55, wy - s * 0.5, 0, wy);
+        bCtx.quadraticCurveTo( s * 0.55, wy + s * 0.5, s * 1.1, wy);
+        bCtx.stroke();
+      }
       break;
     case 'swamp':
-    case 'marsh':
-      bCtx.strokeStyle = '#4A7A4A';
+      bCtx.strokeStyle = '#59b578'; // swamp.svg green
       bCtx.lineWidth = 1.5;
       bCtx.lineCap = 'round';
       for (const ox of [-s * 0.6, 0, s * 0.6]) {
@@ -102,7 +132,6 @@ function _drawTerrainIcon(bCtx, key, s) {
       }
       break;
     case 'forest':
-    case 'tree':
       bCtx.fillStyle = '#2d7a2d';
       bCtx.beginPath();
       bCtx.moveTo(0, -s * 1.2);
@@ -112,8 +141,7 @@ function _drawTerrainIcon(bCtx, key, s) {
       bCtx.fill();
       break;
     case 'desert':
-    case 'cactus':
-      bCtx.strokeStyle = '#4A7A4A';
+      bCtx.strokeStyle = '#59b578'; // cactus.svg green (same as swamp.svg)
       bCtx.lineWidth = 1.5;
       bCtx.lineCap = 'round';
       bCtx.lineJoin = 'round';
@@ -410,7 +438,7 @@ function showMultiContextMenu(x, y, hexIds) {
   // ── City ──────────────────────────────────────────────────────────────────
   addItem('🏙 Add City (all)', () => {
     applyToAll(id => {
-      state.hexes[id].city = { name: '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, grey: 0 } };
+      state.hexes[id].city = { name: '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, gray: 0 } };
       state.hexes[id].town = null;
       state.hexes[id].oo   = false;
     });

@@ -35,6 +35,13 @@
     <input type="file" id="importMapFile" style="display: none;" accept=".rb">
   </div>
 
+  <!-- Import notice — shown only after .rb import, dismissed with × -->
+  <div id="importNotice" style="display:none;">
+    <span class="import-notice-icon">⚠</span>
+    <span class="import-notice-text"><strong>Imported from .rb</strong> — <em>Home reservations</em> and <em>blocking tokens</em> display once companies are defined (Companies panel). <em>Hex icons</em> are not yet rendered. Track, stops, revenue, and terrain are correct.</span>
+    <button class="import-notice-close" id="importNoticeClose" title="Dismiss">×</button>
+  </div>
+
   <div class="content">
     <!-- LEFT PANEL -->
     <div class="left-panel" id="leftPanel">

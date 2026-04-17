@@ -165,6 +165,47 @@ const TileRegistry = (() => {
       }
     }
 
+    // ── Enrich tileDef.nodes with canonical rendered positions + normalize paths ──
+    // normalizeTileDef computes final stop positions via townPosition() / cityEdgePos()
+    // but stores them in tileDef.townPositions / tileDef.cities / tileDef.cityX,Y etc.
+    // Copy them back onto tileDef.nodes[] so hexToSvgInner's unified DSL rendering
+    // pipeline can use node.x/y directly — exactly as it does for DSL map hexes.
+    // Mark node._tileComputed=true → renderer skips locStr-based position lookup.
+    //
+    // Path endpoints are normalized from tile-geometry format (integer edge or {node:N})
+    // to the DSL format ({type:'edge'|'node', n:int}) that import-ruby.js produces, so
+    // hexToSvgInner handles both tile defs and map hexes through identical code.
+    if (tileDef.nodes && tileDef.nodes.length > 0) {
+      let _twnI = 0;
+      for (const _nd of tileDef.nodes) {
+        if (_nd.type === 'town') {
+          // Final position comes from townPositions[] (post dot-fix + post spread-fix).
+          // Centered dot town (tileDef.town=true) has no townPositions entry → (0,0,0).
+          const _tp = tileDef.townPositions?.[_twnI]
+                   ?? (tileDef.townAt && _twnI === 0 ? tileDef.townAt : null)
+                   ?? { x: 0, y: 0, rot: 0 };
+          _nd.x = _tp.x ?? 0;  _nd.y = _tp.y ?? 0;  _nd.rot = _tp.rot ?? 0;
+          _nd._tileComputed = true;
+          _twnI++;
+        } else if (_nd.type === 'city' || _nd.type === 'offboard') {
+          // City center: tile-geometry already wrote the correct value onto node.x/y
+          // (via locToPos for explicit loc:, or tile-registry multi-city edge placement).
+          // Nothing to recompute — just mark as pre-computed.
+          _nd._tileComputed = true;
+        } else if (_nd.type === 'junction') {
+          _nd.x = 0;  _nd.y = 0;  _nd._tileComputed = true;
+        }
+      }
+      // Normalize path endpoints to {type:'edge'|'node', n:int}.
+      if (tileDef.paths) {
+        const _ne = ep =>
+          typeof ep === 'number' ? { type: 'edge', n: ep }
+          : (ep && 'node' in ep) ? { type: 'node', n: ep.node }
+          : ep;  // already {type,n} — pass through
+        tileDef.paths = tileDef.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) }));
+      }
+    }
+
     return tileDef;
   }
 
