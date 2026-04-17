@@ -8,7 +8,7 @@
 // buildHexSvg(r,c,hex) — returns SVG string for one hex group
 // hexToSvgInner(hex,tileDef) — inner track/city/town geometry (shared with swatches)
 
-const RENDERER_VERSION = '2026-04-17-label-fix';
+const RENDERER_VERSION = '2026-04-17-tobymao-revenue';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
 
 // ── Debug: inspect a hex by grid key or by clicking ──────────────────────────
@@ -634,6 +634,173 @@ function cityEdgePos(edge) {
   return { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D };
 }
 
+// ─── computePreferredEdges ────────────────────────────────────────────────────
+// Port of tobymao lib/engine/tile.rb Tile#compute_city_town_edges.
+//
+// Returns an array (length = hex.nodes.length); value at each index is:
+//   • a numeric edge (0–5 or half-integer for OO) — place the city/town there
+//   • null — place at the hex center
+//
+// Only city and town nodes receive meaningful values; all other types stay null.
+//
+// This result drives three things:
+//   1. City symbol placement in hexToSvgInner (fix: uses first connEdge today)
+//   2. Revenue bubble positioning in _buildDslRevenueSvg (fix: both cities
+//      land on the same edge today because _nodeEdge returns null for both)
+//   3. Location-name position in buildHexSvg (fix: always l_center today)
+function computePreferredEdges(hex) {
+  const nodes     = hex.nodes || [];
+  const paths     = hex.paths || [];
+  const cities    = nodes.filter(n => n.type === 'city');
+  const towns     = nodes.filter(n => n.type === 'town');
+  const cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
+
+  // result[i] = preferred edge for nodes[i]; null = hex center.
+  const result = new Array(nodes.length).fill(null);
+
+  // ── Special case: no paths + (2 cities + 2 towns) ────────────────────────
+  // "Multiple city/town option tiles" (tobymao uses div=3 for both arrays).
+  if (paths.length === 0 && cities.length === 2 && towns.length === 2) {
+    const div = 3;
+    let ci = 0, ti = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const loc = _nodeEdge(nodes[i]);
+      if      (nodes[i].type === 'city') result[i] = loc ?? ci++ * div;
+      else if (nodes[i].type === 'town') result[i] = loc ?? ti++ * div;
+    }
+    return result;
+  }
+
+  // ── Special case: no paths + 2+ cities (no town constraint) ─────────────
+  // Evenly space cities around the hex (div = floor(6/count)).
+  if (paths.length === 0 && cities.length >= 2) {
+    const div = Math.floor(6 / cities.length);
+    let ci = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type === 'city') {
+        result[i] = _nodeEdge(nodes[i]) ?? ci++ * div;
+      }
+    }
+    return result;
+  }
+
+  // ── Special case: single city, no towns, no explicit loc → center ────────
+  if (cities.length === 1 && towns.length === 0) {
+    const ni = nodes.findIndex(n => n.type === 'city');
+    const loc = _nodeEdge(nodes[ni]);
+    if (loc !== null) result[ni] = loc;
+    return result; // null = center when loc === null
+  }
+
+  // ── Special case: single town, no cities, exits ≠ 2, no loc → center ────
+  if (cities.length === 0 && towns.length === 1) {
+    const ni = nodes.findIndex(n => n.type === 'town');
+    const loc = _nodeEdge(nodes[ni]);
+    if (loc !== null) {
+      result[ni] = loc;
+      return result;
+    }
+    const tExits = paths.filter(p =>
+      (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
+      (p.b.type === 'node' && p.b.n === ni && p.a.type === 'edge')
+    ).length;
+    if (tExits !== 2) return result; // null = center
+    // else: 2-exit single through-town → fall through to general case
+  }
+
+  // ── General case ─────────────────────────────────────────────────────────
+  // Mirrors tobymao: populate ct_edges + edge_count from paths, sort ct_edges
+  // by minimum connected edge, then assign each node its min-cost edge.
+
+  // ctEdgesMap[nodeIdx] = list of edge numbers connected to that node via paths.
+  const ctEdgesMap = {};
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].type === 'city' || nodes[i].type === 'town') ctEdgesMap[i] = [];
+  }
+
+  // edge_count[e]: usage count of edge e, biased +0.1 at edge 0 to leave
+  // room for the location name typically rendered at the hex bottom.
+  const edgeCount = new Array(6).fill(0);
+  edgeCount[0] += 0.1;
+
+  for (const path of paths) {
+    // Find which city/town node this path touches (if any).
+    let nodeIdx = null;
+    if (path.a.type === 'node') {
+      const n = nodes[path.a.n];
+      if (n && (n.type === 'city' || n.type === 'town')) nodeIdx = path.a.n;
+    }
+    if (nodeIdx === null && path.b.type === 'node') {
+      const n = nodes[path.b.n];
+      if (n && (n.type === 'city' || n.type === 'town')) nodeIdx = path.b.n;
+    }
+    if (nodeIdx === null) continue;
+
+    // Collect the edge endpoint of this path and update edge_count.
+    for (const side of [path.a, path.b]) {
+      if (side.type === 'edge') {
+        const e = side.n;
+        ctEdgesMap[nodeIdx].push(e);
+        edgeCount[e] += 1;
+        edgeCount[(e + 1) % 6] += 0.1;
+        edgeCount[(e - 1 + 6) % 6] += 0.1;
+      }
+    }
+  }
+
+  // Sort each node's edges ascending, then sort nodes by their minimum edge
+  // (nodes with earlier minimum edge get priority in assignment).
+  const ctList = Object.entries(ctEdgesMap)
+    .map(([k, edges]) => ({ ni: parseInt(k), edges: edges.slice().sort((a, b) => a - b) }))
+    .sort((a, b) => {
+      const aMin = a.edges.length > 0 ? a.edges[0] : Infinity;
+      const bMin = b.edges.length > 0 ? b.edges[0] : Infinity;
+      return aMin - bMin || a.ni - b.ni;
+    });
+
+  // Assign preferred edge to each node, updating edge_count after each
+  // assignment so later nodes avoid already-used edges.
+  for (const { ni, edges } of ctList) {
+    const loc = _nodeEdge(nodes[ni]);
+    if (loc !== null) {
+      result[ni] = loc;
+      // No edge_count update for explicit locs (tobymao: `unless ct.loc`).
+    } else if (edges.length > 0) {
+      const best = edges.reduce((b, e) => edgeCount[e] < edgeCount[b] ? e : b);
+      result[ni] = best;
+      edgeCount[best] += 1;
+      edgeCount[(best + 1) % 6] += 0.1;
+      edgeCount[(best - 1 + 6) % 6] += 0.1;
+    }
+    // edges.length === 0 → pathless; handled by the pass below.
+  }
+
+  // ── Pathless city/town with one sibling: place opposite (+3) ────────────
+  // tobymao: "take care of city/towns with no paths when there is one other ct"
+  const pathlessCTs = cityTowns.filter(n => {
+    const ni = nodes.indexOf(n);
+    return (ctEdgesMap[ni] || []).length === 0 && _nodeEdge(n) === null;
+  });
+  if (pathlessCTs.length === 1 && cityTowns.length === 2) {
+    const ni      = nodes.indexOf(pathlessCTs[0]);
+    const otherNi = cityTowns.map(n => nodes.indexOf(n)).find(j => j !== ni);
+    const other   = result[otherNi];
+    if (other !== null && other !== undefined) {
+      result[ni] = (Math.round(other) + 3) % 6;
+    }
+  }
+
+  // ── Exitless city/towns with explicit loc (no-path but has locStr) ───────
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.type !== 'city' && n.type !== 'town') continue;
+    const loc = _nodeEdge(n);
+    if (loc !== null && result[i] === null) result[i] = loc;
+  }
+
+  return result;
+}
+
 // ─── HEX TO SVG INNER GEOMETRY ─────────────────────────────────────────────
 // hexToSvgInner(hex, tileDef) — SVG string for the interior of one hex cell.
 //
@@ -807,6 +974,11 @@ function hexToSvgInner(hex, tileDef) {
 
     const cityNodeCount = hex.nodes.filter(n => n.type === 'city').length;
 
+    // Pre-compute preferred edges for all city/town nodes using tobymao's
+    // compute_city_town_edges algorithm.  These drive city symbol placement
+    // (below), revenue bubble positions, and location-name placement.
+    const prefEdges = computePreferredEdges(hex);
+
     // Sequential position computation
     const nodePos = [];
     for (let ni = 0; ni < hex.nodes.length; ni++) {
@@ -834,9 +1006,13 @@ function hexToSvgInner(hex, tileDef) {
         }
         if (!pos) {
           if (cityNodeCount >= 2) {
-            pos = connEdges.length > 0
-              ? { ...cityEdgePos(connEdges[0]), angle: 0 }
-              : { ...cityEdgePos(hex.nodes.slice(0, ni + 1).filter(n => n.type === 'city').length === 1 ? 0 : 3), angle: 0 };
+            // Use tobymao compute_city_town_edges result (preferred edge) for this city.
+            // Falls back to center only when the algorithm returns null (extremely rare
+            // in valid hex DSL, but safe default).
+            const prefEdge = prefEdges[ni];
+            pos = (prefEdge !== null && prefEdge !== undefined)
+              ? { ...cityEdgePos(prefEdge), angle: 0 }
+              : { x: 0, y: 0, angle: 0 };
           } else {
             pos = { x: 0, y: 0, angle: 0 };
           }
@@ -1150,6 +1326,338 @@ function _nameSegments(name) {
   }
 }
 
+// ─── Tobymao-safe DSL Revenue Rendering ──────────────────────────────────────
+//
+// Direct port of the tobymao positioning algorithm for city/town flat revenue:
+//   City#render_revenue  (assets/app/view/game/part/city.rb)
+//   TownRect#render_revenue (assets/app/view/game/part/town_rect.rb)
+//   Tile#should_render_revenue? (assets/app/view/game/tile.rb)
+//
+// Scale notes:
+//   Tobymao uses a 100-unit hex.  We use 50-unit (half scale).
+//   All _REV_* constants below are tobymao 100-unit values.
+//   Final world coords = (tobymao_value / 2) × sc  (sc = HEX_SIZE / 50).
+//
+// Angle convention: SVG rotate(θ) — clockwise positive; 0° = x-axis (rightward).
+//   So (d·cos θ, d·sin θ) is the vector in the rotated frame.
+
+// REVENUE_DISPLACEMENT indexed by city slot count (flat layout, tobymao 100-unit).
+const _REV_DISP_FLAT = [null, 42, 67, 65, 67, 0, 0, 0, 0, 0];
+
+// Canonical angle names (tobymao city.rb ANGLE_* constants, degrees).
+const _ANG_RIGHT       = -5;
+const _ANG_UPPER_RIGHT = -60;
+const _ANG_LOWER_RIGHT =  10;
+const _ANG_LOWER_LEFT  =  170;
+const _ANG_UPPER_LEFT  = -120;
+const _ANG_LEFT        = -175;
+
+// REVENUE_LOCATIONS_BY_EDGE — candidate positions for a 1-slot edge city's revenue badge.
+// Each entry: { r:[regions], a:angle }.  First entry = tobymao's preferred (lowest region cost).
+// Key = edge number (integer or half-integer for OO cities).
+const _REV_LOC_BY_EDGE = {
+  0:   [{r:[19],a:_ANG_LOWER_LEFT}, {r:[14],a:_ANG_UPPER_LEFT}, {r:[23],a:_ANG_LOWER_RIGHT}, {r:[16],a:_ANG_UPPER_RIGHT}],
+  0.5: [{r:[12,13],a:_ANG_LEFT},    {r:[7,14],a:_ANG_UPPER_LEFT},{r:[15,16],a:_ANG_UPPER_RIGHT},{r:[21,22],a:_ANG_RIGHT}],
+  1:   [{r:[5],a:_ANG_LOWER_LEFT},  {r:[7],a:_ANG_UPPER_LEFT},   {r:[15],a:_ANG_UPPER_RIGHT},  {r:[20],a:_ANG_LOWER_RIGHT}],
+  1.5: [{r:[0,6],a:_ANG_LEFT},      {r:[13,19],a:_ANG_RIGHT},    {r:[7,8],a:_ANG_UPPER_LEFT},  {r:[14,15],a:_ANG_UPPER_RIGHT}],
+  2:   [{r:[12],a:_ANG_LOWER_RIGHT},{r:[14],a:_ANG_UPPER_RIGHT}, {r:[8],a:_ANG_UPPER_LEFT},    {r:[1],a:_ANG_LOWER_LEFT}],
+  2.5: [{r:[5,6],a:_ANG_RIGHT},     {r:[7,14],a:_ANG_UPPER_RIGHT},{r:[8,9],a:_ANG_UPPER_LEFT}, {r:[2,3],a:_ANG_LEFT}],
+  3:   [{r:[4],a:_ANG_LOWER_LEFT},  {r:[0],a:_ANG_LOWER_RIGHT},  {r:[9],a:_ANG_UPPER_LEFT},    {r:[7],a:_ANG_UPPER_RIGHT}],
+  3.5: [{r:[10,11],a:_ANG_LEFT},    {r:[9,16],a:_ANG_UPPER_LEFT},{r:[7,8],a:_ANG_UPPER_RIGHT}, {r:[1,2],a:_ANG_RIGHT}],
+  4:   [{r:[18],a:_ANG_LOWER_LEFT}, {r:[16],a:_ANG_UPPER_LEFT},  {r:[8],a:_ANG_UPPER_RIGHT},   {r:[3],a:_ANG_LOWER_RIGHT}],
+  4.5: [{r:[4,10],a:_ANG_RIGHT},    {r:[17,23],a:_ANG_LEFT},     {r:[8,9],a:_ANG_UPPER_RIGHT}, {r:[15,16],a:_ANG_UPPER_LEFT}],
+  5:   [{r:[11],a:_ANG_LOWER_RIGHT},{r:[9],a:_ANG_UPPER_RIGHT},  {r:[15],a:_ANG_UPPER_LEFT},   {r:[22],a:_ANG_LOWER_LEFT}],
+  5.5: [{r:[17,18],a:_ANG_RIGHT},   {r:[14,15],a:_ANG_UPPER_LEFT},{r:[9,16],a:_ANG_UPPER_RIGHT},{r:[20,21],a:_ANG_LEFT}],
+};
+
+// CENTER_REVENUE_EDGE_PRIORITY: preferred edge directions for a center city's revenue badge
+// when there are multiple stops.  Edges used by other stops are excluded before picking.
+const _CTR_REV_EDGE_PRI = [1, 2, 3, 4, 0, 5];
+
+// EDGE_TOWN_REVENUE_REGIONS: [regions[], invert_displacement] per edge (town_rect.rb).
+// invert=true → displacement = -35 (revenue placed on the "inner" side of the town bar).
+const _EDGE_TOWN_REV = {
+  0:   [[23], false],
+  0.5: [[12], true ],
+  1:   [[5],  true ],
+  1.5: [[19], false],
+  2:   [[12], false],
+  2.5: [[5],  false],
+  3:   [[0],  false],
+  3.5: [[11], true ],
+  4:   [[18], true ],
+  4.5: [[23], true ],
+  5:   [[11], false],
+  5.5: [[18], false],
+};
+
+// SMALL_ITEM_LOCATIONS (flat layout) — five corner positions for the central revenue badge.
+// x, y are tobymao 100-unit; priority order matches tobymao's SMALL_ITEM_LOCATIONS array.
+// Adjacent edges in our edge system used for lightweight region-cost estimation.
+const _SMALL_ITEM_LOCS_FLAT = [
+  { x:  75, y:   0,    adjEdges:[4,5] }, // P_RIGHT_CORNER         regions [11,18]
+  { x: -75, y:   0,    adjEdges:[1,2] }, // P_LEFT_CORNER          regions [5,12]
+  { x:  35, y:  60.62, adjEdges:[0,5] }, // P_BOTTOM_RIGHT_CORNER  regions [22,23]
+  { x: -35, y: -60.62, adjEdges:[2,3] }, // P_UPPER_LEFT_CORNER    regions [0,1]
+  { x: -35, y:  60.62, adjEdges:[0,1] }, // P_BOTTOM_LEFT_CORNER   regions [19,20]
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// _nodeEdge: return numeric edge from node.locStr, or null for center nodes.
+function _nodeEdge(node) {
+  if (!node.locStr || node.locStr === 'center') return null;
+  const f = parseFloat(node.locStr);
+  return isNaN(f) ? null : f;
+}
+
+// _revNodeValue: resolve flat revenue for hex.nodes[i], with legacy fallbacks.
+function _revNodeValue(hex, i) {
+  const node = hex.nodes[i];
+  const tIdx = hex.nodes.slice(0, i).filter(n => n.type === 'town').length;
+  return node.flat ?? hex.cityRevenues?.[i] ?? hex.townRevenues?.[tIdx] ?? null;
+}
+
+// ── _shouldRenderRevenue: port of tile.rb Tile#should_render_revenue? ────────
+// Returns true → single central badge for the tile (all stops same revenue).
+// Returns false → inline badge per node.
+function _shouldRenderRevenue(hex) {
+  const nodes     = hex.nodes || [];
+  const cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
+
+  const revenues  = cityTowns.map((node) => {
+    const origIdx = nodes.indexOf(node);
+    const tIdx    = nodes.slice(0, origIdx).filter(n => n.type === 'town').length;
+    return node.flat ?? hex.cityRevenues?.[origIdx] ?? hex.townRevenues?.[tIdx] ?? null;
+  }).filter(r => r !== null);
+
+  if (revenues.length === 0)   return false; // nothing to render
+  if (cityTowns.length <= 1)   return false; // single stop → inline
+  if (new Set(revenues).size > 1) return false; // different revenues → inline per node
+
+  const cities = nodes.filter(n => n.type === 'city');
+
+  // Count unique exit edges (for "avoid obscuring track" check).
+  const exitEdgeSet = new Set();
+  (hex.paths || []).forEach(p => {
+    if (p.a?.type === 'edge') exitEdgeSet.add(p.a.n);
+    if (p.b?.type === 'edge') exitEdgeSet.add(p.b.n);
+  });
+
+  // Special case: 2 towns, no cities, >4 exits → central to avoid crowding inline badges.
+  if (cities.length === 0 && cityTowns.length === 2 && exitEdgeSet.size > 4) return true;
+
+  // 2 stops and total city slot count < 3 → inline
+  const totalSlots = cities.reduce((s, c) => s + (c.slots || 1), 0);
+  if (totalSlots < 3 && cityTowns.length === 2) return false;
+
+  return true; // central badge
+}
+
+// ── _buildDslRevenueSvg ───────────────────────────────────────────────────────
+// Tobymao-safe revenue rendering for DSL hex nodes (city + town).
+// Only called when !tileDef && hex.nodes.length > 0.
+// totalDeg: tile orientation in degrees (orientOff + tileDeg).
+// sc: world-unit scale (= HEX_SIZE / 50).
+function _buildDslRevenueSvg(hex, totalDeg, sc) {
+  const nodes = hex.nodes || [];
+  if (!nodes.length) return '';
+
+  const cosT = Math.cos(totalDeg * Math.PI / 180);
+  const sinT = Math.sin(totalDeg * Math.PI / 180);
+
+  // Convert from 50-unit tile space to SVG world coords (with tile rotation).
+  function toWorld(x50, y50) {
+    return { x: (x50 * cosT - y50 * sinT) * sc,
+             y: (x50 * sinT + y50 * cosT) * sc };
+  }
+
+  // Render one revenue bubble centred at world (w.x, w.y).
+  function bubble(w, rev) {
+    const r = 7.5;
+    return `<circle cx="${w.x.toFixed(1)}" cy="${w.y.toFixed(1)}" r="${r}" fill="white" stroke="#777" stroke-width="1"/>` +
+           `<text x="${w.x.toFixed(1)}" y="${w.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
+  }
+
+  const cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
+  const numCTs    = cityTowns.length;
+
+  // Preferred edges for every city/town node (tobymao compute_city_town_edges).
+  // Used for city revenue position and to compute blockedEdges for center cities.
+  const prefEdges = computePreferredEdges(hex);
+
+  // ── Central badge (all stops share the same revenue) ─────────────────────
+  if (_shouldRenderRevenue(hex)) {
+    const rev = _revNodeValue(hex, nodes.indexOf(cityTowns[0]));
+    if (!rev || rev === 0) return '';
+
+    // Build a lightweight adjacency cost for each corner to mimic tobymao's
+    // min_by region_use.  Cost = position priority + 10 × (exits or nodes at
+    // adjacent edges).  No full 24-region tracking needed for the corner case.
+    const exitEdgeSet = new Set();
+    (hex.paths || []).forEach(p => {
+      if (p.a?.type === 'edge') exitEdgeSet.add(p.a.n);
+      if (p.b?.type === 'edge') exitEdgeSet.add(p.b.n);
+    });
+    // Use prefEdges for city/town nodes, _nodeEdge for any explicit-locStr remainder.
+    const nodeEdgeSet = new Set(
+      nodes.map((n, idx) => {
+        const loc = _nodeEdge(n);
+        if (loc !== null) return Math.round(loc);
+        const pe = prefEdges[idx];
+        return (pe !== null && pe !== undefined) ? Math.round(pe) : null;
+      }).filter(e => e !== null)
+    );
+
+    let bestLoc = _SMALL_ITEM_LOCS_FLAT[0], bestCost = Infinity;
+    _SMALL_ITEM_LOCS_FLAT.forEach((loc, j) => {
+      let cost = j; // base priority (lower index = preferred)
+      for (const e of loc.adjEdges) {
+        if (exitEdgeSet.has(e)) cost += 10;
+        if (nodeEdgeSet.has(e)) cost += 10;
+      }
+      if (cost < bestCost) { bestCost = cost; bestLoc = loc; }
+    });
+
+    return bubble(toWorld(bestLoc.x / 2, bestLoc.y / 2), rev);
+  }
+
+  // ── Inline badge per node ─────────────────────────────────────────────────
+  let svg = '';
+
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (node.type !== 'city' && node.type !== 'town') continue;
+
+    const rev = _revNodeValue(hex, i);
+    if (!rev || rev === 0) continue;
+
+    // For cities: use computePreferredEdges so that cities without an explicit
+    // locStr (like O14's two cities connected via paths) are correctly classified
+    // as "edge cities" rather than "center cities".
+    // For towns: keep _nodeEdge — town revenue direction is driven by exit paths,
+    // not by the preferred-edge assignment.
+    const edge = node.type === 'city' ? prefEdges[i] : _nodeEdge(node);
+
+    // City/town center in tobymao 100-unit space.
+    // Edge nodes: distance 50 toward that edge; center nodes: origin.
+    const nodeX100 = (edge === null || edge === undefined) ? 0 : -Math.sin(edge * Math.PI / 3) * 50;
+    const nodeY100 = (edge === null || edge === undefined) ? 0 :  Math.cos(edge * Math.PI / 3) * 50;
+    const nodeAng  = (edge === null || edge === undefined) ? 0 : edge * 60; // city frame rotation (°)
+
+    let x50, y50; // final revenue position in our 50-unit space
+
+    if (node.type === 'city') {
+      // ── City revenue (city.rb render_revenue) ──────────────────────────
+      const slots = node.slots || 1;
+      // Displacement (tobymao 100-unit); clamp index, treat 0 as 42 fallback.
+      const rawDisp = _REV_DISP_FLAT[Math.min(slots, _REV_DISP_FLAT.length - 1)];
+      const dispT   = (!rawDisp || rawDisp === 0) ? 42 : rawDisp;
+
+      let revRotation; // degrees (SVG bearing, 0=rightward, +CW)
+
+      if (numCTs === 1) {
+        // Single stop on tile: revenue goes in city's "right" direction.
+        // angle_for_layout=0 for flat layout → rotation=0 → just cityAngle rotation.
+        revRotation = 0;
+
+      } else if (edge !== null && edge !== undefined && slots === 1) {
+        // Edge 1-slot city in multi-stop tile: REVENUE_LOCATIONS_BY_EDGE.
+        // Use first candidate (tobymao picks min region_use; first = default priority).
+        const candidates = _REV_LOC_BY_EDGE[edge];
+        revRotation = candidates ? candidates[0].a : 0;
+
+      } else if (edge !== null && edge !== undefined /* && slots > 1 */) {
+        // OO / multi-slot edge city: OO_REVENUE_REGIONS path.
+        // Rare and complex (negative displacement, etc.).
+        // Fallback: skip; phase block handles OO cities that carry phaseRevenue.
+        continue;
+
+      } else {
+        // Center city in multi-stop tile: CENTER_REVENUE_EDGE_PRIORITY.
+        // Exclude edges occupied by other stops (use prefEdges for correct blocking).
+        const blockedEdges = nodes
+          .filter((n, j) => j !== i && (n.type === 'city' || n.type === 'town'))
+          .flatMap((n, _, arr) => {
+            const j = nodes.indexOf(n);
+            const ne = n.type === 'city' ? prefEdges[j] : _nodeEdge(n);
+            if (ne === null || ne === undefined) return [];
+            return [ne, ((Math.round(ne) - 1 + 6) % 6)];
+          });
+        const availEdges = _CTR_REV_EDGE_PRI.filter(e => !blockedEdges.includes(e));
+        const revenueEdge = availEdges.length > 0 ? availEdges[0] : 0;
+        revRotation = 60 * revenueEdge + 120;
+      }
+
+      // Revenue vector in city-local space: rotate(revRotation) × (dispT, 0).
+      const rrRad = revRotation * Math.PI / 180;
+      const dX    = dispT * Math.cos(rrRad);
+      const dY    = dispT * Math.sin(rrRad);
+
+      // Apply city's own rotation (city frame is rotated by nodeAng in the hex).
+      const caRad = nodeAng * Math.PI / 180;
+      const offX  = dX * Math.cos(caRad) - dY * Math.sin(caRad);
+      const offY  = dX * Math.sin(caRad) + dY * Math.cos(caRad);
+
+      // Tobymao 100-unit → our 50-unit space (÷2).
+      x50 = (nodeX100 + offX) / 2;
+      y50 = (nodeY100 + offY) / 2;
+
+    } else {
+      // ── Town revenue (town_rect.rb render_revenue) ──────────────────────
+      // Town exits from hex paths (edge endpoints connected to this node).
+      const exits = (hex.paths || []).filter(p =>
+        (p.a.type === 'node' && p.a.n === i && p.b.type === 'edge') ||
+        (p.b.type === 'node' && p.b.n === i && p.a.type === 'edge')
+      ).map(p => p.a.type === 'edge' ? p.a.n : p.b.n);
+
+      let revAngle, dispT;
+
+      if (exits.length === 2) {
+        // Through-town (2 exits): center_town vs OO-style edge town.
+        // center_town? = exits==2 && total tile exit count <=3 (tobymao town_rect.rb).
+        const allTileExits = new Set();
+        (hex.paths || []).forEach(p => {
+          if (p.a?.type === 'edge') allTileExits.add(p.a.n);
+          if (p.b?.type === 'edge') allTileExits.add(p.b.n);
+        });
+        const isCenterTown = allTileExits.size <= 3;
+        if (isCenterTown || edge === null) {
+          // Center through-town: revenue perpendicular to track, simplified as edge*60.
+          revAngle = edge !== null ? edge * 60 : 0;
+        } else {
+          // Non-center 2-exit edge town (OO-style): DOUBLE_DIT_REVENUE_ANGLES.
+          // [170, -130, 130, -10, 50, -50] for edges 0-5 (tobymao town_rect.rb).
+          const _DDIT = [170, -130, 130, -10, 50, -50];
+          revAngle = _DDIT[Math.round(edge)] ?? (edge * 60);
+        }
+        dispT = 35;
+      } else if (edge !== null) {
+        // Edge town with 0 or 1 exit: EDGE_TOWN_REVENUE_REGIONS.
+        const [, invert] = _EDGE_TOWN_REV[edge] || [[], false];
+        revAngle = edge * 60; // town_rotation_angles: [edge * 60] for single-exit edge town
+        dispT    = invert ? -35 : 35;
+      } else {
+        // Center/no-edge town: revenue to the right (regions=CENTER).
+        revAngle = 0;
+        dispT    = 35;
+      }
+
+      // Revenue position: T(town_pos) × R(revAngle) × T(dispT, 0).
+      const raRad = revAngle * Math.PI / 180;
+      const offX  = dispT * Math.cos(raRad);
+      const offY  = dispT * Math.sin(raRad);
+
+      x50 = (nodeX100 + offX) / 2;
+      y50 = (nodeY100 + offY) / 2;
+    }
+
+    svg += bubble(toWorld(x50, y50), rev);
+  }
+
+  return svg;
+}
+
 // ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
 // buildHexSvg: returns complete SVG <g> element for one hex.
 // Coordinate space: hex-local world units centered at (0,0), group translated to hex center.
@@ -1260,7 +1768,26 @@ function buildHexSvg(r, c, hex) {
         } else if (_towns.length >= 1 && _cities.length === 0) {
           ny = -sz * 0.40;                           // l_up40 (town-only hex)
         } else if (_nodes.length > 1) {
-          ny = 0;                                    // l_center (multi stop)
+          // Multi-stop hex: derive label position from city/town preferred edges.
+          // Tobymao picks the candidate location whose regions are least occupied.
+          // Our heuristic: compute average y-direction of preferred-edge stops.
+          //   avg > +0.2  → stops in lower half → l_top   (y = -sz×0.61)
+          //   avg < -0.2  → stops in upper half → l_bottom (y =  sz×0.56)
+          //   otherwise   → mixed / center       → l_center (y = 0)
+          const _msPE = computePreferredEdges(hex);
+          let _sumY = 0, _peCount = 0;
+          for (const _mn of _nodes) {
+            const _mni = (hex.nodes || []).indexOf(_mn);
+            const _pe  = _msPE[_mni];
+            if (_pe !== null && _pe !== undefined) {
+              _sumY += Math.cos(_pe * Math.PI / 3); // +ve = toward bottom
+              _peCount++;
+            }
+          }
+          const _avgY = _peCount > 0 ? _sumY / _peCount : 0;
+          if      (_avgY >  0.2) ny = -sz * 0.61;   // l_top
+          else if (_avgY < -0.2) ny =  sz * 0.56;   // l_bottom
+          else                   ny = 0;             // l_center
         } else {
           ny = sz * 0.40;                            // fallback l_down40
         }
@@ -1359,8 +1886,16 @@ function buildHexSvg(r, c, hex) {
         g += `<text x="${(-sz*0.62).toFixed(1)}" y="${(-sz*0.45).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
       }
 
-      // DSL phase revenue (offboards, gray cities, etc.)
-      if (!tileDef && hex?.phaseRevenue) {
+      // DSL phase revenue — for offboards and phase-coloured city nodes (flat=null).
+      // Suppressed when any city/town node has a flat revenue value, since those are
+      // handled by _buildDslRevenueSvg with tobymao-safe positioning (see below).
+      // Rationale: parsePhaseRevenue('20') returns phases={yellow:20,...} even for a
+      // plain flat city, so without this guard the phase block would render at the
+      // wrong fixed position AND _buildDslRevenueSvg would render it again at the
+      // correct tobymao position.
+      const _hasFlatNodeRev = !!(hex?.nodes?.some(
+        n => (n.type === 'city' || n.type === 'town') && n.flat !== null && n.flat !== 0));
+      if (!tileDef && !_hasFlatNodeRev && hex?.phaseRevenue) {
         const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
         const activeP = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
         if (activeP.length > 0) {
@@ -1385,57 +1920,12 @@ function buildHexSvg(r, c, hex) {
         }
       }
 
-      // DSL flat revenue — builder hexes store per-node revenue in cityRevenues[]/townRevenue(s).
-      // Position each bubble just outside its node circle, in the direction away from hex center.
-      // Revenue bubbles are placed in hex-local coords (post rotation+scale), same as phase bubbles above.
+      // DSL flat revenue — tobymao-safe positioning via _buildDslRevenueSvg.
+      // Handles city inline (REVENUE_LOCATIONS_BY_EDGE / CENTER_REVENUE_EDGE_PRIORITY)
+      // and town inline (EDGE_TOWN_REVENUE_REGIONS), plus central badge for same-revenue
+      // multi-stop tiles.  Full port of tobymao city.rb + town_rect.rb render_revenue.
       if (!tileDef && hex?.nodes && hex.nodes.length > 0) {
-        const hasPhaseRev = hex.activePhases && Object.values(hex.activePhases).some(Boolean);
-        const rotRad = totalDeg * Math.PI / 180;
-        const cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
-
-        hex.nodes.forEach((node, i) => {
-          // Don't double-render: skip nodes covered by phase revenue (single-node only, i=0)
-          if (hasPhaseRev && i === 0) return;
-
-          // Resolve revenue from whichever field the builder populated:
-          //   cities (all counts) → cityRevenues[i]
-          //   dualTown           → townRevenues[i]
-          //   single town        → townRevenue (index 0 only)
-          const rev = hex.cityRevenues?.[i]
-                   ?? (hex.townRevenues?.[i])
-                   ?? (i === 0 ? (hex.townRevenue ?? null) : null);
-          if (!rev || rev === 0) return;
-
-          // Node center in 50-unit tile space from locStr
-          let nx = 0, ny = 0;
-          if (node.locStr && node.locStr !== 'center') {
-            const f = parseFloat(node.locStr);
-            if (!isNaN(f)) {
-              const a = f * Math.PI / 3;
-              nx = -Math.sin(a) * DSL_CITY_D;
-              ny =  Math.cos(a) * DSL_CITY_D;
-            }
-          }
-
-          // Offset bubble past the node circle (DSL_SLOT_R=12.5) in the outward direction
-          const dist = Math.hypot(nx, ny);
-          let bx, by;
-          if (dist < 0.5) {
-            // Center node: place bubble below (positive y = toward bottom edge)
-            bx = 0; by = DSL_SLOT_R + 8;
-          } else {
-            const ux = nx / dist, uy = ny / dist;
-            bx = nx + ux * (DSL_SLOT_R + 8);
-            by = ny + uy * (DSL_SLOT_R + 8);
-          }
-
-          // Rotate with tile and scale to hex-local coords
-          const rx = (bx * cosR - by * sinR) * sc;
-          const ry = (bx * sinR + by * cosR) * sc;
-
-          g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-          g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
-        });
+        g += _buildDslRevenueSvg(hex, totalDeg, sc);
       }
     }
   }
