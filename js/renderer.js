@@ -1001,7 +1001,8 @@ function hexToSvgInner(hex, tileDef) {
           const f = parseFloat(node.locStr);
           if (!isNaN(f)) {
             const a = f * Math.PI / 3;
-            pos = { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D, angle: 0 };
+            // source: city.rb preferred_render_locations → angle: @edge * 60
+            pos = { x: -Math.sin(a) * DSL_CITY_D, y: Math.cos(a) * DSL_CITY_D, angle: f * 60 };
           }
         }
         if (!pos) {
@@ -1011,7 +1012,7 @@ function hexToSvgInner(hex, tileDef) {
             // in valid hex DSL, but safe default).
             const prefEdge = prefEdges[ni];
             pos = (prefEdge !== null && prefEdge !== undefined)
-              ? { ...cityEdgePos(prefEdge), angle: 0 }
+              ? { ...cityEdgePos(prefEdge), angle: prefEdge * 60 }
               : { x: 0, y: 0, angle: 0 };
           } else {
             pos = { x: 0, y: 0, angle: 0 };
@@ -1169,10 +1170,14 @@ function hexToSvgInner(hex, tileDef) {
             [bx, by] = [cr * bx - sr * by, sr * bx + cr * by];
           }
 
-          // Slot positions: rotate(360/n × i) applied to [bx,by], per city.rb render_part.
+          // Slot positions: rotate(pos.angle + 360/n × i) applied to [bx,by].
+          // source: city.rb render_part → slot positions are in city-group local space
+          // which is rotated by render_location[:angle] (= edge*60 for edge cities).
+          // For flat-map center cities pos.angle=0 so behaviour is unchanged.
+          const angleRad = (pos.angle || 0) * Math.PI / 180;
           const offsets = [];
           for (let i = 0; i < slots; i++) {
-            const rad = (2 * Math.PI / slots) * i;
+            const rad = angleRad + (2 * Math.PI / slots) * i;
             const cos = Math.cos(rad), sin = Math.sin(rad);
             offsets.push({ x: cos * bx - sin * by, y: sin * bx + cos * by });
           }
@@ -2015,19 +2020,61 @@ function buildHexSvg(r, c, hex) {
         if (activeP.length > 0) {
           const revVals = activeP.map(p => hex.phaseRevenue[p] || 0);
           const allSame = revVals.every(v => v === revVals[0]);
-          const ryn = sz * 0.44;
+
+          // Compute revenue bubble centre using tobymao city.rb render_revenue.
+          // source: city.rb render_revenue @num_cts==1 branch — for a single edge-city,
+          // revenue is placed at REVENUE_DISPLACEMENT[:flat][slots] along the city
+          // group's +x axis (= direction of edge*60°), then scaled to sz-unit space.
+          // Falls back to default bottom position for offboards (no nodes) and any
+          // topology the simple rule doesn't cover.
+          let revCX = 0, revCY = sz * 0.44;
+          const _phNodes   = hex.nodes || [];
+          const _phCities  = _phNodes.filter(n => n.type === 'city');
+          const _phTowns   = _phNodes.filter(n => n.type === 'town');
+          if (_phCities.length + _phTowns.length === 1 && _phCities.length === 1) {
+            const _phCity  = _phCities[0];
+            const _phSlots = Math.min(_phCity.slots || 1, _REV_DISP_FLAT.length - 1);
+            const _phDisp  = _REV_DISP_FLAT[_phSlots];
+            if (_phDisp) {
+              let _phEdge = null;
+              if (_phCity.locStr && _phCity.locStr !== 'center') {
+                const _pf = parseFloat(_phCity.locStr);
+                if (!isNaN(_pf)) _phEdge = _pf;
+              }
+              if (_phEdge === null) {
+                const _pe  = computePreferredEdges(hex);
+                const _pni = _phNodes.indexOf(_phCity);
+                const _pv  = _pe[_pni];
+                if (_pv !== null && _pv !== undefined) _phEdge = _pv;
+              }
+              if (_phEdge !== null) {
+                // City centre in tobymao 100-unit: (-sin(e)*50, cos(e)*50)
+                const _pe_rad = _phEdge * Math.PI / 3;
+                const _cx100  = -Math.sin(_pe_rad) * 50;
+                const _cy100  =  Math.cos(_pe_rad) * 50;
+                // Revenue offset: rotate(nodeAng) × (_phDisp, 0)
+                const _na_rad = _phEdge * 60 * Math.PI / 180; // same as _pe_rad
+                const _oX     = _phDisp * Math.cos(_na_rad);
+                const _oY     = _phDisp * Math.sin(_na_rad);
+                // Scale 100-unit → sz-unit (÷100 × sz)
+                revCX = (_cx100 + _oX) * sz / 100;
+                revCY = (_cy100 + _oY) * sz / 100;
+              }
+            }
+          }
+
           if (allSame && revVals[0] > 0) {
-            g += `<circle cx="0" cy="${ryn.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-            g += `<text x="0" y="${ryn.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
+            g += `<circle cx="${revCX.toFixed(1)}" cy="${revCY.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+            g += `<text x="${revCX.toFixed(1)}" y="${revCY.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
           } else if (!allSame) {
             const bw2 = 13*sc, bh2 = 9*sc, gapW2 = sc;
             const tw2 = activeP.length * bw2 + (activeP.length - 1) * gapW2;
-            let bx2 = -tw2 / 2;
-            const byp2 = ryn - bh2 / 2;
+            let bx2 = revCX - tw2 / 2;
+            const byp2 = revCY - bh2 / 2;
             for (const ph of activeP) {
               const pc2 = TILE_HEX_COLORS[ph] || '#ccc';
               g += `<rect x="${bx2.toFixed(1)}" y="${byp2.toFixed(1)}" width="${bw2.toFixed(1)}" height="${bh2.toFixed(1)}" fill="${pc2}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-              g += `<text x="${(bx2+bw2/2).toFixed(1)}" y="${ryn.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
+              g += `<text x="${(bx2+bw2/2).toFixed(1)}" y="${revCY.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${hex.phaseRevenue[ph] || 0}</text>`;
               bx2 += bw2 + gapW2;
             }
           }
