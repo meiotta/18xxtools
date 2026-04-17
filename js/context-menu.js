@@ -2,18 +2,20 @@
 // Right-click context menu for hex operations.
 // Load order: SIXTH — after canvas-input.js (uses ensureHex, render, autosave).
 
-// ── Terrain definitions (cost-bearing, drawn by renderer) ────────────────────
+// ── Terrain definitions ───────────────────────────────────────────────────────
+// costs[]: values shown in the cost-picker radial when the icon is clicked.
+// Tree uses a smaller cost range (10/20) — light forest cost in most games.
+// Legacy keys (forest, desert, swamp, pass) still render correctly via the
+// renderer's switch; they just don't appear as buttons in the picker anymore.
 const TERRAIN_TYPES = [
-  { label: 'Hill',     key: 'hill',     defaultCost: 40  },
-  { label: 'Mountain', key: 'mountain', defaultCost: 80  },
-  { label: 'Swamp',    key: 'swamp',    defaultCost: 40  },
-  { label: 'Marsh',    key: 'marsh',    defaultCost: 20  },
-  { label: 'Water',    key: 'water',    defaultCost: 40  },
-  { label: 'River',    key: 'river',    defaultCost: 40  },
-  { label: 'Lake',     key: 'lake',     defaultCost: 60  },
-  { label: 'Forest',   key: 'forest',   defaultCost: 10  },
-  { label: 'Desert',   key: 'desert',   defaultCost: 20  },
-  { label: 'Pass',     key: 'pass',     defaultCost: 120 },
+  { label: 'Hill',     key: 'hill',     costs: [20,40,60,80,100,120] },
+  { label: 'Mountain', key: 'mountain', costs: [20,40,60,80,100,120] },
+  { label: 'Water',    key: 'water',    costs: [20,40,60,80,100,120] },
+  { label: 'River',    key: 'river',    costs: [20,40,60,80,100,120] },
+  { label: 'Lake',     key: 'lake',     costs: [20,40,60,80,100,120] },
+  { label: 'Marsh',    key: 'marsh',    costs: [20,40,60,80,100,120] },
+  { label: 'Cactus',   key: 'cactus',   costs: [20,40,60,80,100,120] },
+  { label: 'Tree',     key: 'tree',     costs: [10,20] },
 ];
 
 // ── Resource icon definitions (no default cost, canvas-drawn) ────────────────
@@ -100,6 +102,7 @@ function _drawTerrainIcon(bCtx, key, s) {
       }
       break;
     case 'forest':
+    case 'tree':
       bCtx.fillStyle = '#2d7a2d';
       bCtx.beginPath();
       bCtx.moveTo(0, -s * 1.2);
@@ -109,11 +112,17 @@ function _drawTerrainIcon(bCtx, key, s) {
       bCtx.fill();
       break;
     case 'desert':
-      bCtx.beginPath();
-      bCtx.moveTo(0, -s); bCtx.lineTo(s * 0.7, 0); bCtx.lineTo(0, s); bCtx.lineTo(-s * 0.7, 0);
-      bCtx.closePath();
-      bCtx.fillStyle = '#C8A040';
-      bCtx.fill();
+    case 'cactus':
+      bCtx.strokeStyle = '#4A7A4A';
+      bCtx.lineWidth = 1.5;
+      bCtx.lineCap = 'round';
+      bCtx.lineJoin = 'round';
+      // Stem
+      bCtx.beginPath(); bCtx.moveTo(0, s*0.8); bCtx.lineTo(0, -s*0.8); bCtx.stroke();
+      // Left arm
+      bCtx.beginPath(); bCtx.moveTo(0, s*0.15); bCtx.lineTo(-s*0.6, s*0.15); bCtx.lineTo(-s*0.6, -s*0.25); bCtx.stroke();
+      // Right arm (slightly higher)
+      bCtx.beginPath(); bCtx.moveTo(0, -s*0.1); bCtx.lineTo(s*0.6, -s*0.1); bCtx.lineTo(s*0.6, -s*0.55); bCtx.stroke();
       break;
     case 'pass':
       bCtx.fillStyle = '#888';
@@ -174,80 +183,120 @@ function _drawResourceIcon(bCtx, key, s) {
 }
 
 // ── Unified quick-icon grid (terrain + resource icons as canvas buttons) ──────
-// Replaces _buildTerrainSubmenu + _buildIconStrip with a single inline grid.
+// Terrain interaction is two-step:
+//   1. Click a terrain icon → it highlights (blue border) and a cost-picker
+//      row appears below the icon grid.
+//   2. Click a cost button → applies terrain + cost and closes the menu.
+// A "✕ clear" button in the cost row removes terrain entirely.
+// Resource icons toggle immediately on click (no cost to choose).
 
 function _buildQuickIconGrid(menu, hexData, onTerrainApply, onIconToggle) {
-  const BTN = 28;  // button size in px
-  const S   = 7;   // icon scale
+  const BTN = 28;
+  const S   = 7;
 
+  let pendingKey = null; // terrain selected but cost not yet chosen
+
+  // ── Outer wrapper ─────────────────────────────────────────────────────────
+  const outer = document.createElement('div');
+  outer.style.cssText = 'padding:6px 8px 4px;max-width:224px;';
+
+  // ── Icon grid ─────────────────────────────────────────────────────────────
   const grid = document.createElement('div');
-  grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px;max-width:224px;';
+  grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
 
-  // ── Terrain buttons (icon + cost label) ──────────────────────────────────
-  TERRAIN_TYPES.forEach(({ label, key, defaultCost }) => {
-    const actualCost = (state.terrainCosts && state.terrainCosts[key] !== undefined)
-      ? state.terrainCosts[key] : defaultCost;
+  // ── Cost-picker row (hidden until a terrain is selected) ──────────────────
+  const costRow = document.createElement('div');
+  costRow.style.cssText = 'display:none;flex-wrap:wrap;align-items:center;gap:3px;padding:5px 0 2px;border-top:1px solid #444;margin-top:5px;';
+
+  function _showCostRow(key) {
+    const def = TERRAIN_TYPES.find(t => t.key === key);
+    if (!def) { costRow.style.display = 'none'; return; }
+    costRow.innerHTML = '';
+    costRow.style.display = 'flex';
+
+    def.costs.forEach(cost => {
+      const b = document.createElement('button');
+      b.textContent = `$${cost}`;
+      b.style.cssText = 'padding:2px 7px;font-size:11px;background:#252525;color:#ddd;border:1px solid #555;border-radius:3px;cursor:pointer;';
+      b.onmouseenter = () => { b.style.background = '#3a3a3a'; };
+      b.onmouseleave = () => { b.style.background = '#252525'; };
+      b.onclick = (e) => { e.stopPropagation(); removeContextMenu(); onTerrainApply(key, cost); };
+      costRow.appendChild(b);
+    });
+
+    // Clear terrain button
+    const clr = document.createElement('button');
+    clr.textContent = '✕';
+    clr.title = 'Remove terrain';
+    clr.style.cssText = 'padding:2px 6px;font-size:11px;background:#252525;color:#888;border:1px solid #444;border-radius:3px;cursor:pointer;margin-left:4px;';
+    clr.onmouseenter = () => { clr.style.background = '#3a3a3a'; };
+    clr.onmouseleave = () => { clr.style.background = '#252525'; };
+    clr.onclick = (e) => { e.stopPropagation(); removeContextMenu(); onTerrainApply('', 0); };
+    costRow.appendChild(clr);
+  }
+
+  function _updateBorders() {
+    grid.querySelectorAll('[data-tkey]').forEach(w => {
+      const wk = w.dataset.tkey;
+      const sel  = wk === pendingKey;
+      const live = hexData.terrain === wk;
+      w.style.borderColor = sel ? '#4af' : (live ? '#ffd700' : '#444');
+    });
+  }
+
+  // ── Terrain icon buttons ──────────────────────────────────────────────────
+  TERRAIN_TYPES.forEach(({ label, key }) => {
     const isActive = hexData.terrain === key;
-
     const wrap = document.createElement('div');
-    wrap.title = `${label} — $${actualCost}`;
-    wrap.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:flex;flex-direction:column;align-items:center;padding:2px 0 1px;gap:0;`;
+    wrap.dataset.tkey = key;
+    wrap.title = label;
+    wrap.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;width:${BTN}px;height:${BTN}px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;`;
 
-    const btn = document.createElement('canvas');
-    btn.width  = BTN;
-    btn.height = BTN;
-    btn.style.cssText = 'display:block;';
-
-    const bCtx = btn.getContext('2d');
-    bCtx.save();
-    bCtx.translate(BTN / 2, BTN / 2);
+    const cvs = document.createElement('canvas');
+    cvs.width  = BTN;
+    cvs.height = BTN;
+    cvs.style.cssText = 'display:block;pointer-events:none;';
+    const bCtx = cvs.getContext('2d');
+    bCtx.save(); bCtx.translate(BTN / 2, BTN / 2);
     _drawTerrainIcon(bCtx, key, S);
     bCtx.restore();
-    wrap.appendChild(btn);
-
-    const costLbl = document.createElement('span');
-    costLbl.textContent = `$${actualCost}`;
-    costLbl.style.cssText = 'font-size:9px;color:#aaa;line-height:1;pointer-events:none;';
-    wrap.appendChild(costLbl);
+    wrap.appendChild(cvs);
 
     wrap.onclick = (e) => {
       e.stopPropagation();
-      removeContextMenu();
-      onTerrainApply(key, actualCost);
+      pendingKey = (pendingKey === key) ? null : key;
+      _updateBorders();
+      if (pendingKey) _showCostRow(pendingKey);
+      else costRow.style.display = 'none';
     };
     grid.appendChild(wrap);
   });
 
-  // ── Separator between terrain and icons ───────────────────────────────────
+  // ── Separator ─────────────────────────────────────────────────────────────
   const sep = document.createElement('div');
-  sep.style.cssText = 'width:100%;height:1px;background:#444;margin:2px 0;';
+  sep.style.cssText = 'width:100%;height:1px;background:#444;margin:4px 0 2px;';
   grid.appendChild(sep);
 
   // ── Resource icon buttons ─────────────────────────────────────────────────
   const currentIcons = (hexData.icons || []).map(i => i.image);
   RESOURCE_ICONS.forEach(({ label, key }) => {
-    const btn = document.createElement('canvas');
-    btn.width  = BTN;
-    btn.height = BTN;
-    btn.title  = label;
+    const cvs = document.createElement('canvas');
+    cvs.width  = BTN;
+    cvs.height = BTN;
+    cvs.title  = label;
     const isActive = currentIcons.includes(key);
-    btn.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:block;`;
-
-    const bCtx = btn.getContext('2d');
-    bCtx.save();
-    bCtx.translate(BTN / 2, BTN / 2);
+    cvs.style.cssText = `cursor:pointer;border-radius:3px;border:1.5px solid ${isActive ? '#ffd700' : '#444'};background:#1e1e1e;display:block;`;
+    const bCtx = cvs.getContext('2d');
+    bCtx.save(); bCtx.translate(BTN / 2, BTN / 2);
     _drawResourceIcon(bCtx, key, S);
     bCtx.restore();
-
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      removeContextMenu();
-      onIconToggle(key, !isActive);
-    };
-    grid.appendChild(btn);
+    cvs.onclick = (e) => { e.stopPropagation(); removeContextMenu(); onIconToggle(key, !isActive); };
+    grid.appendChild(cvs);
   });
 
-  menu.appendChild(grid);
+  outer.appendChild(grid);
+  outer.appendChild(costRow);
+  menu.appendChild(outer);
 }
 
 // ── Single-hex context menu ───────────────────────────────────────────────────
@@ -381,19 +430,7 @@ function showMultiContextMenu(x, y, hexIds) {
   // ── Terrain + Icons quick-grid ────────────────────────────────────────────
   _addSectionLabel(menu, 'Terrain & Icons');
 
-  // Context-aware: if all selected hexes share the same terrain type, offer a quick cost update
-  const allTerrains = hexIds.map(id => (state.hexes[id] || {}).terrain).filter(Boolean);
-  const uniqueTerrains = [...new Set(allTerrains)];
-  if (uniqueTerrains.length === 1 && allTerrains.length === hexIds.length) {
-    const sharedType = uniqueTerrains[0];
-    const terrainDef = TERRAIN_TYPES.find(t => t.key === sharedType);
-    const typeLabel = terrainDef ? terrainDef.label : sharedType;
-    const defaultCost = terrainDef ? terrainDef.defaultCost : 0;
-    _addItem(menu, `💰 Reset ${typeLabel} Cost to default (all ${n})`, () => {
-      applyToAll(id => { state.hexes[id].terrainCost = defaultCost; });
-    });
-    _addSep(menu);
-  }
+  // (cost is chosen via the two-step icon → cost-picker below)
 
   // Use first selected hex's data for active-state highlighting
   const firstHex = state.hexes[hexIds[0]] || {};

@@ -5,19 +5,11 @@
 const HEX_SIZE = 40;
 
 const TERRAIN_COLORS = {
+  // All terrain types use the standard plains background.
+  // Visual differentiation is through the terrain icon/badge only — no colored
+  // hex backgrounds.  The offmap key is the only exception (black = off the board).
   '': '#c8a87a',
-  plains: '#c8a87a',
-  mountain: '#c8a87a',  // terrain icon shows; background stays plains (matches 18xx.games ref)
-  hill: '#c8a87a',     // same — hill cost shown by icon only
-  water: '#c8a87a',  // water-crossing cost hex; background stays plains (not ocean)
-  river: '#c8a87a',  // river crossing; background stays plains
-  lake: '#c8a87a',   // lake; background stays plains (lake is a feature/icon overlay)
-  swamp: '#556644',
-  marsh: '#4a6040',  // similar to swamp, slightly greener
-  forest: '#336633',
-  desert: '#cc9944',
-  pass: '#8b7355',
-  offmap: '#1a1a1a'
+  offmap: '#1a1a1a',
 };
 
 // Edge midpoints for flat-top hex, radius 50, centered at 0,0

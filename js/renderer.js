@@ -491,27 +491,26 @@ function _terrainIconSvg(terrain, S, dx, dy) {
              `M7.5 3q0-3.75 3.75-3.75M7.5 3q0-3.75-3.75-3.75"/>` +
              `</g>`;
 
+    case 'forest':
+    case 'tree':
+      // source: /icons/tree.svg — tobymao maps 'forest' → icon:'tree' (upgrade.rb line 113)
+      // 'tree' is the canonical key used by the terrain picker; 'forest' is kept
+      // for backward-compat with any imported hexes that already use that key.
+      return `<polygon transform="translate(${px},${py})"` +
+             ` points="${(S/2).toFixed(2)},0 0,${S.toFixed(2)} ${S.toFixed(2)},${S.toFixed(2)}"` +
+             ` fill="#2d7a2d"/>`;
+
+    case 'cactus':
+      // 'cactus' is the canonical key; 'desert' kept for backward-compat.
+      // Falls through to 'desert' case below — same SVG path.
     case 'desert':
-      // source: /icons/cactus.svg — vertical stem + two arms, viewBox -12.5 -12.5 25 25
-      // stroke:#59b578 (from cactus.svg — same green as swamp)
-      // tobymao maps 'desert' → icon:'cactus' (upgrade.rb line 107)
+      // source: /icons/cactus.svg — tobymao maps 'desert' → icon:'cactus' (upgrade.rb line 107)
       return `<g transform="translate(${(dx+S/2).toFixed(2)},${(dy+S/2).toFixed(2)}) scale(${(S/25).toFixed(3)})">` +
              `<path fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"` +
              ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
-             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"` + // cactus.svg green
+             `<path fill="none" stroke="#59b578" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"` +
              ` d="M0 8V-8M0 5q-5 0-5-5m5 0q5 0 5-5"/>` +
              `</g>`;
-
-    case 'forest':
-      // source: /icons/tree.svg — complex multi-path tree.
-      // tobymao maps 'forest' → icon:'tree' (upgrade.rb line 113)
-      // tree.svg is too complex to inline faithfully at this size; simplified to
-      // a solid green triangle that reads clearly at 8px.  Colour #2d7a2d matches
-      // the dominant fill in tree.svg.
-      // !! If fidelity matters more than simplicity, inline tree.svg paths here. !!
-      return `<polygon transform="translate(${px},${py})"` +
-             ` points="${(S/2).toFixed(2)},0 0,${S.toFixed(2)} ${S.toFixed(2)},${S.toFixed(2)}"` +
-             ` fill="#2d7a2d"/>`; // tree.svg dominant green
 
     case 'pass':
       // tobymao has no dedicated 'pass' icon — pass terrain uses mountain (upgrade.rb).
