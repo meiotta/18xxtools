@@ -11,7 +11,9 @@ The live JS source files are in `18xxtools/.claude/worktrees/<worktree-name>/js/
 
 Before any coding task, read `ARCHITECTURE.md` and this file. Confirm which JS file you are changing. Make the minimum necessary edit. Never spawn a sub-agent and let it roam unsupervised across the codebase.
 
-**RCA required for every bug.** Before implementing any bug fix, you must perform a root cause analysis: (a) what was wrong, (b) why the wrong implementation was written — which tobymao source file was not consulted, (c) confirm the correct tobymao behavior by reading the actual source. This requirement stays in effect until explicitly lifted by the user.
+**Read tobymao source before implementing anything.** `C:\Users\meiot\Rail\18xx-master` is Toby Mao's Ruby engine — the ground truth for every rendering decision. Before implementing any tobymao behavior (port, fix, or new feature), read the relevant `.rb` source file first. No heuristics. No invented geometry. The source is there; use it.
+
+**RCA required for every bug and every incorrect port.** Before writing a fix: (a) state what was wrong, (b) identify which tobymao source file was not consulted, (c) read that source, (d) then implement. Applies to new ports, not only bug fixes. This requirement stays in effect until explicitly lifted by the user.
 
 ---
 
