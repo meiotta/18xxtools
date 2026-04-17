@@ -1658,6 +1658,34 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
   return svg;
 }
 
+// ─── Location-name candidate positions (tobymao location_name.rb) ────────────
+//
+// For flat-layout multi-city/town tiles the candidate list is (line 84):
+//   [l_center, l_up40, l_down40, l_bottom, l_top]
+// Selection: min_by.with_index { combined_cost(region_weights_in || region_weights), i }
+//
+// Each entry: { rw: [[regions[], weight], …], ny: y as fraction of sz }
+// rw is region_weights_in when present, else region_weights (location_name.rb).
+// Tiebreaking by array index (tobymao: min_by.with_index → first minimum wins).
+//
+// Region constants from base.rb:
+//   TRACK_TO_EDGE_0=[15,21]  TRACK_TO_EDGE_3=[2,8]
+//   TOP_ROW=[0,1,2,3,4]      BOTTOM_ROW=[19,20,21,22,23]
+const _LOC_NAME_FLAT = [
+  { rw: [[[9,14],1],[[7,8,15,16],0.7]],                ny:  0    }, // l_center
+  { rw: [[[0,2,4,6,8,10],0.7],[[1,3,7,9],0.2]],        ny: -0.40 }, // l_up40
+  { rw: [[[13,15,17,19,21,23],0.7],[[14,16,20,22],0.2]],ny:  0.40 }, // l_down40
+  { rw: [[[15,21],1],[[19,20,21,22,23],1.5]],           ny:  0.56 }, // l_bottom (rwIn)
+  { rw: [[[2,8],1],[[0,1,2,3,4],2]],                    ny: -0.61 }, // l_top    (rwIn)
+];
+
+// _locNameCost: weighted sum of region_use over [[regions,weight],...] pairs.
+// Direct port of tobymao base.rb Base#combined_cost.
+function _locNameCost(ru, rw) {
+  return rw.reduce((s, [regions, weight]) =>
+    s + weight * regions.reduce((t, r) => t + ru[r], 0), 0);
+}
+
 // ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
 // buildHexSvg: returns complete SVG <g> element for one hex.
 // Coordinate space: hex-local world units centered at (0,0), group translated to hex center.
@@ -1768,26 +1796,50 @@ function buildHexSvg(r, c, hex) {
         } else if (_towns.length >= 1 && _cities.length === 0) {
           ny = -sz * 0.40;                           // l_up40 (town-only hex)
         } else if (_nodes.length > 1) {
-          // Multi-stop hex: derive label position from city/town preferred edges.
-          // Tobymao picks the candidate location whose regions are least occupied.
-          // Our heuristic: compute average y-direction of preferred-edge stops.
-          //   avg > +0.2  → stops in lower half → l_top   (y = -sz×0.61)
-          //   avg < -0.2  → stops in upper half → l_bottom (y =  sz×0.56)
-          //   otherwise   → mixed / center       → l_center (y = 0)
-          const _msPE = computePreferredEdges(hex);
-          let _sumY = 0, _peCount = 0;
-          for (const _mn of _nodes) {
-            const _mni = (hex.nodes || []).indexOf(_mn);
-            const _pe  = _msPE[_mni];
-            if (_pe !== null && _pe !== undefined) {
-              _sumY += Math.cos(_pe * Math.PI / 3); // +ve = toward bottom
-              _peCount++;
-            }
+          // Port of tobymao location_name.rb preferred_render_locations (flat layout)
+          // + base.rb render_location: min_by.with_index { combined_cost, i }.
+          //
+          // Step 1 — region_use at label-render time.
+          // In tobymao's tile.rb rendering order, location name for multi-city tiles
+          // is rendered AFTER Part::Cities and Part::Towns have incremented region_use.
+          // We approximate: exits → TRACK_TO_EDGE_N, cities → CENTER.
+          const _lruTTE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]]; // TRACK_TO_EDGE_N
+          const _lruCTR = [7,8,9,14,15,16]; // CENTER
+          const _lru = new Array(24).fill(0);
+          // exits — compute from paths for reliability (same as hexToSvgInner)
+          for (const p of (hex.paths || [])) {
+            if (p.a?.type === 'edge') { const rr = _lruTTE[p.a.n]; if (rr) for (const r of rr) _lru[r] += 1; }
+            if (p.b?.type === 'edge') { const rr = _lruTTE[p.b.n]; if (rr) for (const r of rr) _lru[r] += 1; }
           }
-          const _avgY = _peCount > 0 ? _sumY / _peCount : 0;
-          if      (_avgY >  0.2) ny = -sz * 0.61;   // l_top
-          else if (_avgY < -0.2) ny =  sz * 0.56;   // l_bottom
-          else                   ny = 0;             // l_center
+          // each city pre-occupies CENTER
+          for (const n of (hex.nodes || [])) {
+            if (n.type === 'city') for (const r of _lruCTR) _lru[r] += 1;
+          }
+
+          // Step 2 — preferred edges of all city/town nodes (for special-case check).
+          const _lnPE    = computePreferredEdges(hex);
+          const _ctEdges = (hex.nodes || [])
+            .map((n, i) => (n.type === 'city' || n.type === 'town') ? _lnPE[i] : null)
+            .filter(e => e !== null && e !== undefined)
+            .map(e => Math.round(e));
+
+          // Step 3 — special cases that always force l_center (tobymao lines 55–64).
+          // "2 flat cities on exactly edges [0,3]" or "3 flat cities on [0,2,4]/[1,3,5]"
+          const _has = arr => arr.every(e => _ctEdges.includes(e));
+          if (_cities.length === 2 && _has([0, 3])) {
+            ny = 0;
+          } else if (_cities.length === 3 && (_has([0,2,4]) || _has([1,3,5]))) {
+            ny = 0;
+          } else {
+            // Step 4 — general case: pick from _LOC_NAME_FLAT via min combined_cost.
+            // Tiebreaks by array index (tobymao: min_by.with_index → first min wins).
+            let _bestNy = 0, _bestCost = Infinity;
+            for (const cand of _LOC_NAME_FLAT) {
+              const cost = _locNameCost(_lru, cand.rw);
+              if (cost < _bestCost) { _bestCost = cost; _bestNy = cand.ny; }
+            }
+            ny = _bestNy * sz;
+          }
         } else {
           ny = sz * 0.40;                            // fallback l_down40
         }
