@@ -573,13 +573,16 @@ function renderPrivatesSection() {
     item.className = 'pc-rail-item' + (idx === _selectedPrivateIdx ? ' active' : '');
     item.dataset.idx = idx;
     const dotColor = buyerTypeColor(p);
-    const sym  = `P${idx + 1}`;
-    const name = escHtml(p.name || 'Unnamed');
+    const sym      = `P${idx + 1}`;
+    const name     = escHtml(p.name || 'Unnamed');
+    const isConc   = (p.companyType || 'private') === 'concession';
     item.innerHTML = `
       <span class="pc-rail-dot" style="background:${dotColor};"></span>
       <div class="pc-rail-text">
         <span class="pc-rail-sym">${sym}</span>
+        ${isConc ? `<span class="pc-rail-type-badge pc-rail-conc-badge">C</span>` : ''}
         <span class="pc-rail-name">${name}</span>
+        ${isConc && p.linkedMajor ? `<span class="pc-rail-linked-major">${escHtml(p.linkedMajor)}</span>` : ''}
       </div>`;
     item.addEventListener('click', () => {
       _selectedPrivateIdx = idx;
@@ -630,15 +633,22 @@ function buildPrivateDetailEl(idx) {
   const el = document.createElement('div');
   el.className = 'pc-detail-editor';
 
-  const btKey   = p.buyerType || 'any';
-  const btData  = BUYER_TYPES[btKey] || BUYER_TYPES.any;
+  const currentType   = p.companyType || 'private';
+  const btKey         = p.buyerType || 'any';
+  const btData        = BUYER_TYPES[btKey] || BUYER_TYPES.any;
   const btOptionsHTML = Object.entries(BUYER_TYPES).map(([k, v]) =>
     `<option value="${k}"${k === btKey ? ' selected' : ''}>${v.label}</option>`
   ).join('');
+  const majorSyms     = _allMajorSyms();
+  const majorDatalist = majorSyms.map(s => `<option value="${s}">`).join('');
 
   el.innerHTML = `
     <div class="pc-charter-band" style="background:${btData.color}; color:${btData.textColor};">
       <span class="pc-charter-sym">P${idx + 1}</span>
+      <div class="pc-type-toggle">
+        <button type="button" class="pc-type-pill${currentType === 'private'     ? ' active' : ''}" data-ptype="private">Private</button>
+        <button type="button" class="pc-type-pill${currentType === 'concession'  ? ' active' : ''}" data-ptype="concession">Concession</button>
+      </div>
       <select class="pc-buyer-sel">${btOptionsHTML}</select>
     </div>
     <div class="pc-det-header">
@@ -656,6 +666,34 @@ function buildPrivateDetailEl(idx) {
         <div class="pc-det-money">$<input type="number" class="pc-det-revenue" min="0" value="${p.revenue || 0}"></div>
       </div>
     </div>
+
+    ${currentType === 'concession' ? `
+    <div class="pc-det-section pc-concession-section">
+      <div class="pc-det-section-title">Concession link
+        <span class="pc-det-hint">Winning bidder receives the right to par the linked major.</span>
+      </div>
+      <div class="pc-concession-fields">
+        <div class="pc-concession-field">
+          <label class="pc-det-label">Unlocks major</label>
+          <input type="text" class="pc-det-linked-major" list="pc-major-syms-${idx}"
+            placeholder="e.g. GWR" value="${escHtml(p.linkedMajor || '')}">
+          <datalist id="pc-major-syms-${idx}">${majorDatalist}</datalist>
+        </div>
+        <div class="pc-concession-field">
+          <label class="pc-det-label">Blocks hexes</label>
+          <input type="text" class="pc-det-blocks-hexes"
+            placeholder="e.g. M36 N39" value="${escHtml((p.blocksHexes || []).join(' '))}">
+          <span class="pc-field-hint">While player-owned</span>
+        </div>
+        <div class="pc-concession-field pc-concession-field-sm">
+          <label class="pc-det-label">Min bid +$</label>
+          <input type="number" class="pc-det-min-bid-adj" min="0"
+            value="${p.minBidAdjust || 0}"
+            title="Extra amount added to face value as minimum bid (e.g. 100 for 1822MX C1)">
+          <span class="pc-field-hint">Above face value</span>
+        </div>
+      </div>
+    </div>` : ''}
 
     <div class="pc-det-section">
       <div class="pc-det-section-hd">
@@ -705,6 +743,48 @@ function buildPrivateDetailEl(idx) {
   el.querySelector('.pc-det-cost').addEventListener('change',    e => { state.privates[idx].cost    = parseInt(e.target.value) || 0; autosave(); });
   el.querySelector('.pc-det-revenue').addEventListener('change', e => { state.privates[idx].revenue = parseInt(e.target.value) || 0; autosave(); });
   el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].ability = e.target.value; autosave(); });
+
+  // ── Company type toggle (Private | Concession) ─────────────────────────────
+  el.querySelectorAll('.pc-type-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.privates[idx].companyType = btn.dataset.ptype;
+      autosave();
+      renderPrivatesSection(); // re-render to show/hide concession section
+    });
+  });
+
+  // ── Concession-specific fields ─────────────────────────────────────────────
+  const linkedMajorEl = el.querySelector('.pc-det-linked-major');
+  if (linkedMajorEl) {
+    linkedMajorEl.addEventListener('change', e => {
+      state.privates[idx].linkedMajor = e.target.value.trim().toUpperCase() || null;
+      autosave();
+      // Update the linked-major label in the rail without full re-render
+      const railItem = document.querySelector(`.pc-rail-item[data-idx="${idx}"]`);
+      if (railItem) {
+        let lbl = railItem.querySelector('.pc-rail-linked-major');
+        const val = state.privates[idx].linkedMajor;
+        if (val) {
+          if (!lbl) { lbl = document.createElement('span'); lbl.className = 'pc-rail-linked-major'; railItem.querySelector('.pc-rail-text').appendChild(lbl); }
+          lbl.textContent = val;
+        } else if (lbl) lbl.remove();
+      }
+    });
+  }
+  const blocksHexesEl = el.querySelector('.pc-det-blocks-hexes');
+  if (blocksHexesEl) {
+    blocksHexesEl.addEventListener('change', e => {
+      state.privates[idx].blocksHexes = e.target.value.trim().split(/\s+/).filter(Boolean);
+      autosave();
+    });
+  }
+  const minBidAdjEl = el.querySelector('.pc-det-min-bid-adj');
+  if (minBidAdjEl) {
+    minBidAdjEl.addEventListener('change', e => {
+      state.privates[idx].minBidAdjust = parseInt(e.target.value) || 0;
+      autosave();
+    });
+  }
 
   el.querySelector('.pc-det-delete').addEventListener('click', () => {
     state.privates.splice(idx, 1);
@@ -1022,6 +1102,17 @@ function _packDefaults(type) {
   return Object.assign({}, CORP_TYPE_DEFAULTS[type] || CORP_TYPE_DEFAULTS.custom);
 }
 
+// Returns all major corporation syms defined across all packs (used for dropdowns / datalists).
+function _allMajorSyms() {
+  const syms = [];
+  (state.corpPacks || []).forEach(pk => {
+    if (pk.type === 'major') {
+      (pk.companies || []).forEach(co => { if (co.sym) syms.push(co.sym); });
+    }
+  });
+  return syms;
+}
+
 // Returns company field value: override if set, else pack default
 function _effective(pack, company, field) {
   const ov = company[field + 'Override'];
@@ -1220,11 +1311,15 @@ function renderCorpsSection() {
         const isCoSelected = co.id === _selectedCompanyId;
         const item = document.createElement('div');
         item.className = 'cp-rail-item' + (isCoSelected ? ' active' : '');
-        const dotColor = co.color || '#666';
+        const dotColor   = co.color || '#666';
+        const assocBadge = (pack.type === 'minor' && co.associatedMajor)
+          ? `<span class="cp-rail-assoc-badge" title="Associated: ${escHtml(co.associatedMajor)}">${escHtml(co.associatedMajor)}</span>`
+          : '';
         item.innerHTML = `
           <span class="cp-rail-dot" style="background:${dotColor};"></span>
           <span class="cp-rail-sym">${escHtml(co.sym || '?')}</span>
-          <span class="cp-rail-name">${escHtml(co.name || 'Unnamed')}</span>`;
+          <span class="cp-rail-name">${escHtml(co.name || 'Unnamed')}</span>
+          ${assocBadge}`;
         item.addEventListener('click', () => {
           _selectedPackIdx   = pi;
           _selectedCompanyId = co.id;
@@ -1429,6 +1524,14 @@ function _buildCompanyDetailEl(pi, ci) {
           <label class="cp-co-field-label">Logo path</label>
           <input type="text" class="cp-co-logo" placeholder="e.g. 1882/NYC" value="${escHtml(company.logo || '')}">
         </div>
+        ${pack.type === 'minor' ? `
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Assoc. major</label>
+          <input type="text" class="cp-co-assoc-major" list="cp-assoc-syms-${company.id}"
+            placeholder="e.g. CPR" value="${escHtml(company.associatedMajor || '')}">
+          <datalist id="cp-assoc-syms-${company.id}">${_allMajorSyms().map(s => `<option value="${s}">`).join('')}</datalist>
+          <span class="cp-co-assoc-hint">Minor is pre-assigned to this major on float</span>
+        </div>` : ''}
       </div>
     </div>
 
@@ -1492,6 +1595,30 @@ function _buildCompanyDetailEl(pi, ci) {
   el.querySelector('.cp-co-coords').addEventListener('change',    e => { company.coordinates  = e.target.value;                 autosave(); });
   el.querySelector('.cp-co-city').addEventListener('change',      e => { company.city         = parseInt(e.target.value) || 0;  autosave(); });
   el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });
+
+  const assocMajorEl = el.querySelector('.cp-co-assoc-major');
+  if (assocMajorEl) {
+    assocMajorEl.addEventListener('change', e => {
+      company.associatedMajor = e.target.value.trim().toUpperCase() || null;
+      autosave();
+      // Sync badge in active rail item without full re-render
+      const activeRailItem = document.querySelector('.cp-rail-item.active');
+      if (activeRailItem) {
+        let badge = activeRailItem.querySelector('.cp-rail-assoc-badge');
+        if (company.associatedMajor) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'cp-rail-assoc-badge';
+            activeRailItem.appendChild(badge);
+          }
+          badge.textContent  = company.associatedMajor;
+          badge.title        = 'Associated: ' + company.associatedMajor;
+        } else if (badge) {
+          badge.remove();
+        }
+      }
+    });
+  }
 
   el.querySelector('.cp-co-delete').addEventListener('click', () => {
     pack.companies.splice(ci, 1);

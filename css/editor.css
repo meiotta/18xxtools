@@ -2101,6 +2101,155 @@ canvas { display: block; }
 }
 .cp-reset-btn:hover { border-color: #e88; color: #e88; }
 
+/* ── Private company type toggle (Private | Concession) ───────────────────── */
+.pc-type-toggle {
+  display: flex;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 5px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pc-type-pill {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.55);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 0;
+  text-transform: uppercase;
+}
+.pc-type-pill + .pc-type-pill {
+  border-left: 1px solid rgba(255,255,255,0.18);
+}
+.pc-type-pill.active {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+}
+.pc-type-pill:hover:not(.active) {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.8);
+}
+
+/* ── Concession-specific section ───────────────────────────────────────────── */
+.pc-concession-section {
+  background: rgba(207,181,59,0.04);
+  border-top: 1px solid rgba(207,181,59,0.2);
+  border-bottom: 1px solid rgba(207,181,59,0.2);
+}
+.pc-concession-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pc-concession-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pc-concession-field-sm { gap: 6px; }
+.pc-det-linked-major {
+  width: 80px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+}
+.pc-det-linked-major:focus { outline: none; border-color: var(--accent); }
+.pc-det-blocks-hexes {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: monospace;
+  padding: 4px 8px;
+}
+.pc-det-blocks-hexes:focus { outline: none; border-color: var(--accent); }
+.pc-det-min-bid-adj {
+  width: 64px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.pc-det-min-bid-adj:focus { outline: none; border-color: var(--accent); }
+.pc-field-hint { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+
+/* ── Rail badges (private rail list) ───────────────────────────────────────── */
+.pc-rail-type-badge {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  align-self: center;
+}
+.pc-rail-conc-badge {
+  background: rgba(207,181,59,0.25);
+  color: var(--accent);
+  border: 1px solid rgba(207,181,59,0.4);
+}
+.pc-rail-linked-major {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: monospace;
+  color: var(--accent);
+  opacity: 0.8;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Associated major badge (corp rail list for minors) ────────────────────── */
+.cp-rail-assoc-badge {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: monospace;
+  color: var(--accent);
+  background: rgba(207,181,59,0.15);
+  border: 1px solid rgba(207,181,59,0.3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Associated major field hint (company editor) ──────────────────────────── */
+.cp-co-assoc-major {
+  width: 80px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+}
+.cp-co-assoc-major:focus { outline: none; border-color: var(--accent); }
+.cp-co-assoc-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* ── Color chip picker ─────────────────────────────────────────────────────── */
 .cp-color-pick-wrap {
   position: relative;
