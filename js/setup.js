@@ -191,61 +191,6 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', _syncToggleBtns);
   window.addEventListener('orientationchange', () => setTimeout(_syncToggleBtns, 150));
 
-  // ── DEBUG: right-tab getBoundingClientRect readout ───────────────────────
-  // Renders the right tab's screen rect as yellow text at top-center so it can
-  // be read from a screenshot without devtools. Remove once confirmed working.
-  (function _initRightTabDebug() {
-    const dbg = document.createElement('div');
-    dbg.id = 'rightTabDebug';
-    dbg.style.cssText = [
-      'position:fixed', 'top:60px', 'left:50%', 'transform:translateX(-50%)',
-      'background:rgba(0,0,0,0.82)', 'color:#ffd700', 'font-size:11px',
-      'font-family:monospace', 'padding:4px 10px', 'border-radius:4px',
-      'z-index:9999', 'pointer-events:none', 'white-space:nowrap'
-    ].join(';');
-    document.body.appendChild(dbg);
-
-    function _updateDbg() {
-      const btn = document.getElementById('toggleRightPanelBtn');
-      if (!btn || btn.style.display === 'none') { dbg.textContent = 'rightTab: hidden'; return; }
-      const r = btn.getBoundingClientRect();
-      dbg.textContent =
-        `rightTab: top=${Math.round(r.top)} left=${Math.round(r.left)} ` +
-        `right=${Math.round(r.right)} bottom=${Math.round(r.bottom)} ` +
-        `vw=${window.innerWidth}`;
-    }
-    _updateDbg();
-    window.addEventListener('resize', _updateDbg);
-    window.addEventListener('orientationchange', () => setTimeout(_updateDbg, 200));
-    setInterval(_updateDbg, 1000);
-  })();
-
-  // ── NUCLEAR FALLBACK: inject right tab directly into <body> via JS ───────
-  // position:fixed; right:0; top:50% — zero ancestors, zero flex context.
-  // If this also drifts on Android Chrome, something fundamental is wrong.
-  (function _nuclearRightTab() {
-    const nuke = document.createElement('button');
-    nuke.id = 'nukeRightTab';
-    nuke.setAttribute('aria-label', 'Toggle hex config (nuclear)');
-    nuke.setAttribute('title', 'Toggle hex config');
-    nuke.style.cssText = [
-      'position:fixed', 'right:0', 'top:50%', 'transform:translateY(-50%)',
-      'z-index:9998', 'width:18px', 'height:64px', 'padding:0',
-      'display:flex', 'align-items:center', 'justify-content:center',
-      'background:rgba(180,40,40,0.96)', 'border:1px solid #a00',
-      'border-right:none', 'border-radius:8px 0 0 8px',
-      'color:#fff', 'cursor:pointer', 'touch-action:manipulation',
-      'font-size:10px'
-    ].join(';');
-    nuke.textContent = '◀';
-    document.body.appendChild(nuke);
-    // Mirror the real right panel toggle
-    nuke.addEventListener('click', () => {
-      const real = document.getElementById('toggleRightPanelBtn');
-      if (real) real.click();
-    });
-  })();
-
   // File ▾ dropdown toggle
   const fileMenuBtn = document.getElementById('fileMenuBtn');
   const fileMenu    = document.getElementById('fileMenu');

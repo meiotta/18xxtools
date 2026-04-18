@@ -146,8 +146,11 @@
 
     </div><!-- end left-panel -->
 
-    <!-- MAP AREA — flex:1 box; tab buttons are position:absolute inside it     -->
-    <!-- so they always sit within the visible layout, never viewport-relative. -->
+    <!-- Left panel tab — flex sibling between .left-panel and .map-area.
+         Sits at the seam; no positioning needed — the flex flow places it. -->
+    <button id="toggleLeftPanelBtn"  class="panel-toggle-btn" title="Toggle tile tray"   aria-label="Toggle tile tray"></button>
+
+    <!-- MAP AREA — flex:1; flanked by the two tab buttons in the flex row -->
     <div class="map-area" id="mapArea">
 
     <!-- SVG MAP -->
@@ -492,10 +495,11 @@
       </div>
     </div>
 
-      <!-- Panel tabs — absolute within map-area, always inside layout bounds -->
-      <button id="toggleLeftPanelBtn"  class="panel-toggle-btn" title="Toggle tile tray"   aria-label="Toggle tile tray"></button>
-      <button id="toggleRightPanelBtn" class="panel-toggle-btn" title="Toggle hex config"  aria-label="Toggle hex config"></button>
     </div><!-- end map-area -->
+
+    <!-- Right panel tab — flex sibling between .map-area and .right-panel.
+         Sits at the seam; flex flow places it correctly at all times. -->
+    <button id="toggleRightPanelBtn" class="panel-toggle-btn" title="Toggle hex config"  aria-label="Toggle hex config"></button>
 
     <!-- RIGHT PANEL -->
     <div class="right-panel" id="rightPanel">

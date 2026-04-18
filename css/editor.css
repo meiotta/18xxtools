@@ -3391,15 +3391,13 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #fff; }
 
 /* ── Panel collapse/expand toggle buttons ────────────────────────────────── */
-/* Slim vertical pills, position:absolute inside .map-area.                   */
-/* Layout-relative: tracks panel edges naturally as panels open/close.        */
-/* No position:fixed — eliminates all viewport/document-width ambiguity on   */
-/* Android Chrome and iOS Safari alike.                                        */
+/* Slim vertical pills that are ordinary flex siblings inside .content.        */
+/* Left tab sits between .left-panel and .map-area; right tab sits between    */
+/* .map-area and .right-panel. The flex row places them at the exact seam      */
+/* automatically — no position:fixed, no position:absolute, no viewport math. */
 .panel-toggle-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 10;
+  flex-shrink: 0;
+  align-self: center;
   width: 18px;
   height: 64px;
   padding: 0;
@@ -3416,16 +3414,14 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   color: #ccc;
   background: rgba(60,60,60,0.95);
 }
-/* Left tab: flat left edge at left:0 of map-area, rounded right side */
+/* Left tab: flat left face (flush against left panel), rounded right side */
 #toggleLeftPanelBtn {
-  left: 0;
   border-radius: 0 8px 8px 0;
   border-left: none;
   transition: color 0.15s, background 0.15s;
 }
-/* Right tab: rounded left side, flat right edge at right:0 of map-area */
+/* Right tab: rounded left side, flat right face (flush against right panel) */
 #toggleRightPanelBtn {
-  right: 0;
   border-radius: 8px 0 0 8px;
   border-right: none;
   transition: color 0.15s, background 0.15s;
