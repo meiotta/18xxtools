@@ -19,21 +19,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const rightPanel        = document.getElementById('rightPanel');
   const navContent        = document.getElementById('navContent');
 
+  // Tracks whether the map canvas is the active view; used by the resize /
+  // orientationchange handler to reapply button visibility after iOS repaints.
+  let _inCanvasView = true;
+
   function showMainView(which) {
+    _inCanvasView = (which === 'canvas');
     canvasContainer.style.display  = which === 'canvas' ? 'block' : 'none';
     marketView.style.display       = which === 'market' ? 'flex'  : 'none';
     if (corpView)   corpView.style.display   = which === 'corps'  ? 'flex'  : 'none';
     if (trainsView) trainsView.style.display = which === 'trains' ? 'flex'  : 'none';
     tileManifestView.style.display = 'none'; // manifest has its own toggle
     // Right panel and nav-content only meaningful in map mode
-    if (rightPanel) rightPanel.style.display = which === 'canvas' ? '' : 'none';
+    if (rightPanel) rightPanel.style.display = _inCanvasView ? '' : 'none';
     // Hide the 200px nav-content strip when not in map mode — give full width to center
-    if (navContent) navContent.style.display = which === 'canvas' ? '' : 'none';
+    if (navContent) navContent.style.display = _inCanvasView ? '' : 'none';
     // Panel toggle tabs only make sense in map mode (they're position:fixed so
     // they'd float over other views otherwise)
-    const inCanvas = which === 'canvas';
-    if (toggleLeftBtn)  toggleLeftBtn.style.display  = inCanvas ? '' : 'none';
-    if (toggleRightBtn) toggleRightBtn.style.display = inCanvas ? '' : 'none';
+    if (toggleLeftBtn)  toggleLeftBtn.style.display  = _inCanvasView ? '' : 'none';
+    if (toggleRightBtn) toggleRightBtn.style.display = _inCanvasView ? '' : 'none';
   }
 
   document.querySelectorAll('.nav-rail-btn').forEach(btn => {
@@ -178,6 +182,18 @@ document.addEventListener('DOMContentLoaded', () => {
       toggleRightBtn.title = _rpCollapsed ? 'Expand right panel' : 'Collapse right panel';
     });
   }
+
+  // ── Orientation / resize: reapply toggle-button visibility ────────────────
+  // iOS Safari can stale-render position:fixed elements (especially those with
+  // backdrop-filter) after orientation change. Re-asserting the display state
+  // and nudging the GPU layer forces a correct repaint.
+  function _syncToggleBtns() {
+    const show = _inCanvasView;
+    if (toggleLeftBtn)  { toggleLeftBtn.style.display  = show ? '' : 'none'; }
+    if (toggleRightBtn) { toggleRightBtn.style.display = show ? '' : 'none'; }
+  }
+  window.addEventListener('resize', _syncToggleBtns);
+  window.addEventListener('orientationchange', () => setTimeout(_syncToggleBtns, 150));
 
   // File ▾ dropdown toggle
   const fileMenuBtn = document.getElementById('fileMenuBtn');

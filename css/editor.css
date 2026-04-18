@@ -204,7 +204,7 @@ input[type="color"] { padding: 2px; width: 40px; height: 40px; }
 canvas { display: block; }
 
 /* MD Side Sheet (right panel) */
-.right-panel { width: 300px; min-width: 300px; background: #1e1e1e; border-left: none; overflow-y: auto; overflow-x: hidden; box-shadow: -2px 0 6px rgba(0,0,0,0.3); z-index: 5; box-sizing: border-box; }
+.right-panel { width: 300px; min-width: 300px; max-width: 300px; background: #1e1e1e; border-left: none; overflow-y: auto; overflow-x: hidden; box-shadow: -2px 0 6px rgba(0,0,0,0.3); z-index: 5; box-sizing: border-box; }
 .right-panel::-webkit-scrollbar { width: 6px; }
 .right-panel::-webkit-scrollbar-track { background: #1e1e1e; }
 .right-panel::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
