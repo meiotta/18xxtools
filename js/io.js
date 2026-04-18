@@ -10,7 +10,6 @@
 // File menu toggle is wired in setup.js DOMContentLoaded (safe DOM access).
 
 document.getElementById('saveBtn').addEventListener('click', () => {
-  state.meta.title = document.getElementById('gameTitleEdit').value;
   const json = JSON.stringify(state, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -32,7 +31,6 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     const data = JSON.parse(evt.target.result);
     TileRegistry.setEmbeddedTiles(data.customTiles || {});
     Object.assign(state, data);
-    document.getElementById('gameTitleEdit').value = state.meta.title;
     document.getElementById('baseGameLabel').textContent = 'Base: ' + state.meta.baseGame;
     renderCompaniesTable();
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
@@ -52,7 +50,6 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 });
 
 document.getElementById('exportBtn').addEventListener('click', async () => {
-  state.meta.title = document.getElementById('gameTitleEdit').value;
   const zip = new JSZip();
   const folder = zip.folder(state.meta.title || 'game');
 
@@ -92,8 +89,6 @@ function autosave() {
 
 function _applyAutosave(data) {
   Object.assign(state, data);
-  const el = document.getElementById('gameTitleEdit');
-  if (el) el.value = state.meta.title || '';
   const bl = document.getElementById('baseGameLabel');
   if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
   syncDimInputs();
@@ -143,7 +138,6 @@ document.getElementById('newMapBtn').addEventListener('click', () => {
     enabledPacks: null,
   };
   Object.assign(state, fresh);
-  document.getElementById('gameTitleEdit').value = '';
   document.getElementById('baseGameLabel').textContent = '';
   syncDimInputs();
   if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
