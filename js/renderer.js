@@ -1374,6 +1374,179 @@ function _nameSegments(name) {
 // REVENUE_DISPLACEMENT indexed by city slot count (flat layout, tobymao 100-unit).
 const _REV_DISP_FLAT = [null, 42, 67, 65, 67, 0, 0, 0, 0, 0];
 
+// ── Phase-revenue region-weight system ───────────────────────────────────────
+// Full port of tobymao Part::Revenue#preferred_render_locations (revenue.rb) +
+// the region-use accumulation performed by Part::Track, Part::Cities, Part::Towns
+// before Part::Revenue renders.  Used to position FLAT multi-revenue (phase rev).
+//
+// sources:
+//   base.rb           — region constants, combined_cost, increment_weight_for_regions
+//   revenue.rb        — FLAT_MULTI_REVENUE_LOCATIONS (candidates)
+//   track_node_path.rb — EXIT0_TO_EDGE_* tables, CW_REGION, calculate_regions
+//   city.rb           — EDGE_CITY_REGIONS, EXTRA_SLOT_REGIONS
+//   town_location.rb  — EDGE_TOWN_REGIONS
+//   track_offboard.rb — REGIONS (pentagon region per exit edge)
+
+// Region groups — base.rb
+const _RRG_CENTER  = [7,8,9,14,15,16];   // CENTER
+const _RRG_TOP_MID = [6,7,8,9,10];       // TOP_MIDDLE_ROW
+const _RRG_BOT_MID = [13,14,15,16,17];   // BOTTOM_MIDDLE_ROW
+
+// TRACK_TO_EDGE[e] — base.rb (regions for a straight stub toward edge e)
+const _RRG_TRACK_TO_EDGE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]];
+
+// CW_REGION — track_node_path.rb (rotate one edge-step clockwise)
+const _RRG_CW = [3,4,10,11,18,1,2,8,9,16,17,23,0,6,7,14,15,21,22,5,12,13,19,20];
+
+// EXIT0_TO_EDGE_BEZIER_REGIONS[rot_edge1] — track_node_path.rb (arcing paths)
+const _RRG_E0_BEZIER = [
+  [21],             // 0
+  [13,14,15,21],    // 1
+  [6,7,14,15,21],   // 2
+  [2,8,15,21],      // 3
+  [9,10,15,16,21],  // 4
+  [15,16,17,21],    // 5
+];
+
+// EXIT0_TO_EDGE_LINE_REGIONS[rot_edge1] — track_node_path.rb (straight paths)
+const _RRG_E0_LINE = [
+  [21],             // 0
+  [13,19,20],       // 1
+  [6,7,14,15,21],   // 2
+  [2,8,15,21],      // 3
+  [9,10,15,16,21],  // 4
+  [17,22,23],       // 5
+];
+
+// EDGE_CITY_REGIONS — city.rb (regions occupied by a city at each edge/half-edge)
+const _RRG_CITY = {
+  '0':   [15,20,21,22], '0.5': [13,14,15,19,20,21],
+  '1':   [12,13,14,19], '1.5': [5,6,7,12,13,14],
+  '2':   [0,5,6,7],     '2.5': [0,1,2,6,7,8],
+  '3':   [1,2,3,8],     '3.5': [2,3,4,8,9,10],
+  '4':   [4,9,10,11],   '4.5': [9,10,11,16,17,18],
+  '5':   [16,17,18,23], '5.5': [15,16,17,21,22,23],
+};
+
+// EXTRA_SLOT_REGIONS — city.rb (additional regions for multi-slot cities)
+const _RRG_EXTRA = {
+  '0':   [13,14,16,17,19,20,22,23], '0.5': [12,22],
+  '1':   [5,6,7,12,15,19,20,21],   '1.5': [0,19],
+  '2':   [0,1,2,5,8,14,13,12],     '2.5': [3,5],
+  '3':   [0,1,3,4,6,7,9,10],       '3.5': [1,11],
+  '4':   [17,16,18,8,2,18,3,4],    '4.5': [4,17],
+  '5':   [21,15,22,23,9,10,11,18], '5.5': [18,20],
+};
+
+// EDGE_TOWN_REGIONS — town_location.rb
+const _RRG_TOWN = {
+  '0':  [21], '0.5': [13,21], '1':  [13], '1.5': [6,13],
+  '2':  [6],  '2.5': [2,6],  '3':  [2],  '3.5': [2,10],
+  '4':  [10], '4.5': [10,17],'5':  [17], '5.5': [17,21],
+};
+
+// TrackOffboard REGIONS — track_offboard.rb (pentagon region per exit edge)
+const _RRG_OFFBOARD = [21,13,6,2,10,17];
+
+// Rotate a region list by `times` CW steps — port of track_node_path.rb rotate_regions
+function _rrgRotate(regs, times) {
+  let r = regs;
+  for (let i = 0; i < times; i++) r = r.map(x => _RRG_CW[x]);
+  return r;
+}
+
+// Regions occupied by a track path — port of track_node_path.rb calculate_regions.
+// beginEdge: integer 0-5 (the exit/start edge).
+// endEdge:   integer 0-5 (the other edge or city's preferred edge), or null for center.
+// needArc:   boolean — true for curved paths.
+// exit0 is always true for our path types (all have at least one exit).
+function _rrgPathRegs(beginEdge, endEdge, needArc) {
+  if (endEdge === null || endEdge === undefined) {
+    // Center path (exit → center node) — track_node_path.rb @center=true branch
+    return _RRG_TRACK_TO_EDGE[beginEdge];
+  }
+  const rot = ((endEdge - beginEdge) % 6 + 6) % 6;
+  return _rrgRotate(needArc ? _RRG_E0_BEZIER[rot] : _RRG_E0_LINE[rot], beginEdge);
+}
+
+// Build a 24-element regionUse array from all tile parts that render before Part::Revenue.
+// Mirrors tobymao's @region_use accumulation in tile.rb render.
+function _rrgBuildUse(hex) {
+  const ru = new Array(24).fill(0);
+  const mark = (regs) => { for (const r of (regs || [])) ru[r] += 1; };
+
+  const prefEdges = computePreferredEdges(hex);
+  const nodes = hex.nodes || [];
+
+  // ── Part::Track — one TrackNodePath per path (or TrackOffboard for offboards) ──
+  for (const path of (hex.paths || [])) {
+    const aEdge = path.a.type === 'edge';
+    const bEdge = path.b.type === 'edge';
+
+    if (aEdge && bEdge) {
+      // edge→edge: rot_edge = (b-a) mod 6; straight only if opposite (rot=3)
+      const rot = ((path.b.n - path.a.n) % 6 + 6) % 6;
+      mark(_rrgPathRegs(path.a.n, path.b.n, rot !== 3));
+    } else if (aEdge) {
+      // edge→node
+      const ni = path.b.n;
+      const pref = (ni < nodes.length) ? prefEdges[ni] : null;
+      mark(_rrgPathRegs(path.a.n, (pref ?? null), pref != null));
+    } else if (bEdge) {
+      // node→edge (reversed)
+      const ni = path.a.n;
+      const pref = (ni < nodes.length) ? prefEdges[ni] : null;
+      mark(_rrgPathRegs(path.b.n, (pref ?? null), pref != null));
+    }
+    // node→node: no track regions
+  }
+
+  // ── Part::Cities — EDGE_CITY_REGIONS (+ EXTRA_SLOT_REGIONS for multi-slot) ──
+  for (let ni = 0; ni < nodes.length; ni++) {
+    const node = nodes[ni];
+    if (node.type !== 'city') continue;
+    const edge = prefEdges[ni];
+    if (edge != null) {
+      const key = String(edge);
+      mark(_RRG_CITY[key]);
+      if ((node.slots || 1) > 1) mark(_RRG_EXTRA[key]);
+    } else {
+      mark(_RRG_CENTER); // center city marks CENTER (weight 1.0)
+    }
+  }
+
+  // ── Part::Towns — EDGE_TOWN_REGIONS ──
+  for (let ni = 0; ni < nodes.length; ni++) {
+    const node = nodes[ni];
+    if (node.type !== 'town') continue;
+    const edge = prefEdges[ni];
+    mark(edge != null ? _RRG_TOWN[String(edge)] : _RRG_CENTER);
+  }
+
+  // ── TrackOffboard pentagon — track_offboard.rb REGIONS ──
+  if (hex.feature === 'offboard') {
+    for (const e of (hex.exits || [])) ru[_RRG_OFFBOARD[e]] += 1;
+  }
+
+  return ru;
+}
+
+// Pick the best FLAT_MULTI_REVENUE_LOCATIONS candidate — port of revenue.rb +
+// base.rb combined_cost.  Tiebreak: first candidate wins (center before top/bottom).
+function _rrgPickFlat(ru) {
+  const cands = [
+    { regions: _RRG_CENTER,  x: 0, y:   0 }, // CENTER
+    { regions: _RRG_TOP_MID, x: 0, y: -48 }, // TOP_MIDDLE_ROW
+    { regions: _RRG_BOT_MID, x: 0, y:  45 }, // BOTTOM_MIDDLE_ROW
+  ];
+  let best = cands[0], bestCost = 1.5 * cands[0].regions.reduce((s,r) => s + ru[r], 0);
+  for (let i = 1; i < cands.length; i++) {
+    const cost = 1.5 * cands[i].regions.reduce((s,r) => s + ru[r], 0);
+    if (cost < bestCost) { bestCost = cost; best = cands[i]; }
+  }
+  return best;
+}
+
 // Canonical angle names (tobymao city.rb ANGLE_* constants, degrees).
 const _ANG_RIGHT       = -5;
 const _ANG_UPPER_RIGHT = -60;
@@ -2046,47 +2219,17 @@ function buildHexSvg(r, c, hex) {
           const revVals = activeP.map(p => hex.phaseRevenue[p] || 0);
           const allSame = revVals.every(v => v === revVals[0]);
 
-          // Compute revenue bubble centre using tobymao city.rb render_revenue.
-          // source: city.rb render_revenue @num_cts==1 branch — for a single edge-city,
-          // revenue is placed at REVENUE_DISPLACEMENT[:flat][slots] along the city
-          // group's +x axis (= direction of edge*60°), then scaled to sz-unit space.
-          // Falls back to default bottom position for offboards (no nodes) and any
-          // topology the simple rule doesn't cover.
-          let revCX = 0, revCY = sz * 0.44;
-          const _phNodes   = hex.nodes || [];
-          const _phCities  = _phNodes.filter(n => n.type === 'city');
-          const _phTowns   = _phNodes.filter(n => n.type === 'town');
-          if (_phCities.length + _phTowns.length === 1 && _phCities.length === 1) {
-            const _phCity  = _phCities[0];
-            const _phSlots = Math.min(_phCity.slots || 1, _REV_DISP_FLAT.length - 1);
-            const _phDisp  = _REV_DISP_FLAT[_phSlots];
-            if (_phDisp) {
-              let _phEdge = null;
-              if (_phCity.locStr && _phCity.locStr !== 'center') {
-                const _pf = parseFloat(_phCity.locStr);
-                if (!isNaN(_pf)) _phEdge = _pf;
-              }
-              if (_phEdge === null) {
-                const _pe  = computePreferredEdges(hex);
-                const _pni = _phNodes.indexOf(_phCity);
-                const _pv  = _pe[_pni];
-                if (_pv !== null && _pv !== undefined) _phEdge = _pv;
-              }
-              if (_phEdge !== null) {
-                // City centre in tobymao 100-unit: (-sin(e)*50, cos(e)*50)
-                const _pe_rad = _phEdge * Math.PI / 3;
-                const _cx100  = -Math.sin(_pe_rad) * 50;
-                const _cy100  =  Math.cos(_pe_rad) * 50;
-                // Revenue offset: rotate(nodeAng) × (_phDisp, 0)
-                const _na_rad = _phEdge * 60 * Math.PI / 180; // same as _pe_rad
-                const _oX     = _phDisp * Math.cos(_na_rad);
-                const _oY     = _phDisp * Math.sin(_na_rad);
-                // Scale 100-unit → sz-unit (÷100 × sz)
-                revCX = (_cx100 + _oX) * sz / 100;
-                revCY = (_cy100 + _oY) * sz / 100;
-              }
-            }
-          }
+          // Position the revenue bubble using the tobymao region-weight system.
+          // source: revenue.rb FLAT_MULTI_REVENUE_LOCATIONS + base.rb combined_cost.
+          // Part::Revenue picks from candidates (0,0), (0,-48), (0,45) in 100-unit
+          // based on which regions are already occupied by track, cities, and towns.
+          // RCA for previous bug: City#render_revenue returns early (line 351:
+          //   "return if revenues.size > 1") for multi/phase revenues, so the
+          //   REVENUE_DISPLACEMENT[:flat] formula we ported is NEVER reached for
+          //   phase revenue. Phase revenue goes through Part::Revenue instead.
+          const _phRevLoc = _rrgPickFlat(_rrgBuildUse(hex));
+          let revCX = _phRevLoc.x * sz / 100;
+          let revCY = _phRevLoc.y * sz / 100;
 
           if (allSame && revVals[0] > 0) {
             g += `<circle cx="${revCX.toFixed(1)}" cy="${revCY.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
