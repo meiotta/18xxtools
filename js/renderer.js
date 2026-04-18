@@ -1463,10 +1463,13 @@ function _rrgRotate(regs, times) {
 function _rrgPathRegs(beginEdge, endEdge, needArc) {
   if (endEdge === null || endEdge === undefined) {
     // Center path (exit → center node) — track_node_path.rb @center=true branch
-    return _RRG_TRACK_TO_EDGE[beginEdge];
+    return _RRG_TRACK_TO_EDGE[beginEdge] || [];
   }
-  const rot = ((endEdge - beginEdge) % 6 + 6) % 6;
-  return _rrgRotate(needArc ? _RRG_E0_BEZIER[rot] : _RRG_E0_LINE[rot], beginEdge);
+  // Half-edge floats (e.g. 2.5 from loc:2.5 cities) produce fractional rot values;
+  // round to nearest integer so we always index into a valid table row.
+  const rot = Math.round(((endEdge - beginEdge) % 6 + 6) % 6);
+  const base = needArc ? _RRG_E0_BEZIER[rot] : _RRG_E0_LINE[rot];
+  return _rrgRotate(base || [], beginEdge);
 }
 
 // Build a 24-element regionUse array from all tile parts that render before Part::Revenue.
@@ -1545,6 +1548,163 @@ function _rrgPickFlat(ru) {
     if (cost < bestCost) { bestCost = cost; best = cands[i]; }
   }
   return best;
+}
+
+// ─── BLOCKER / RESERVATION / ASSIGNMENT PIPELINE ─────────────────────────────
+// Port of tobymao Part::Blocker (blocker.rb), Part::Reservation (reservation.rb),
+// Part::Assignments (assignments.rb + small_item.rb).
+// Source files read: blocker.rb, reservation.rb, assignments.rb, small_item.rb, base.rb.
+// Data model: hex.blocker={sym}, hex.reservations=[{sym},...], hex.assignments=[{sym,color,count},...]
+
+// General region-weight location picker — reuses _locNameCost (base.rb#combined_cost port).
+// Each candidate: { rw:[[[regions],weight],...], rwOut:[...](opt), x, y } in tobymao 100-unit.
+// Tiebreak: first candidate wins (port of .min_by.with_index).
+function _rrgPickLoc(cands, ru) {
+  let best = cands[0], bestCost = _locNameCost(ru, cands[0].rw);
+  for (let i = 1; i < cands.length; i++) {
+    const cost = _locNameCost(ru, cands[i].rw);
+    if (cost < bestCost) { bestCost = cost; best = cands[i]; }
+  }
+  return best;
+}
+
+// Mark chosen location's regions in ru — port of Base#increment_cost.
+// Uses loc.rwOut (region_weights_out) if defined, else loc.rw (region_weights).
+function _rrgMarkLoc(loc, ru) {
+  for (const [regs, w] of (loc.rwOut || loc.rw)) for (const r of regs) ru[r] += w;
+}
+
+// blocker.rb preferred_render_locations (flat): P_LEFT_CORNER, P_BOTTOM_RIGHT.
+// region_weights_in (rw) vs region_weights_out (rwOut) from blocker.rb lines 19-30.
+const _BLK_FLAT_CANDS = [
+  { rw:[[[5,12,13],1]], rwOut:[[[5,12],1]],  x:-65, y:5  }, // P_LEFT_CORNER
+  { rw:[[[17,22,23],1]],rwOut:[[[22,23],1]], x:35,  y:60 }, // P_BOTTOM_RIGHT
+];
+
+// reservation.rb preferred_render_locations (flat layout).
+// base.rb region constants: LEFT_CORNER=[5,12] LEFT_MID=[6,13] LEFT_CENTER=[7,14]
+// RIGHT_CORNER=[11,18] RIGHT_MID=[10,17] RIGHT_CENTER=[9,16]
+// UPPER_LEFT_CORNER=[0,1] UPPER_RIGHT_CORNER=[3,4]
+// BOTTOM_LEFT_CORNER=[19,20] BOTTOM_RIGHT_CORNER=[22,23]
+const _RES_SINGLE_1SLOT_FLAT = [                              // SINGLE_CITY_ONE_SLOT[:flat]
+  { rw:[[[6,13,5,12],1],[[7,14],0.5]],   x:-55, y:0 },
+  { rw:[[[10,17,11,18],1],[[9,16],0.5]], x:55,  y:0 }, // SINGLE_CITY_ONE_SLOT_RIGHT
+];
+const _RES_P_LEFT_FLAT   = { rw:[[[5,12],1],[[6,13],0.25]],   x:-71.25, y:0  }; // P_LEFT_CORNER
+const _RES_P_RIGHT_FLAT  = { rw:[[[11,18],1],[[10,17],0.25]], x:71.25,  y:0  }; // P_RIGHT_CORNER
+const _RES_P_BTMLEFT     = { rw:[[[19,20],1],[[21],0.5]],     x:-30,    y:65 }; // P_BOTTOM_LEFT_CORNER
+const _RES_MULTI_CITY_FLAT = [     // MULTI_CITY_LOCATIONS (flat) — reservation.rb lines 77-129
+  { rw:[[[2],1],[[1,3],0.5]],     x:0,      y:-60 }, // top center
+  { rw:[[[6],1],[[5,7],0.5]],    x:-50,    y:-31 }, // edge 2
+  { rw:[[[17],1],[[16,18],0.5]], x:50,     y:37  }, // edge 5
+  { rw:[[[0,1],1],[[2],0.5]],    x:-30,    y:-65 }, // top left (UPPER_LEFT_CORNER)
+  { rw:[[[3,4],1],[[2],0.5]],    x:30,     y:-65 }, // top right (UPPER_RIGHT_CORNER)
+  _RES_P_LEFT_FLAT,
+  _RES_P_RIGHT_FLAT,
+  _RES_P_BTMLEFT,
+  { rw:[[[22,23],1],[[21],0.5]], x:30,     y:65  }, // bottom right (BOTTOM_RIGHT_CORNER)
+  { rw:[[[12,13],1],[[14],0.5]], x:-50,    y:25  }, // edge 1
+  { rw:[[[21],1],[[20,22],0.5]], x:0,      y:60  }, // bottom center
+];
+
+// assignments.rb + small_item.rb: SMALL_ITEM_LOCATIONS (flat, 1 item), WIDE_ITEM_LOCATIONS (2+).
+const _ASN_SMALL_FLAT = [
+  { rw:[[[11,18],1]], x:75,    y:0      }, // P_RIGHT_CORNER
+  { rw:[[[5,12],1]],  x:-75,   y:0      }, // P_LEFT_CORNER
+  { rw:[[[22,23],1]], x:35,    y:60.62  }, // P_BOTTOM_RIGHT_CORNER
+  { rw:[[[0,1],1]],   x:-35,   y:-60.62 }, // P_UPPER_LEFT_CORNER
+  { rw:[[[19,20],1]], x:-35,   y:60.62  }, // P_BOTTOM_LEFT_CORNER
+];
+const _ASN_WIDE_FLAT = [
+  { rw:[[[0,1,2,3,5,6],1]],        x:0, y:-65 }, // PP_WIDE_TOP_CORNER
+  { rw:[[[17,18,20,21,22,23],1]],  x:0, y:65  }, // PP_WIDE_BOTTOM_CORNER
+];
+
+// ── _buildBlockerSvg ──────────────────────────────────────────────────────────
+// Port of blocker.rb render_part. Renders company sym text + barbell at best position.
+// hex.blocker = { sym: string }. sz = HEX_SIZE (tobymao 100-unit → world: ×sz/100).
+// ru updated in place (port of increment_cost).
+function _buildBlockerSvg(hex, ru, sz) {
+  if (!hex?.blocker?.sym) return '';
+  const loc = _rrgPickLoc(_BLK_FLAT_CANDS, ru);
+  _rrgMarkLoc(loc, ru);
+  const k = sz / 100;
+  const bx = loc.x * k, by = loc.y * k;
+  // Barbell: arc M(-11,6) A(44,44) 0 0 0 (11,6) + circles r=6 — blocker.rb lines 112-116.
+  const x1 = (bx - 11*k).toFixed(2), x2 = (bx + 11*k).toFixed(2);
+  const yb = (by + 6*k).toFixed(2);
+  let svg = `<path d="M ${x1} ${yb} A ${(44*k).toFixed(2)} ${(44*k).toFixed(2)} 0 0 0 ${x2} ${yb}" fill="white"/>`;
+  svg += `<circle cx="${x2}" cy="${yb}" r="${(6*k).toFixed(2)}" fill="white"/>`;
+  svg += `<circle cx="${x1}" cy="${yb}" r="${(6*k).toFixed(2)}" fill="white"/>`;
+  // Text: fill='black', dominant-baseline='baseline', at (0,−5) relative to group centre.
+  svg += `<text x="${bx.toFixed(2)}" y="${(by - 5*k).toFixed(2)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="black" text-anchor="middle" dominant-baseline="baseline">${escSvg(hex.blocker.sym)}</text>`;
+  return svg;
+}
+
+// ── _buildReservationsSvg ─────────────────────────────────────────────────────
+// Port of reservation.rb render_part. Renders reservation sym at preferred location.
+// hex.reservations = [{ sym: string }, ...]. sz = HEX_SIZE. ru updated in place.
+function _buildReservationsSvg(hex, ru, sz) {
+  if (!hex?.reservations?.length) return '';
+  const nodes     = hex.nodes || [];
+  const cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
+  const cities    = nodes.filter(n => n.type === 'city');
+  const k = sz / 100;
+  let svg = '';
+  for (const res of hex.reservations) {
+    let cands;
+    if (cityTowns.length === 1) {
+      // reservation.rb lines 180-183: multi-slot → P_LEFT_CORNER; 1-slot → left+right pair.
+      cands = (cities.length === 1 && (cities[0].slots || 1) > 1)
+        ? [_RES_P_LEFT_FLAT]
+        : _RES_SINGLE_1SLOT_FLAT;
+    } else if (cityTowns.length > 1) {
+      cands = _RES_MULTI_CITY_FLAT;   // reservation.rb lines 185-186
+    } else {
+      cands = [_RES_P_LEFT_FLAT];     // reservation.rb line 189: P_LEFT_CORNER fallback
+    }
+    const loc = _rrgPickLoc(cands, ru);
+    _rrgMarkLoc(loc, ru);
+    const rx = (loc.x * k).toFixed(2), ry = (loc.y * k).toFixed(2);
+    // reservation.rb line 198: transform='scale(1.1)' on inner text element.
+    // Achieved via <g translate> so the scale affects glyph size only, not position.
+    svg += `<g transform="translate(${rx},${ry})"><text font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle" transform="scale(1.1)">${escSvg(res.sym)}</text></g>`;
+  }
+  return svg;
+}
+
+// ── _buildAssignmentsSvg ──────────────────────────────────────────────────────
+// Port of assignments.rb render_part. Renders assignment tokens as icon circles.
+// hex.assignments = [{ sym: string, color: string (opt), count: int (opt) }, ...].
+// ICON_RADIUS=20, DELTA=42 in tobymao 100-unit (assignments.rb lines 15-16).
+// sz = HEX_SIZE. ru updated in place.
+function _buildAssignmentsSvg(hex, ru, sz) {
+  if (!hex?.assignments?.length) return '';
+  const n   = hex.assignments.length;
+  const loc = _rrgPickLoc(n === 1 ? _ASN_SMALL_FLAT : _ASN_WIDE_FLAT, ru);
+  _rrgMarkLoc(loc, ru);
+  const k = sz / 100, DELTA = 42, IR = 20; // assignments.rb constants (100-unit space)
+  let svg = '';
+  for (let i = 0; i < n; i++) {
+    const asn    = hex.assignments[i];
+    const offset = (i - (n - 1) / 2) * DELTA; // x-axis spread (flat layout)
+    const cx = ((loc.x + offset) * k).toFixed(2);
+    const cy = (loc.y * k).toFixed(2);
+    const r  = (IR * k).toFixed(2);
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${asn.color || '#ccc'}" stroke="#555" stroke-width="${(0.6 * k).toFixed(2)}"/>`;
+    if (asn.sym) {
+      const fs = Math.max(4, Math.round(IR * k * 0.65)); // ~65% of radius → legible text
+      svg += `<text x="${cx}" y="${cy}" font-family="Lato,Arial,sans-serif" font-size="${fs}" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${escSvg(asn.sym)}</text>`;
+    }
+    const cnt = asn.count || 1;
+    if (cnt > 1) { // stack count badge — assignments.rb lines 109-114
+      const bcx = (parseFloat(cx) + 12 * k).toFixed(2);
+      const bcy = (parseFloat(cy) - 12 * k).toFixed(2);
+      svg += `<circle cx="${bcx}" cy="${bcy}" r="${(7 * k).toFixed(2)}" fill="white" stroke="#555" stroke-width="${(0.5 * k).toFixed(2)}"/>`;
+      svg += `<text x="${bcx}" y="${bcy}" font-family="Lato,Arial,sans-serif" font-size="${Math.max(3, Math.round(6 * k))}" fill="#111" text-anchor="middle" dominant-baseline="middle">${cnt}</text>`;
+    }
+  }
+  return svg;
 }
 
 // Canonical angle names (tobymao city.rb ANGLE_* constants, degrees).
@@ -2256,6 +2416,18 @@ function buildHexSvg(r, c, hex) {
       if (!tileDef && hex?.nodes && hex.nodes.length > 0) {
         g += _buildDslRevenueSvg(hex, totalDeg, sc);
       }
+    }
+
+    // Part::Blocker, Part::Reservation, Part::Assignments — game-state pipeline.
+    // Port of tobymao blocker.rb, reservation.rb, assignments.rb (source files read above).
+    // Uses independent region_use accumulator seeded from Track/City/Town occupancy.
+    // Rendered inside !hex?.killed but outside tileDef||hasDslContent so they appear
+    // on any hex that carries game-state data, not just tiles with content.
+    if (hex?.blocker || hex?.reservations?.length || hex?.assignments?.length) {
+      const _pipRU = _rrgBuildUse(hex);
+      g += _buildBlockerSvg(hex, _pipRU, sz);
+      g += _buildReservationsSvg(hex, _pipRU, sz);
+      g += _buildAssignmentsSvg(hex, _pipRU, sz);
     }
   }
 
