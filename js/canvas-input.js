@@ -395,3 +395,101 @@ function ensureHex(id) {
     };
   }
 }
+
+// ── Touch handlers (mobile pinch-zoom + single-finger pan) ───────────────────
+// Single-finger drag → pan the map.  Two-finger pinch → zoom + pan.
+//
+// We do NOT call preventDefault on touchstart for single touches so the browser
+// still synthesises a click event for short taps — this keeps hex selection
+// working on mobile with no extra code.
+// We DO call preventDefault on touchmove once a gesture threshold is crossed,
+// which also cancels the pending synthetic click (desirable: drags should not
+// accidentally select hexes).
+// Two-finger touchstart always prevents default to block browser pinch-zoom.
+
+const _ts = {           // touch state
+  panning:  false,      // single-finger pan active
+  pinching: false,      // two-finger pinch active
+  startX: 0, startY: 0,// client coords of first touch (single)
+  startPanX: 0, startPanY: 0,
+  svgRect: null,        // cached SVG bounding rect for current gesture
+  startDist: 0,         // initial inter-finger distance (pinch)
+  startZoom: 1,         // zoom at pinch start
+  midWorldX: 0, midWorldY: 0, // world coord of pinch midpoint at start
+  startMidSvgX: 0, startMidSvgY: 0, // SVG-local pinch midpoint at start
+};
+
+mapSvg.addEventListener('touchstart', (e) => {
+  _ts.svgRect = mapSvg.getBoundingClientRect();
+  if (e.touches.length >= 2) {
+    e.preventDefault();       // block browser native pinch-zoom
+    const t1 = e.touches[0], t2 = e.touches[1];
+    const midCX = (t1.clientX + t2.clientX) / 2;
+    const midCY = (t1.clientY + t2.clientY) / 2;
+    const mw = clientToWorld(midCX, midCY);
+    _ts.pinching      = true;
+    _ts.panning       = false;
+    _ts.startDist     = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    _ts.startZoom     = zoom;
+    _ts.startPanX     = panX;
+    _ts.startPanY     = panY;
+    _ts.midWorldX     = mw.x;
+    _ts.midWorldY     = mw.y;
+    _ts.startMidSvgX  = midCX - _ts.svgRect.left;
+    _ts.startMidSvgY  = midCY - _ts.svgRect.top;
+  } else if (e.touches.length === 1) {
+    _ts.pinching  = false;
+    _ts.panning   = false;
+    _ts.startX    = e.touches[0].clientX;
+    _ts.startY    = e.touches[0].clientY;
+    _ts.startPanX = panX;
+    _ts.startPanY = panY;
+  }
+}, { passive: false });
+
+mapSvg.addEventListener('touchmove', (e) => {
+  if (e.touches.length >= 2 && _ts.pinching) {
+    // ── Pinch-zoom ─────────────────────────────────────────────────────────
+    // New zoom is proportional to how much the finger distance changed.
+    // Adjust panX/panY so the world point under the original pinch midpoint
+    // remains at the current screen midpoint (handles simultaneous translation).
+    e.preventDefault();
+    const t1 = e.touches[0], t2 = e.touches[1];
+    const dist     = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    const newZoom  = Math.max(0.3, Math.min(4, _ts.startZoom * dist / _ts.startDist));
+    const midCX    = (t1.clientX + t2.clientX) / 2;
+    const midCY    = (t1.clientY + t2.clientY) / 2;
+    const curMidSvgX = midCX - _ts.svgRect.left;
+    const curMidSvgY = midCY - _ts.svgRect.top;
+    // SVG transform: svgCoord = zoom * (worldCoord + pan)
+    // → pan = svgCoord/zoom − worldCoord
+    zoom = newZoom;
+    panX = curMidSvgX / newZoom - _ts.midWorldX;
+    panY = curMidSvgY / newZoom - _ts.midWorldY;
+    updateViewport();
+  } else if (e.touches.length === 1 && !_ts.pinching) {
+    // ── Single-finger pan ──────────────────────────────────────────────────
+    const dx = e.touches[0].clientX - _ts.startX;
+    const dy = e.touches[0].clientY - _ts.startY;
+    if (!_ts.panning && Math.hypot(dx, dy) > 8) _ts.panning = true;
+    if (_ts.panning) {
+      e.preventDefault();   // also cancels pending synthetic click — intentional
+      panX = _ts.startPanX + dx / zoom;
+      panY = _ts.startPanY + dy / zoom;
+      updateViewport();
+    }
+  }
+}, { passive: false });
+
+mapSvg.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) _ts.pinching = false;
+  if (e.touches.length === 0) { _ts.panning = false; return; }
+  // One finger remains after a pinch — reset for potential single-finger pan
+  if (e.touches.length === 1 && !_ts.pinching) {
+    _ts.panning   = false;
+    _ts.startX    = e.touches[0].clientX;
+    _ts.startY    = e.touches[0].clientY;
+    _ts.startPanX = panX;
+    _ts.startPanY = panY;
+  }
+}, { passive: true });

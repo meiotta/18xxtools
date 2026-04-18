@@ -132,6 +132,56 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('helpDrawer').style.display = 'none';
   });
 
+  // ── Panel collapse/expand buttons ──────────────────────────────────────────
+  // Iconoir "Sidebar Collapse" visual language: rounded-rect frame split by a
+  // vertical divider, with a chevron in the sidebar pane showing direction.
+  function _panelToggleIcon(side, isCollapsed) {
+    // side: 'left' | 'right'. isCollapsed: whether the panel is currently hidden.
+    const divX = side === 'left' ? 7 : 13;
+    // When collapsed → chevron points INWARD (toward center) = expand hint
+    // When open      → chevron points OUTWARD (toward edge)  = collapse hint
+    let pts;
+    if (side === 'left') {
+      pts = isCollapsed ? '3,6.5 5.5,9 3,11.5' : '5.5,6.5 3,9 5.5,11.5';
+    } else {
+      pts = isCollapsed ? '17,6.5 14.5,9 17,11.5' : '14.5,6.5 17,9 14.5,11.5';
+    }
+    return `<svg viewBox="0 0 20 18" width="16" height="16" fill="none" stroke="currentColor" ` +
+      `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="display:block" aria-hidden="true">` +
+      `<rect x="1" y="1" width="18" height="16" rx="2.5"/>` +
+      `<line x1="${divX}" y1="1" x2="${divX}" y2="17"/>` +
+      `<polyline points="${pts}"/>` +
+      `</svg>`;
+  }
+
+  const leftPanel  = document.getElementById('leftPanel');
+  // rightPanel already declared above (line ~19); reuse it here.
+  const toggleLeftBtn  = document.getElementById('toggleLeftPanelBtn');
+  const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
+
+  let _lpCollapsed = false;
+  let _rpCollapsed = false;
+
+  if (toggleLeftBtn && leftPanel) {
+    toggleLeftBtn.innerHTML = _panelToggleIcon('left', false);
+    toggleLeftBtn.addEventListener('click', () => {
+      _lpCollapsed = !_lpCollapsed;
+      leftPanel.classList.toggle('lp-collapsed', _lpCollapsed);
+      toggleLeftBtn.innerHTML = _panelToggleIcon('left', _lpCollapsed);
+      toggleLeftBtn.title = _lpCollapsed ? 'Expand left panel' : 'Collapse left panel';
+    });
+  }
+
+  if (toggleRightBtn && rightPanel) {
+    toggleRightBtn.innerHTML = _panelToggleIcon('right', false);
+    toggleRightBtn.addEventListener('click', () => {
+      _rpCollapsed = !_rpCollapsed;
+      rightPanel.classList.toggle('rp-collapsed', _rpCollapsed);
+      toggleRightBtn.innerHTML = _panelToggleIcon('right', _rpCollapsed);
+      toggleRightBtn.title = _rpCollapsed ? 'Expand right panel' : 'Collapse right panel';
+    });
+  }
+
   // File ▾ dropdown toggle
   const fileMenuBtn = document.getElementById('fileMenuBtn');
   const fileMenu    = document.getElementById('fileMenu');
