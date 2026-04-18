@@ -150,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
       `</svg>`;
   }
 
-  const leftPanel  = document.getElementById('leftPanel');
   // rightPanel already declared above (line ~19); reuse it here.
   const toggleLeftBtn  = document.getElementById('toggleLeftPanelBtn');
   const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
@@ -158,14 +157,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let _lpCollapsed = false;
   let _rpCollapsed = false;
 
-  if (toggleLeftBtn && leftPanel) {
+  if (toggleLeftBtn && navContent) {
     toggleLeftBtn.innerHTML = _panelToggleIcon('left', false);
     toggleLeftBtn.addEventListener('click', () => {
       _lpCollapsed = !_lpCollapsed;
-      leftPanel.classList.toggle('lp-collapsed', _lpCollapsed);
+      navContent.classList.toggle('lp-collapsed', _lpCollapsed);
       toggleLeftBtn.classList.toggle('lp-collapsed', _lpCollapsed);
       toggleLeftBtn.innerHTML = _panelToggleIcon('left', _lpCollapsed);
-      toggleLeftBtn.title = _lpCollapsed ? 'Expand left panel' : 'Collapse left panel';
+      toggleLeftBtn.title = _lpCollapsed ? 'Expand tile tray' : 'Collapse tile tray';
     });
   }
 
