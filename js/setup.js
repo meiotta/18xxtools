@@ -29,6 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rightPanel) rightPanel.style.display = which === 'canvas' ? '' : 'none';
     // Hide the 200px nav-content strip when not in map mode — give full width to center
     if (navContent) navContent.style.display = which === 'canvas' ? '' : 'none';
+    // Panel toggle tabs only make sense in map mode (they're position:fixed so
+    // they'd float over other views otherwise)
+    const inCanvas = which === 'canvas';
+    if (toggleLeftBtn)  toggleLeftBtn.style.display  = inCanvas ? '' : 'none';
+    if (toggleRightBtn) toggleRightBtn.style.display = inCanvas ? '' : 'none';
   }
 
   document.querySelectorAll('.nav-rail-btn').forEach(btn => {
@@ -133,23 +138,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ── Panel collapse/expand buttons ──────────────────────────────────────────
-  // Iconoir "Sidebar Collapse" visual language: rounded-rect frame split by a
-  // vertical divider, with a chevron in the sidebar pane showing direction.
+  // Simple chevron: points toward center when open (= collapse hint),
+  // points toward edge when collapsed (= expand hint).
   function _panelToggleIcon(side, isCollapsed) {
-    // side: 'left' | 'right'. isCollapsed: whether the panel is currently hidden.
-    const divX = side === 'left' ? 7 : 13;
-    // When collapsed → chevron points INWARD (toward center) = expand hint
-    // When open      → chevron points OUTWARD (toward edge)  = collapse hint
-    let pts;
-    if (side === 'left') {
-      pts = isCollapsed ? '3,6.5 5.5,9 3,11.5' : '5.5,6.5 3,9 5.5,11.5';
-    } else {
-      pts = isCollapsed ? '17,6.5 14.5,9 17,11.5' : '14.5,6.5 17,9 14.5,11.5';
-    }
-    return `<svg viewBox="0 0 20 18" width="16" height="16" fill="none" stroke="currentColor" ` +
-      `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="display:block" aria-hidden="true">` +
-      `<rect x="1" y="1" width="18" height="16" rx="2.5"/>` +
-      `<line x1="${divX}" y1="1" x2="${divX}" y2="17"/>` +
+    // pointLeft: chevron faces left (‹)
+    const pointLeft = (side === 'left') ? !isCollapsed : isCollapsed;
+    const pts = pointLeft ? '6,3 2,8 6,13' : '2,3 6,8 2,13';
+    return `<svg viewBox="0 0 8 16" width="7" height="14" fill="none" stroke="currentColor" ` +
+      `stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
       `<polyline points="${pts}"/>` +
       `</svg>`;
   }
@@ -167,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleLeftBtn.addEventListener('click', () => {
       _lpCollapsed = !_lpCollapsed;
       leftPanel.classList.toggle('lp-collapsed', _lpCollapsed);
+      toggleLeftBtn.classList.toggle('lp-collapsed', _lpCollapsed);
       toggleLeftBtn.innerHTML = _panelToggleIcon('left', _lpCollapsed);
       toggleLeftBtn.title = _lpCollapsed ? 'Expand left panel' : 'Collapse left panel';
     });
@@ -177,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleRightBtn.addEventListener('click', () => {
       _rpCollapsed = !_rpCollapsed;
       rightPanel.classList.toggle('rp-collapsed', _rpCollapsed);
+      toggleRightBtn.classList.toggle('rp-collapsed', _rpCollapsed);
       toggleRightBtn.innerHTML = _panelToggleIcon('right', _rpCollapsed);
       toggleRightBtn.title = _rpCollapsed ? 'Expand right panel' : 'Collapse right panel';
     });
