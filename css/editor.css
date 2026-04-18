@@ -130,6 +130,15 @@ input[type="color"] { padding: 2px; width: 40px; height: 40px; }
 
 .content { display: flex; flex: 1; overflow: hidden; }
 
+/* Center flex child — wraps all main views; tab buttons are absolute within */
+.map-area {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
 /* MD Navigation Drawer — left panel is a flex row: rail + content ─────────── */
 .left-panel {
   display: flex;
@@ -3382,51 +3391,44 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #fff; }
 
 /* ── Panel collapse/expand toggle buttons ────────────────────────────────── */
-/* Slim vertical pills mounted flush on the inner edge of each panel.         */
-/* position: fixed keeps them in the viewport even during pinch-zoom.         */
+/* Slim vertical pills, position:absolute inside .map-area.                   */
+/* Layout-relative: tracks panel edges naturally as panels open/close.        */
+/* No position:fixed — eliminates all viewport/document-width ambiguity on   */
+/* Android Chrome and iOS Safari alike.                                        */
 .panel-toggle-btn {
-  position: fixed;
+  position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1000;
+  z-index: 10;
   width: 18px;
   height: 64px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(40,40,40,0.96);  /* slightly more opaque: no blur to compensate */
+  background: rgba(40,40,40,0.96);
   border: 1px solid #3a3a3a;
   color: #888;
   cursor: pointer;
-  /* backdrop-filter intentionally omitted — on Safari, backdrop-filter on a
-     position:fixed element causes it to scroll with the document instead of
-     staying viewport-anchored (WebKit bug). Use a solid background instead. */
   touch-action: manipulation;
 }
 .panel-toggle-btn:hover {
   color: #ccc;
   background: rgba(60,60,60,0.95);
 }
-/* Left tab: flat left edge (flush against panel), rounded right side */
+/* Left tab: flat left edge at left:0 of map-area, rounded right side */
 #toggleLeftPanelBtn {
-  left: 272px;
+  left: 0;
   border-radius: 0 8px 8px 0;
   border-left: none;
-  transition: left 0.22s ease, color 0.15s, background 0.15s;
+  transition: color 0.15s, background 0.15s;
 }
-#toggleLeftPanelBtn.lp-collapsed {
-  left: 72px;  /* nav-rail stays visible; only tile tray is hidden */
-}
-/* Right tab: rounded left side, flat right edge (flush against panel) */
+/* Right tab: rounded left side, flat right edge at right:0 of map-area */
 #toggleRightPanelBtn {
-  right: 300px;
+  right: 0;
   border-radius: 8px 0 0 8px;
   border-right: none;
-  transition: right 0.22s ease, color 0.15s, background 0.15s;
-}
-#toggleRightPanelBtn.rp-collapsed {
-  right: 0;
+  transition: color 0.15s, background 0.15s;
 }
 
 /* Panel collapse transitions — max-width lets us animate from content-sized to 0 */
@@ -3490,12 +3492,6 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   .nav-rail-btn span {
     display: none;
   }
-  /* Tile-tray toggle tab: open at 52+200=252px, collapsed at 52px */
-  #toggleLeftPanelBtn {
-    left: 252px;
-  }
-  #toggleLeftPanelBtn.lp-collapsed {
-    left: 52px;
-  }
+  /* Tab button positions self-adjust via layout (left:0/right:0 of .map-area) */
 }
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
