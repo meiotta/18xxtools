@@ -68,7 +68,7 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   folder.file('map.json',       JSON.stringify({ rows: state.meta.rows, cols: state.meta.cols, orientation: state.meta.orientation, hexes: mapHexes }, null, 2));
   folder.file('tiles.json',     JSON.stringify({ tiles: state.trains }, null, 2));
   folder.file('game.json',      JSON.stringify({ meta: state.meta, terrainCosts: state.terrainCosts, financials: state.financials }, null, 2));
-  folder.file('companies.json', JSON.stringify({ companies: state.companies, minors: state.minors, corpPacks: state.corpPacks, privates: state.privates, financials: state.financials }, null, 2));
+  folder.file('companies.json', JSON.stringify({ companies: state.companies, minors: state.minors, corpPacks: state.corpPacks, privates: state.privates, auction: state.auction, financials: state.financials }, null, 2));
 
   const readme = `# ${state.meta.title || 'Game'}\n\nBase: ${state.meta.baseGame}\nGrid: ${state.meta.rows}×${state.meta.cols}\nBank: $${state.meta.bank}\nPlayers: ${state.meta.playersMin}-${state.meta.playersMax}`;
   folder.file('README.md', readme);
@@ -137,6 +137,7 @@ document.getElementById('newMapBtn').addEventListener('click', () => {
   const fresh = {
     meta: { title: '', baseGame: 'custom', rows: 8, cols: 12, orientation: 'flat', staggerParity: 0, coordParity: 0, maxRowPerCol: null, bank: 12000, playersMin: 2, playersMax: 6 },
     hexes: {}, companies: [], minors: [], corpPacks: [], trains: [], privates: [],
+    auction: { hasInitialRound: true, mechanism: 'waterfall', bidIncrement: 5, mustBeMultiple: false, companyOrder: 'value_asc', passDecreases: false, passAmount: 5, privateSlots: 3, minorSlots: 3, concessionSlots: 3, draftOrder: 'snake' },
     terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
     financials: { bank: 12000, marketType: '2D', market: [], marketRows: 11, marketCols: 19, rules: { dividend: 'right', withheld: 'left', soldOut: 'up', canPool: true }, logicRules: [] },
     enabledPacks: null,

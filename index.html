@@ -407,6 +407,7 @@
         <div class="corp-tab-bar">
           <button class="corp-tab-btn active" data-corp-tab="privates">Privates</button>
           <button class="corp-tab-btn" data-corp-tab="corps">Corporations</button>
+          <button class="corp-tab-btn" data-corp-tab="auction">Auction</button>
         </div>
         <div style="flex:1;"></div>
         <button id="addPrivateBtn" class="corp-add-btn" data-add-for="privates">+ Add Private</button>
@@ -423,7 +424,10 @@
         <div id="corpPrivatesSection" style="flex:1; display:flex; overflow:hidden;"></div>
 
         <!-- Corporations: pack master-detail (JS renders into here) -->
-        <div id="corpCorpsSection" style="display:none; flex:1; display:flex; overflow:hidden;"></div>
+        <div id="corpCorpsSection" style="display:none; flex:1; overflow:hidden;"></div>
+
+        <!-- Auction: settings panel -->
+        <div id="corpAuctionSection" style="display:none; flex:1; overflow-y:auto;"></div>
 
       </div>
     </div>

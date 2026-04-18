@@ -665,6 +665,13 @@ function buildPrivateDetailEl(idx) {
         <label class="pc-det-label">Revenue / OR</label>
         <div class="pc-det-money">$<input type="number" class="pc-det-revenue" min="0" value="${p.revenue || 0}"></div>
       </div>
+      <div class="pc-det-field">
+        <label class="pc-det-label">Auction tier</label>
+        <input type="number" class="pc-det-auction-row" min="1" max="9"
+          placeholder="—" value="${p.auctionRow != null ? p.auctionRow : ''}"
+          title="auction_row: groups companies into tiers (1828-style tiered waterfall). Leave blank for default single-row.">
+        <span class="pc-field-hint">Tier / row (tiered waterfall only)</span>
+      </div>
     </div>
 
     ${currentType === 'concession' ? `
@@ -742,6 +749,11 @@ function buildPrivateDetailEl(idx) {
   });
   el.querySelector('.pc-det-cost').addEventListener('change',    e => { state.privates[idx].cost    = parseInt(e.target.value) || 0; autosave(); });
   el.querySelector('.pc-det-revenue').addEventListener('change', e => { state.privates[idx].revenue = parseInt(e.target.value) || 0; autosave(); });
+  el.querySelector('.pc-det-auction-row').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    state.privates[idx].auctionRow = v === '' ? null : (parseInt(v) || null);
+    autosave();
+  });
   el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].ability = e.target.value; autosave(); });
 
   // ── Company type toggle (Private | Concession) ─────────────────────────────
@@ -1706,6 +1718,221 @@ function _buildCompanyDetailEl(pi, ci) {
   }
 
   return el;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUCTION PANEL
+// Game-level auction configuration rendered into #corpAuctionSection.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderAuctionPanel() {
+  const wrap = document.getElementById('corpAuctionSection');
+  if (!wrap) return;
+
+  // Ensure auction object exists on state
+  if (!state.auction) {
+    state.auction = {
+      hasInitialRound: true, mechanism: 'waterfall', bidIncrement: 5,
+      mustBeMultiple: false, companyOrder: 'value_asc',
+      passDecreases: false, passAmount: 5,
+      privateSlots: 3, minorSlots: 3, concessionSlots: 3, draftOrder: 'snake',
+    };
+  }
+  const a = state.auction;
+
+  const mech = a.mechanism || 'waterfall';
+
+  // Build mechanism-specific extra panels
+  const waterfallExtras = `
+    <div class="auc-sub-card" id="aucWaterfallSettings">
+      <div class="auc-sub-title">Waterfall settings</div>
+      <div class="auc-row">
+        <label class="auc-label">Company order</label>
+        <select class="auc-sel" id="aucCompanyOrder">
+          <option value="value_asc"  ${a.companyOrder === 'value_asc'  ? 'selected' : ''}>Face value ↑ (cheapest first)</option>
+          <option value="value_desc" ${a.companyOrder === 'value_desc' ? 'selected' : ''}>Face value ↓ (most expensive first)</option>
+          <option value="custom"     ${a.companyOrder === 'custom'     ? 'selected' : ''}>Custom (as listed)</option>
+        </select>
+      </div>
+      <div class="auc-row">
+        <label class="auc-label">If all pass</label>
+        <label class="auc-toggle-label">
+          <input type="checkbox" class="auc-chk" id="aucPassDecreases" ${a.passDecreases ? 'checked' : ''}>
+          Price decreases
+        </label>
+        <span class="auc-label" style="margin-left:12px;">by $</span>
+        <input type="number" class="auc-num" id="aucPassAmount" min="1" max="100"
+          value="${a.passAmount || 5}" ${!a.passDecreases ? 'disabled' : ''}>
+      </div>
+    </div>`;
+
+  const bidBoxExtras = `
+    <div class="auc-sub-card" id="aucBidBoxSettings">
+      <div class="auc-sub-title">Bid box slot counts
+        <span class="auc-hint">How many companies are face-up in each bid box at once</span>
+      </div>
+      <div class="auc-row">
+        <label class="auc-label">Private slots</label>
+        <input type="number" class="auc-num" id="aucPrivateSlots" min="1" max="10" value="${a.privateSlots || 3}">
+      </div>
+      <div class="auc-row">
+        <label class="auc-label">Minor cert slots</label>
+        <input type="number" class="auc-num" id="aucMinorSlots" min="1" max="10" value="${a.minorSlots || 3}">
+      </div>
+      <div class="auc-row">
+        <label class="auc-label">Concession slots</label>
+        <input type="number" class="auc-num" id="aucConcessionSlots" min="1" max="10" value="${a.concessionSlots || 3}">
+      </div>
+      <div class="auc-hint-block">
+        <strong>Engine constants:</strong><br>
+        <code>BIDDING_BOX_PRIVATE_COUNT = ${a.privateSlots || 3}</code><br>
+        <code>BIDDING_BOX_MINOR_COUNT   = ${a.minorSlots   || 3}</code><br>
+        <code>BIDDING_BOX_CONCESSION_COUNT = ${a.concessionSlots || 3}</code>
+      </div>
+    </div>`;
+
+  const draftExtras = `
+    <div class="auc-sub-card" id="aucDraftSettings">
+      <div class="auc-sub-title">Draft settings</div>
+      <div class="auc-row">
+        <label class="auc-label">Draft order</label>
+        <select class="auc-sel" id="aucDraftOrder">
+          <option value="snake"      ${a.draftOrder === 'snake'      ? 'selected' : ''}>Snake (1 → N → 1)</option>
+          <option value="sequential" ${a.draftOrder === 'sequential' ? 'selected' : ''}>Sequential (1 → N → 1 → N…)</option>
+        </select>
+      </div>
+    </div>`;
+
+  const extrasHTML = mech === 'waterfall' ? waterfallExtras
+                   : mech === 'bid_box'   ? bidBoxExtras
+                   : mech === 'draft'     ? draftExtras
+                   : '';
+
+  wrap.innerHTML = `
+    <div class="auc-panel">
+      <div class="auc-section-title">Auction / Initial Offering</div>
+
+      <div class="auc-card">
+        <div class="auc-row">
+          <label class="auc-label">Initial round</label>
+          <label class="auc-toggle-label">
+            <input type="checkbox" class="auc-chk" id="aucHasInitialRound" ${a.hasInitialRound !== false ? 'checked' : ''}>
+            Game starts with an auction round before the first stock round
+          </label>
+        </div>
+
+        <div class="auc-row">
+          <label class="auc-label">Mechanism</label>
+          <div class="auc-mech-grid" id="aucMechGrid">
+            ${[
+              { val: 'waterfall', label: 'Waterfall',    sub: '1830 sequential — bid or buy in order' },
+              { val: 'bid_box',   label: 'Bid Box',      sub: '1822 simultaneous — multiple items face-up' },
+              { val: 'draft',     label: 'Draft',        sub: 'Players pick in rotation, no bidding' },
+              { val: 'fixed',     label: 'Fixed price',  sub: 'Buy at face value, first-come-first-served' },
+              { val: 'none',      label: 'None',         sub: 'No company auction (majors only or manual)' },
+            ].map(m => `
+              <button type="button" class="auc-mech-btn${mech === m.val ? ' active' : ''}" data-mech="${m.val}">
+                <span class="auc-mech-label">${m.label}</span>
+                <span class="auc-mech-sub">${m.sub}</span>
+              </button>`).join('')}
+          </div>
+        </div>
+
+        <div class="auc-row auc-row-inline">
+          <label class="auc-label">Bid increment</label>
+          <div class="auc-num-wrap">
+            <span class="auc-dollar">$</span>
+            <input type="number" class="auc-num" id="aucBidIncrement" min="1" max="100" value="${a.bidIncrement || 5}">
+          </div>
+          <label class="auc-toggle-label" style="margin-left:16px;">
+            <input type="checkbox" class="auc-chk" id="aucMustBeMultiple" ${a.mustBeMultiple ? 'checked' : ''}>
+            Bids must be exact multiples
+          </label>
+        </div>
+      </div>
+
+      ${extrasHTML}
+
+      <div class="auc-sub-card auc-export-preview">
+        <div class="auc-sub-title">Export preview <span class="auc-hint">game.rb constants</span></div>
+        <pre class="auc-code" id="aucCodePreview">${_auctionExportPreview(a)}</pre>
+      </div>
+    </div>
+  `;
+
+  // ── wire listeners ────────────────────────────────────────────────────────
+
+  function saveAndRefresh() { autosave(); _refreshAuctionCodePreview(); }
+
+  wrap.querySelector('#aucHasInitialRound').addEventListener('change', e => {
+    state.auction.hasInitialRound = e.target.checked; saveAndRefresh();
+  });
+
+  wrap.querySelectorAll('.auc-mech-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.auction.mechanism = btn.dataset.mech;
+      autosave();
+      renderAuctionPanel(); // re-render to swap mechanism extras
+    });
+  });
+
+  const bindNum = (id, key, parse) => {
+    const el = wrap.querySelector('#' + id);
+    if (el) el.addEventListener('change', e => {
+      state.auction[key] = parse(e.target.value);
+      saveAndRefresh();
+    });
+  };
+  const bindChk = (id, key) => {
+    const el = wrap.querySelector('#' + id);
+    if (el) el.addEventListener('change', e => {
+      state.auction[key] = e.target.checked;
+      saveAndRefresh();
+      // Enable/disable pass amount when passDecreases toggles
+      if (key === 'passDecreases') {
+        const pa = wrap.querySelector('#aucPassAmount');
+        if (pa) pa.disabled = !e.target.checked;
+      }
+    });
+  };
+  const bindSel = (id, key) => {
+    const el = wrap.querySelector('#' + id);
+    if (el) el.addEventListener('change', e => { state.auction[key] = e.target.value; saveAndRefresh(); });
+  };
+
+  bindNum('aucBidIncrement',   'bidIncrement',   v => parseInt(v) || 5);
+  bindChk('aucMustBeMultiple', 'mustBeMultiple');
+  bindSel('aucCompanyOrder',   'companyOrder');
+  bindChk('aucPassDecreases',  'passDecreases');
+  bindNum('aucPassAmount',     'passAmount',     v => parseInt(v) || 5);
+  bindNum('aucPrivateSlots',   'privateSlots',   v => parseInt(v) || 3);
+  bindNum('aucMinorSlots',     'minorSlots',     v => parseInt(v) || 3);
+  bindNum('aucConcessionSlots','concessionSlots',v => parseInt(v) || 3);
+  bindSel('aucDraftOrder',     'draftOrder');
+}
+
+// Returns a Ruby constant preview string for the export panel
+function _auctionExportPreview(a) {
+  const mech = a.mechanism || 'waterfall';
+  const inc  = a.bidIncrement || 5;
+  const mul  = a.mustBeMultiple ? 'true' : 'false';
+  const lines = [];
+  lines.push(`MIN_BID_INCREMENT          = ${inc}`);
+  lines.push(`MUST_BID_INCREMENT_MULTIPLE = ${mul}`);
+  if (mech === 'bid_box') {
+    lines.push(`BIDDING_BOX_PRIVATE_COUNT     = ${a.privateSlots    || 3}`);
+    lines.push(`BIDDING_BOX_MINOR_COUNT       = ${a.minorSlots      || 3}`);
+    lines.push(`BIDDING_BOX_CONCESSION_COUNT  = ${a.concessionSlots || 3}`);
+  }
+  if (mech === 'waterfall' && a.passDecreases) {
+    lines.push(`COMPANY_SALE_MINIMUM          = ${a.passAmount || 5} # price drop when all pass`);
+  }
+  return lines.join('\n');
+}
+
+function _refreshAuctionCodePreview() {
+  const pre = document.getElementById('aucCodePreview');
+  if (pre && state.auction) pre.textContent = _auctionExportPreview(state.auction);
 }
 
 // ── + New Pack button ─────────────────────────────────────────────────────────

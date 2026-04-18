@@ -77,14 +77,19 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.corp-tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
 
-      // Show/hide sections — both are flex master-detail containers
-      const sections = { privates: 'corpPrivatesSection', corps: 'corpCorpsSection' };
-      Object.entries(sections).forEach(([key, id]) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = key === tab ? 'flex' : 'none';
+      // Show/hide sections
+      const sections = {
+        privates: { id: 'corpPrivatesSection', display: 'flex' },
+        corps:    { id: 'corpCorpsSection',    display: 'flex' },
+        auction:  { id: 'corpAuctionSection',  display: 'flex' },
+      };
+      Object.entries(sections).forEach(([key, cfg]) => {
+        const el = document.getElementById(cfg.id);
+        if (el) el.style.display = key === tab ? cfg.display : 'none';
       });
-      // Trigger corps render when switching to that tab
-      if (tab === 'corps' && typeof renderCorpsSection === 'function') renderCorpsSection();
+      // Trigger renders when switching tabs
+      if (tab === 'corps'    && typeof renderCorpsSection    === 'function') renderCorpsSection();
+      if (tab === 'auction'  && typeof renderAuctionPanel    === 'function') renderAuctionPanel();
 
       // Show/hide the matching add button
       document.querySelectorAll('.corp-add-btn').forEach(b => {

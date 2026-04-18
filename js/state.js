@@ -47,6 +47,19 @@ const state = {
   trains: [],
   phases: [],
   privates: [],
+  auction: {
+    hasInitialRound: true,
+    mechanism: 'waterfall',   // 'waterfall' | 'bid_box' | 'draft' | 'fixed' | 'none'
+    bidIncrement: 5,
+    mustBeMultiple: false,
+    companyOrder: 'value_asc',  // waterfall: 'value_asc' | 'value_desc' | 'custom'
+    passDecreases: false,       // waterfall: price drops if everyone passes
+    passAmount: 5,
+    privateSlots: 3,            // bid-box: visible private companies at a time
+    minorSlots: 3,              // bid-box: visible minor certs at a time
+    concessionSlots: 3,         // bid-box: visible concessions at a time
+    draftOrder: 'snake',        // draft: 'snake' | 'sequential'
+  },
   terrainCosts: { mountain: 80, hill: 40, water: 40, swamp: 20, forest: 20, desert: 40, pass: 120 },
   financials: {
     bank: 12000,
