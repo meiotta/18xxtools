@@ -200,7 +200,7 @@ input[type="color"] { padding: 2px; width: 40px; height: 40px; }
 .lsection { display: none; flex-direction: column; flex: 1; overflow-y: auto; scrollbar-gutter: stable; }
 .lsection.active { display: flex; flex-direction: column; }
 
-.canvas-container { flex: 1; background: #1a1a1a; position: relative; overflow: hidden; }
+.canvas-container { flex: 1; background: #1a1a1a; position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; }
 canvas { display: block; }
 
 /* MD Side Sheet (right panel) */
@@ -435,7 +435,7 @@ canvas { display: block; }
 @keyframes splashProgress { from { width: 0; } to { width: 100%; } }
 
 /* ── Context Menu ──────────────────────────────────────────────────────────── */
-.context-menu { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); z-index: 999; min-width: 200px; }
+.context-menu { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); z-index: 999; min-width: 200px; max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .context-menu-item { padding: 10px 16px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #3a3a3a; }
 .context-menu-item:hover { background: #3a3a3a; }
 .context-menu-sep { height: 1px; background: #444; margin: 4px 0; }
