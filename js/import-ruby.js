@@ -226,7 +226,7 @@ function parseDslHex(code, bg, locationName) {
   const hex = {
     static: true,
     bg,
-    feature: bg === 'red' ? 'offboard' : 'none',
+    feature: 'none',  // set to 'offboard' only when offboard= part is parsed (not from bg alone)
     slots: 1,
     exits: [],
     rotation: 0,
