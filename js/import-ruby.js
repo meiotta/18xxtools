@@ -598,6 +598,7 @@ function importRubyMap(content) {
   // Some games (e.g. 1824): def map_optional_hexes / def map_hexes (Ruby method)
   // We search for both forms; if neither is found we return an empty map.
   let hexesText = '';
+  const _localVars = {}; // populated from method-local %w[] assignments (e.g. 1824)
   {
     // Try constant form first
     let hexesStart = content.indexOf('HEXES = {');
@@ -613,6 +614,15 @@ function importRubyMap(content) {
       const methodRe = /def\s+map(?:_optional)?_hexes[^{]*\{/g;
       const mMatch = methodRe.exec(content);
       if (mMatch) {
+        // Capture pre-hash text so we can extract method-local variable arrays.
+        // e.g. 1824: plain_hexes = %w[...], one_town = %w[...] defined before the { hash }.
+        const preHashText = content.substring(mMatch.index, mMatch.index + mMatch[0].length - 1);
+        const localVarRe = /\b([a-z][a-z0-9_]*)\s*=\s*%w\[([^\]]+)\]/g;
+        let lm;
+        while ((lm = localVarRe.exec(preHashText)) !== null) {
+          _localVars[lm[1]] = lm[2].trim().split(/\s+/);
+        }
+
         const bodyStart = mMatch.index + mMatch[0].length;
         // Walk braces to find the matching closing brace
         let depth = 1, i = bodyStart;
@@ -631,22 +641,51 @@ function importRubyMap(content) {
     }
   }
 
+  // ── Module-level Ruby string constants ──────────────────────────────────────
+  // Some games (e.g. 1824) define DSL code strings as named constants in the module
+  // and reference them as values in the hex hash: e.g.  ['E12'] => WIEN
+  // Multiline concatenation:  MINE_2 = 'city=...,loc:0;'\
+  //                                    'path=a:1,b:_0,terminal:1'
+  const _rubyConsts = {};
+  {
+    const cr = /\b([A-Z][A-Z0-9_]+)\s*=\s*('(?:[^'\\]|\\.)*'(?:\s*\\\s*\n[ \t]*'(?:[^'\\]|\\.)*')*)/g;
+    let cm;
+    while ((cm = cr.exec(content)) !== null) {
+      const frags = cm[2].match(/'([^']*)'/g);
+      if (frags) _rubyConsts[cm[1]] = frags.map(f => f.slice(1, -1)).join('');
+    }
+  }
+
+  // ── Method-local variable arrays (populated above during method-form extraction)
+  // _localVars is keyed by Ruby variable name → array of coord strings.
+
+  // ── Pre-process hexesText: join Ruby string continuation lines ──────────────
+  // 'str1'\       →  'str1str2'
+  //         'str2'
+  hexesText = hexesText.replace(/'\s*\\\s*\n[ \t]*'/g, '');
+
   const hexEntries = {}; // coord → { color, code, parsed }
 
-  const colorsToImport = ['white', 'yellow', 'green', 'gray', 'red', 'blue'];
+  const colorsToImport = ['white', 'yellow', 'green', 'gray', 'red', 'brown', 'blue'];
 
   for (const color of colorsToImport) {
     const block = extractColorBlock(hexesText, color);
     if (!block) continue;
 
-    // Match both %w[A1 B2 C3] => 'code' and ['A1'] => 'code'
-    const pairRe = /(?:%w\[([^\]]+)\]|\['([^']+)'\])\s*=>\s*'([^']*)'/g;
+    // Match hex entries with any combination of:
+    //   Key:   %w[coord1 coord2]  |  ['coord']  |  local_variable (e.g. one_town)
+    //   Value: 'inline DSL code'  |  CONSTANT_NAME (e.g. TOWN, MINE_2)
+    const pairRe = /(?:%w\[([^\]]+)\]|\['([^']+)'\]|([a-z][a-z0-9_]*))\s*=>\s*(?:'([^']*)'|([A-Z][A-Z0-9_]*))/g;
     let pm;
     while ((pm = pairRe.exec(block)) !== null) {
-      const hexStr  = (pm[1] || pm[2]).trim();
-      const hexList = hexStr.split(/\s+/);
-      const code    = pm[3];
-      for (const coord of hexList) {
+      // Resolve key → list of coord strings
+      let coordList;
+      if      (pm[1]) { coordList = pm[1].trim().split(/\s+/); }
+      else if (pm[2]) { coordList = [pm[2]]; }
+      else if (pm[3]) { coordList = _localVars[pm[3]]; if (!coordList?.length) continue; }
+      // Resolve value → DSL code string
+      const code = pm[4] !== undefined ? pm[4] : (_rubyConsts[pm[5]] || '');
+      for (const coord of coordList) {
         hexEntries[coord] = { color, code };
       }
     }
@@ -654,20 +693,23 @@ function importRubyMap(content) {
 
   // ── Grid bounds ─────────────────────────────────────────────────────────
   console.log(`[importRubyMap] hexEntries=${Object.keys(hexEntries).length} locationNames=${Object.keys(locationNames).length}`);
-  let maxRow = 0, maxCol = 0, skippedCoords = 0;
+  let maxRow = 0, maxCol = 0, minRow = 0, minCol = 0, skippedCoords = 0;
   const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 
   // Helper: parse a Ruby hex coord string into {letterIdx, numPart}.
-  // Handles single-letter (A-Z) and double-letter (AA-ZZ) prefixes.
-  // letterIdx: A=0, B=1, …, Z=25, AA=26, AB=27, …
+  // Handles single-letter (A-Z / a-z) and double-letter (AA-AZ) prefixes.
+  // letterIdx: A=0, B=1, …, Z=25, AA=26, …, AZ=51 (tobymao LETTERS)
+  //            a=-1, b=-2, … (tobymao NEGATIVE_LETTERS — used by 1849 "a12"-style coords)
   function parseCoordParts(coord) {
-    const m = coord.match(/^([A-Z]{1,2})(\d{1,3})$/);
+    const m = coord.match(/^([A-Za-z]{1,2})(\d{1,3})$/);
     if (!m) return null;
     const lp = m[1], np = parseInt(m[2]);
-    const li = lp.length === 1
-      ? lp.charCodeAt(0) - 65
-      : 26 * (lp.charCodeAt(0) - 64) + (lp.charCodeAt(1) - 65);
+    const li = (lp.length === 1 && lp >= 'a')
+      ? -(lp.charCodeAt(0) - 96)           // 'a'→-1, 'b'→-2, …
+      : lp.length === 1
+        ? lp.charCodeAt(0) - 65
+        : 26 * (lp.charCodeAt(0) - 64) + (lp.charCodeAt(1) - 65);
     return { letterIdx: li, numPart: np };
   }
 
@@ -754,16 +796,22 @@ function importRubyMap(content) {
   //   apply  (col + sp) % 2 === 0  instead of  col % 2 === 0.
   //   This corrects the visual layout without touching any other code.
   function coordToGrid(coord) {
-    // Support single-letter (A-Z) and double-letter (AA-AZ, BA-BZ …) prefixes.
-    const coordMatch = coord.match(/^([A-Z]{1,2})(\d{1,3})$/);
+    // Support single-letter (A-Z / a-z) and double-letter (AA-AZ) prefixes.
+    // Lowercase single letters encode negative indices (tobymao NEGATIVE_LETTERS):
+    //   a=-1, b=-2, …  Used by 1849 "a12"-style coords.
+    const coordMatch = coord.match(/^([A-Za-z]{1,2})(\d{1,3})$/);
     if (!coordMatch) return null;
     const letterPart = coordMatch[1];
     const numPart    = parseInt(coordMatch[2]);
 
-    // Convert letter prefix to 0-based index: A=0, B=1, …, Z=25, AA=26, AB=27 …
-    const letterIdx = letterPart.length === 1
-      ? letterPart.charCodeAt(0) - 65
-      : 26 * (letterPart.charCodeAt(0) - 64) + (letterPart.charCodeAt(1) - 65);
+    // Convert letter prefix to index (same formula as parseCoordParts):
+    //   uppercase: A=0, B=1, …, Z=25, AA=26, …
+    //   lowercase: a=-1, b=-2, … (negative)
+    const letterIdx = (letterPart.length === 1 && letterPart >= 'a')
+      ? -(letterPart.charCodeAt(0) - 96)
+      : letterPart.length === 1
+        ? letterPart.charCodeAt(0) - 65
+        : 26 * (letterPart.charCodeAt(0) - 64) + (letterPart.charCodeAt(1) - 65);
 
     let col, row;
     if (transposedAxes && orientation !== 'pointy') {
@@ -800,7 +848,7 @@ function importRubyMap(content) {
           : (coordRow - 2) / 2;
       }
     }
-    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) return null;
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
     return { col, row };
   }
 
@@ -809,9 +857,24 @@ function importRubyMap(content) {
     if (!g) { skippedCoords++; continue; }
     maxRow = Math.max(maxRow, g.row + 1);
     maxCol = Math.max(maxCol, g.col + 1);
+    minRow = Math.min(minRow, g.row);
+    minCol = Math.min(minCol, g.col);
     maxRowPerCol[g.col] = Math.max(maxRowPerCol[g.col] || 0, g.row + 1);
   }
-  console.log(`[importRubyMap] bounds → maxRow=${maxRow} maxCol=${maxCol} skipped=${skippedCoords}`);
+  // Apply offset for any coords with negative row/col (e.g. 1861 "P0" → row=-1,
+  // 1849 "a12" → col=-1).  Shift the whole grid so minimum row/col is 0.
+  const rowOff = -minRow, colOff = -minCol;
+  if (rowOff > 0 || colOff > 0) {
+    maxRow += rowOff;
+    maxCol += colOff;
+    // Rebuild maxRowPerCol with adjusted column keys and row values
+    const rawMRPC = { ...maxRowPerCol };
+    for (const k of Object.keys(maxRowPerCol)) delete maxRowPerCol[k];
+    for (const [c, v] of Object.entries(rawMRPC)) {
+      maxRowPerCol[+c + colOff] = +v + rowOff;
+    }
+  }
+  console.log(`[importRubyMap] bounds → maxRow=${maxRow} maxCol=${maxCol} rowOff=${rowOff} colOff=${colOff} skipped=${skippedCoords}`);
 
   // ── Build state.hexes ────────────────────────────────────────────────────
   const newHexes = {};
@@ -819,7 +882,7 @@ function importRubyMap(content) {
   for (const [coord, { color, code }] of Object.entries(hexEntries)) {
     const g = coordToGrid(coord);
     if (!g) { console.warn(`[importRubyMap] skipping ${coord} (non-integer grid)`); continue; }
-    const key  = hexId(g.row, g.col);
+    const key  = hexId(g.row + rowOff, g.col + colOff);
     const name = locationNames[coord] || '';
 
     // ── Blue ocean: no content → plain blue hex (not killed) ────────────────
