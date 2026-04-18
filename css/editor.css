@@ -79,6 +79,10 @@
 [data-theme="light"] .erase-btn:hover { background: var(--danger-hover); }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* Prevent horizontal body scroll. All scrollable areas (right-panel, lsections)
+   manage their own overflow. Without this, iOS Safari treats position:fixed
+   with right: values as document-relative instead of viewport-relative.      */
+html, body { overflow: hidden; height: 100%; }
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-base); color: var(--text-primary); }
 button, input, select, textarea { font-family: inherit; color: inherit; background: inherit; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
 button:hover { background: #333; }
@@ -3391,12 +3395,13 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(40,40,40,0.88);
+  background: rgba(40,40,40,0.96);  /* slightly more opaque: no blur to compensate */
   border: 1px solid #3a3a3a;
   color: #888;
   cursor: pointer;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  /* backdrop-filter intentionally omitted — on Safari, backdrop-filter on a
+     position:fixed element causes it to scroll with the document instead of
+     staying viewport-anchored (WebKit bug). Use a solid background instead. */
   touch-action: manipulation;
 }
 .panel-toggle-btn:hover {
@@ -3443,7 +3448,7 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
 }
 
 [data-theme="light"] .panel-toggle-btn {
-  background: rgba(225,225,225,0.92);
+  background: rgba(225,225,225,0.98);  /* solid: no backdrop-filter */
   border-color: #bbb;
   color: #999;
 }
