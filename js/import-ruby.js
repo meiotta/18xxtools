@@ -759,7 +759,7 @@ function importRubyMap(content) {
     state.meta.orientation          = orientation;
     state.meta.coordParity          = coordParity;
     state.meta.pointyStaggerParity  = pointyStaggerParity;
-    state.meta.staggerParity        = transposedAxes ? 1 : 0;
+    state.meta.staggerParity        = transposedAxes ? 1 : coordParity;
   }
 
   // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
