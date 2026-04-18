@@ -3453,6 +3453,24 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   color: #444;
 }
 
+/* ── Narrow mobile: hide toolbar title so all buttons fit without scrolling ─ */
+/* At 375–480px width, "18xx Game Designer" (flex:1, ~162px) eats enough room  */
+/* to push File/☀️/Help off-screen. The nav-rail icons already identify the    */
+/* app, so the text is redundant. baseGameLabel is capped so long game names   */
+/* can't overflow either.                                                       */
+@media (max-width: 480px) {
+  .toolbar h1 {
+    display: none;
+  }
+  #baseGameLabel {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 1;
+  }
+}
+
 /* ── Landscape mobile: nav-rail shrinks to icons only ────────────────────── */
 /* Targets phones in landscape (height ≤500px); tablets (iPad ≥768px tall)    */
 /* are not affected. Nav-rail goes from 72px → 52px; text labels are hidden.  */
