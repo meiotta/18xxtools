@@ -897,3 +897,552 @@ document.getElementById('addPrivateBtn').addEventListener('click', () => {
   renderPrivatesSection();
   autosave();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CORPORATION PACK SYSTEM
+// Pack = shared defaults for a group of corporations (e.g. all Majors).
+// Individual companies inherit pack values but can override specific fields.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const CORP_TYPES = [
+  { value: 'major',    label: 'Major' },
+  { value: 'minor',    label: 'Minor' },
+  { value: 'coal',     label: 'Coal' },
+  { value: 'national', label: 'National' },
+  { value: 'system',   label: 'System' },
+  { value: 'public',   label: 'Public' },
+  { value: 'custom',   label: 'Custom' },
+];
+
+// Smart defaults per type — derived from the 14-game research sample
+const CORP_TYPE_DEFAULTS = {
+  major:    { floatPct: 60,  maxOwnershipPct: 60,  capitalization: 'full',        alwaysMarketPrice: false, shares: [20,10,10,10,10,10,10,10,10], tokens: [0,40,100] },
+  minor:    { floatPct: 100, maxOwnershipPct: 100, capitalization: 'incremental', alwaysMarketPrice: true,  shares: [100],                         tokens: [0] },
+  coal:     { floatPct: 100, maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: true,  shares: [100],                         tokens: [0] },
+  national: { floatPct: 0,   maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: true,  shares: [10,10,10,10,10,10,10,10,10,10], tokens: [] },
+  system:   { floatPct: 20,  maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: true,  shares: [20,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5], tokens: [0,20,20,20] },
+  public:   { floatPct: 20,  maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: true,  shares: [20,10,10,10,10,10,10,10,10], tokens: [0,20,20,20] },
+  custom:   { floatPct: 60,  maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: false, shares: [10,10,10,10,10,10,10,10,10,10], tokens: [0,40] },
+};
+
+// ── Selection state ───────────────────────────────────────────────────────────
+let _selectedPackIdx   = null;  // index into state.corpPacks
+let _selectedCompanyId = null;  // company.id (null = pack settings selected)
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function _cpRandId(prefix) {
+  return prefix + '_' + Math.random().toString(36).substr(2, 7);
+}
+
+function _packDefaults(type) {
+  return Object.assign({}, CORP_TYPE_DEFAULTS[type] || CORP_TYPE_DEFAULTS.custom);
+}
+
+// Returns company field value: override if set, else pack default
+function _effective(pack, company, field) {
+  const ov = company[field + 'Override'];
+  return (ov !== undefined && ov !== null) ? ov : pack[field];
+}
+
+// Find a company across all packs by id
+function _findCompany(id) {
+  for (let pi = 0; pi < state.corpPacks.length; pi++) {
+    const pack = state.corpPacks[pi];
+    const ci = (pack.companies || []).findIndex(c => c.id === id);
+    if (ci !== -1) return { pack, pi, company: pack.companies[ci], ci };
+  }
+  return null;
+}
+
+// ── Token editor HTML ─────────────────────────────────────────────────────────
+function _buildTokenEditorHTML(tokens, prefix) {
+  const chips = (tokens || []).map((cost, ti) =>
+    `<span class="cp-token-chip">
+      $<input type="number" class="cp-token-cost" data-prefix="${prefix}" data-ti="${ti}" value="${cost}" min="0">
+      <button class="cp-token-rm" data-prefix="${prefix}" data-ti="${ti}" title="Remove slot">×</button>
+    </span>`
+  ).join('');
+  return `<div class="cp-token-row" data-prefix="${prefix}">
+    ${chips}
+    <button class="cp-token-add" data-prefix="${prefix}" title="Add token slot">+ slot</button>
+  </div>`;
+}
+
+// ── Share template editor HTML ────────────────────────────────────────────────
+function _buildShareEditorHTML(shares, prefix) {
+  const total = (shares || []).reduce((a, b) => a + b, 0);
+  const chips = (shares || []).map((pct, si) =>
+    `<input type="number" class="cp-share-input" data-prefix="${prefix}" data-si="${si}" value="${pct}" min="1" max="100" title="Share ${si + 1}">`
+  ).join('');
+  return `<div class="cp-share-row" data-prefix="${prefix}">
+    ${chips}
+    <button class="cp-share-add" data-prefix="${prefix}" title="Add share">+</button>
+    <span class="cp-share-total ${total === 100 ? 'cp-share-ok' : 'cp-share-warn'}">${total}%</span>
+  </div>`;
+}
+
+// ── Wire token/share editors inside a container el ────────────────────────────
+function _wireTokenEditor(el, getTokens, setTokens, rerender) {
+  el.querySelectorAll('.cp-token-cost').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const ti = parseInt(inp.dataset.ti);
+      const arr = getTokens().slice();
+      arr[ti] = parseInt(inp.value) || 0;
+      setTokens(arr);
+      autosave();
+    });
+  });
+  el.querySelectorAll('.cp-token-rm').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ti = parseInt(btn.dataset.ti);
+      const arr = getTokens().slice();
+      arr.splice(ti, 1);
+      setTokens(arr);
+      autosave();
+      rerender();
+    });
+  });
+  el.querySelectorAll('.cp-token-add').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const arr = getTokens().slice();
+      arr.push(arr.length === 0 ? 0 : 40);
+      setTokens(arr);
+      autosave();
+      rerender();
+    });
+  });
+}
+
+function _wireShareEditor(el, getShares, setShares, rerender) {
+  el.querySelectorAll('.cp-share-input').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const si = parseInt(inp.dataset.si);
+      const arr = getShares().slice();
+      arr[si] = parseInt(inp.value) || 0;
+      setShares(arr);
+      autosave();
+      // update total display live
+      const total = arr.reduce((a, b) => a + b, 0);
+      const tot = inp.closest('.cp-share-row').querySelector('.cp-share-total');
+      if (tot) { tot.textContent = total + '%'; tot.className = 'cp-share-total ' + (total === 100 ? 'cp-share-ok' : 'cp-share-warn'); }
+    });
+  });
+  el.querySelectorAll('.cp-share-add').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const arr = getShares().slice();
+      arr.push(10);
+      setShares(arr);
+      autosave();
+      rerender();
+    });
+  });
+}
+
+// ── Main render entry point ───────────────────────────────────────────────────
+function renderCorpsSection() {
+  const wrap = document.getElementById('corpCorpsSection');
+  if (!wrap) return;
+  if (!state.corpPacks) state.corpPacks = [];
+
+  // Clamp selection
+  if (_selectedPackIdx !== null && _selectedPackIdx >= state.corpPacks.length) {
+    _selectedPackIdx = state.corpPacks.length ? state.corpPacks.length - 1 : null;
+    _selectedCompanyId = null;
+  }
+
+  wrap.innerHTML = '';
+
+  // ── Left rail ─────────────────────────────────────────────────────────────
+  const rail = document.createElement('div');
+  rail.className = 'cp-rail';
+
+  if (!state.corpPacks.length) {
+    rail.innerHTML = `<div class="cp-rail-empty">No packs yet.<br>Click + New Pack to start.</div>`;
+  }
+
+  state.corpPacks.forEach((pack, pi) => {
+    const isPackSelected = (pi === _selectedPackIdx && _selectedCompanyId === null);
+    const collapsed = pack._collapsed || false;
+
+    const packHd = document.createElement('div');
+    packHd.className = 'cp-pack-header' + (isPackSelected ? ' active' : '');
+    packHd.innerHTML = `
+      <span class="cp-pack-collapse">${collapsed ? '▶' : '▼'}</span>
+      <span class="cp-pack-type-badge">${(pack.type || 'custom').toUpperCase().slice(0,3)}</span>
+      <span class="cp-pack-label">${escHtml(pack.label || 'Unnamed Pack')}</span>
+      <span class="cp-pack-count">${(pack.companies || []).length}</span>`;
+    packHd.addEventListener('click', () => {
+      _selectedPackIdx   = pi;
+      _selectedCompanyId = null;
+      renderCorpsSection();
+    });
+    packHd.querySelector('.cp-pack-collapse').addEventListener('click', e => {
+      e.stopPropagation();
+      pack._collapsed = !pack._collapsed;
+      renderCorpsSection();
+    });
+    rail.appendChild(packHd);
+
+    if (!collapsed) {
+      (pack.companies || []).forEach((co, ci) => {
+        const isCoSelected = co.id === _selectedCompanyId;
+        const item = document.createElement('div');
+        item.className = 'cp-rail-item' + (isCoSelected ? ' active' : '');
+        const dotColor = co.color || '#666';
+        item.innerHTML = `
+          <span class="cp-rail-dot" style="background:${dotColor};"></span>
+          <span class="cp-rail-sym">${escHtml(co.sym || '?')}</span>
+          <span class="cp-rail-name">${escHtml(co.name || 'Unnamed')}</span>`;
+        item.addEventListener('click', () => {
+          _selectedPackIdx   = pi;
+          _selectedCompanyId = co.id;
+          renderCorpsSection();
+        });
+        rail.appendChild(item);
+      });
+
+      // Add company button inside pack
+      const addCoBtn = document.createElement('button');
+      addCoBtn.className = 'cp-add-company-btn';
+      addCoBtn.textContent = '+ Add Company';
+      addCoBtn.addEventListener('click', () => {
+        const newCo = { id: _cpRandId('co'), sym: '', name: '', color: '#336699', textColor: '#ffffff', logo: '', coordinates: '', city: '', abilities: [] };
+        if (!pack.companies) pack.companies = [];
+        pack.companies.push(newCo);
+        _selectedPackIdx   = pi;
+        _selectedCompanyId = newCo.id;
+        autosave();
+        renderCorpsSection();
+      });
+      rail.appendChild(addCoBtn);
+    }
+  });
+
+  wrap.appendChild(rail);
+
+  // ── Right detail panel ────────────────────────────────────────────────────
+  const detail = document.createElement('div');
+  detail.className = 'cp-detail-wrap';
+
+  if (_selectedPackIdx === null) {
+    detail.innerHTML = `<div class="pc-detail-empty">
+      <span>Select a pack or company from the list</span>
+      <span class="pc-detail-empty-sub">or click + New Pack to create one</span>
+    </div>`;
+  } else if (_selectedCompanyId === null) {
+    detail.appendChild(_buildPackDetailEl(_selectedPackIdx));
+  } else {
+    const found = _findCompany(_selectedCompanyId);
+    if (found) detail.appendChild(_buildCompanyDetailEl(found.pi, found.ci));
+  }
+
+  wrap.appendChild(detail);
+}
+
+// ── Pack settings detail panel ────────────────────────────────────────────────
+function _buildPackDetailEl(pi) {
+  const pack = state.corpPacks[pi];
+  const el   = document.createElement('div');
+  el.className = 'cp-pack-editor';
+
+  const typeOpts = CORP_TYPES.map(t =>
+    `<option value="${t.value}"${pack.type === t.value ? ' selected' : ''}>${t.label}</option>`
+  ).join('');
+  const capOpts = ['full','incremental'].map(v =>
+    `<option value="${v}"${pack.capitalization === v ? ' selected' : ''}>${v.charAt(0).toUpperCase() + v.slice(1)}</option>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="cp-pack-det-header">
+      <input type="text" class="cp-pack-name-input" placeholder="Pack label…" value="${escHtml(pack.label || '')}">
+      <button class="cp-pack-delete" title="Delete this pack">Delete Pack</button>
+    </div>
+
+    <div class="cp-det-section">
+      <div class="cp-det-section-title">Pack Defaults</div>
+      <div class="cp-pack-fields">
+        <div class="cp-pack-field-row">
+          <label class="cp-pack-field-label">Type</label>
+          <select class="cp-pack-type-sel">${typeOpts}</select>
+        </div>
+        <div class="cp-pack-field-row">
+          <label class="cp-pack-field-label">Float %</label>
+          <input type="number" class="cp-pack-float" value="${pack.floatPct || 60}" min="0" max="100">
+        </div>
+        <div class="cp-pack-field-row">
+          <label class="cp-pack-field-label">Max ownership %</label>
+          <input type="number" class="cp-pack-maxown" value="${pack.maxOwnershipPct || 100}" min="0" max="100">
+        </div>
+        <div class="cp-pack-field-row">
+          <label class="cp-pack-field-label">Capitalization</label>
+          <select class="cp-pack-cap">${capOpts}</select>
+        </div>
+        <div class="cp-pack-field-row">
+          <label class="cp-pack-field-label">Always market price</label>
+          <input type="checkbox" class="cp-pack-amp"${pack.alwaysMarketPrice ? ' checked' : ''}>
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-det-section">
+      <div class="cp-det-section-title">Share structure <span class="cp-det-hint">(template for all companies in this pack)</span></div>
+      ${_buildShareEditorHTML(pack.shares, 'pack_sh')}
+    </div>
+
+    <div class="cp-det-section">
+      <div class="cp-det-section-title">Token slots <span class="cp-det-hint">(cost to place each station token)</span></div>
+      ${_buildTokenEditorHTML(pack.tokens, 'pack_tk')}
+    </div>
+  `;
+
+  // ── Listeners ──────────────────────────────────────────────────────────────
+  el.querySelector('.cp-pack-name-input').addEventListener('change', e => {
+    pack.label = e.target.value; autosave();
+    // Update rail label live
+    const railLabel = document.querySelector(`.cp-pack-header:nth-of-type(${pi + 1}) .cp-pack-label`);
+    if (railLabel) railLabel.textContent = pack.label || 'Unnamed Pack';
+  });
+  el.querySelector('.cp-pack-type-sel').addEventListener('change', e => {
+    pack.type = e.target.value;
+    // Apply smart defaults for the new type
+    const defs = _packDefaults(e.target.value);
+    Object.assign(pack, defs);
+    autosave(); renderCorpsSection();
+  });
+  el.querySelector('.cp-pack-float').addEventListener('change',  e => { pack.floatPct         = parseInt(e.target.value) || 60;  autosave(); });
+  el.querySelector('.cp-pack-maxown').addEventListener('change', e => { pack.maxOwnershipPct   = parseInt(e.target.value) || 100; autosave(); });
+  el.querySelector('.cp-pack-cap').addEventListener('change',    e => { pack.capitalization    = e.target.value;                  autosave(); });
+  el.querySelector('.cp-pack-amp').addEventListener('change',    e => { pack.alwaysMarketPrice = e.target.checked;                autosave(); });
+
+  el.querySelector('.cp-pack-delete').addEventListener('click', () => {
+    if (!confirm(`Delete pack "${pack.label || 'Unnamed'}" and all its companies?`)) return;
+    state.corpPacks.splice(pi, 1);
+    _selectedPackIdx   = state.corpPacks.length ? Math.min(pi, state.corpPacks.length - 1) : null;
+    _selectedCompanyId = null;
+    autosave(); renderCorpsSection();
+  });
+
+  _wireTokenEditor(el,
+    () => pack.tokens,
+    arr => { pack.tokens = arr; },
+    () => { autosave(); renderCorpsSection(); }
+  );
+  _wireShareEditor(el,
+    () => pack.shares,
+    arr => { pack.shares = arr; },
+    () => { autosave(); renderCorpsSection(); }
+  );
+
+  return el;
+}
+
+// ── Company detail panel ──────────────────────────────────────────────────────
+function _buildCompanyDetailEl(pi, ci) {
+  const pack    = state.corpPacks[pi];
+  const company = pack.companies[ci];
+  const el      = document.createElement('div');
+  el.className  = 'cp-company-editor';
+
+  // Effective (inherited or overridden) values shown in inherit fields
+  const effTokens  = _effective(pack, company, 'tokens');
+  const effFloat   = _effective(pack, company, 'floatPct');
+  const effMaxOwn  = _effective(pack, company, 'maxOwnershipPct');
+  const hasTokenOv = company.tokensOverride !== undefined && company.tokensOverride !== null;
+  const hasFloatOv = company.floatPctOverride !== undefined && company.floatPctOverride !== null;
+
+  if (!company.abilities) company.abilities = [];
+  const abCount = company.abilities.length;
+
+  el.innerHTML = `
+    <div class="cp-company-band" style="background:${company.color || '#336699'};">
+      <span class="cp-co-sym">${escHtml(company.sym || '?')}</span>
+      <input type="text" class="cp-co-sym-input" maxlength="5" placeholder="SYM" value="${escHtml(company.sym || '')}" title="Symbol">
+    </div>
+
+    <div class="cp-co-header">
+      <input type="text" class="cp-co-name" placeholder="Corporation name" value="${escHtml(company.name || '')}">
+      <button class="cp-co-delete">Delete</button>
+    </div>
+
+    <div class="cp-det-section cp-co-identity">
+      <div class="cp-det-section-title">Identity</div>
+      <div class="cp-co-fields">
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Charter color</label>
+          <input type="color" class="cp-co-color" value="${company.color || '#336699'}">
+          <label class="cp-co-field-label" style="margin-left:12px;">Text color</label>
+          <input type="color" class="cp-co-textcolor" value="${company.textColor || '#ffffff'}">
+        </div>
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Home hex</label>
+          <input type="text" class="cp-co-coords" placeholder="e.g. D12" value="${escHtml(company.coordinates || '')}">
+          <label class="cp-co-field-label" style="margin-left:12px;">City slot</label>
+          <input type="number" class="cp-co-city" min="0" max="5" value="${company.city !== '' ? (company.city || 0) : ''}" placeholder="0">
+        </div>
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Logo path</label>
+          <input type="text" class="cp-co-logo" placeholder="e.g. 1882/NYC" value="${escHtml(company.logo || '')}">
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-det-section">
+      <div class="cp-det-section-title">Overrides <span class="cp-det-hint">(leave blank to inherit from pack)</span></div>
+      <div class="cp-co-fields">
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Float %</label>
+          ${hasFloatOv
+            ? `<input type="number" class="cp-co-float-ov" value="${company.floatPctOverride}" min="0" max="100"> <button class="cp-co-reset-float cp-reset-btn" title="Reset to pack default (${effFloat}%)">↩ ${effFloat}%</button>`
+            : `<span class="cp-inherit-val">${effFloat}%</span><button class="cp-co-override-float cp-override-btn">Override</button>`
+          }
+        </div>
+        <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Token slots</label>
+          ${hasTokenOv
+            ? `${_buildTokenEditorHTML(company.tokensOverride, 'co_tk')} <button class="cp-co-reset-tokens cp-reset-btn" title="Reset to pack default">↩ pack</button>`
+            : `<span class="cp-inherit-val">${(effTokens || []).map((c,i) => '$'+c).join(', ') || '(none)'}</span><button class="cp-co-override-tokens cp-override-btn">Override</button>`
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-det-section">
+      <div class="cp-det-section-hd">
+        <span class="cp-det-section-title">Abilities${abCount ? ` <span class="pc-ab-badge">${abCount}</span>` : ''}</span>
+      </div>
+      <div class="cp-ability-list cp-det-ability-list"></div>
+      <div class="pc-add-ability-bar">
+        <button class="pc-add-ability-btn">+ Add ability</button>
+        <div class="pc-ability-picker" style="display:none;">${buildAbilityPickerHTML()}</div>
+      </div>
+    </div>
+  `;
+
+  // Render ability chips (reuse privates system)
+  el.querySelector('.cp-det-ability-list').innerHTML = buildAbilitiesListHTML(company, ci);
+
+  // ── field listeners ────────────────────────────────────────────────────────
+  el.querySelector('.cp-co-sym-input').addEventListener('change', e => {
+    company.sym = e.target.value.toUpperCase();
+    el.querySelector('.cp-co-sym').textContent = company.sym || '?';
+    autosave();
+    // update rail
+    const railSym = document.querySelector(`.cp-rail-item.active .cp-rail-sym`);
+    if (railSym) railSym.textContent = company.sym || '?';
+  });
+  el.querySelector('.cp-co-name').addEventListener('change', e => {
+    company.name = e.target.value; autosave();
+    const railName = document.querySelector('.cp-rail-item.active .cp-rail-name');
+    if (railName) railName.textContent = company.name || 'Unnamed';
+  });
+  el.querySelector('.cp-co-color').addEventListener('change', e => {
+    company.color = e.target.value;
+    el.querySelector('.cp-company-band').style.background = company.color;
+    const railDot = document.querySelector('.cp-rail-item.active .cp-rail-dot');
+    if (railDot) railDot.style.background = company.color;
+    autosave();
+  });
+  el.querySelector('.cp-co-textcolor').addEventListener('change', e => { company.textColor    = e.target.value;                 autosave(); });
+  el.querySelector('.cp-co-coords').addEventListener('change',    e => { company.coordinates  = e.target.value;                 autosave(); });
+  el.querySelector('.cp-co-city').addEventListener('change',      e => { company.city         = parseInt(e.target.value) || 0;  autosave(); });
+  el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });
+
+  el.querySelector('.cp-co-delete').addEventListener('click', () => {
+    pack.companies.splice(ci, 1);
+    _selectedCompanyId = pack.companies.length ? pack.companies[Math.max(0, ci - 1)].id : null;
+    autosave(); renderCorpsSection();
+  });
+
+  // Override / reset listeners
+  const ovFloatBtn = el.querySelector('.cp-co-override-float');
+  if (ovFloatBtn) ovFloatBtn.addEventListener('click', () => {
+    company.floatPctOverride = pack.floatPct; autosave(); renderCorpsSection();
+  });
+  const rstFloatBtn = el.querySelector('.cp-co-reset-float');
+  if (rstFloatBtn) rstFloatBtn.addEventListener('click', () => {
+    delete company.floatPctOverride; autosave(); renderCorpsSection();
+  });
+  const floatOvInp = el.querySelector('.cp-co-float-ov');
+  if (floatOvInp) floatOvInp.addEventListener('change', e => {
+    company.floatPctOverride = parseInt(e.target.value) || 0; autosave();
+  });
+
+  const ovTkBtn = el.querySelector('.cp-co-override-tokens');
+  if (ovTkBtn) ovTkBtn.addEventListener('click', () => {
+    company.tokensOverride = (pack.tokens || []).slice(); autosave(); renderCorpsSection();
+  });
+  const rstTkBtn = el.querySelector('.cp-co-reset-tokens');
+  if (rstTkBtn) rstTkBtn.addEventListener('click', () => {
+    delete company.tokensOverride; autosave(); renderCorpsSection();
+  });
+  if (hasTokenOv) {
+    _wireTokenEditor(el,
+      () => company.tokensOverride,
+      arr => { company.tokensOverride = arr; },
+      () => { autosave(); renderCorpsSection(); }
+    );
+  }
+
+  // ── Ability system (reuse privates ability picker) ─────────────────────────
+  el.querySelectorAll('.pc-ab-f').forEach(field => {
+    const ai = parseInt(field.dataset.ai), key = field.dataset.key;
+    const ability = company.abilities[ai];
+    if (!ability) return;
+    const fDef = (ABILITY_DEFS[ability.type] && ABILITY_DEFS[ability.type].fields || []).find(f => f.key === key);
+    field.addEventListener('change', () => {
+      let val = field.value;
+      if (field.type === 'checkbox')           val = field.checked;
+      else if (fDef && fDef.type === 'number') val = parseFloat(val) || 0;
+      else if (fDef && fDef.type === 'tags')   val = val.split(',').map(s => s.trim()).filter(Boolean);
+      company.abilities[ai][key] = val;
+      autosave();
+    });
+  });
+
+  el.querySelectorAll('.pc-ability-rm').forEach(btn => {
+    btn.addEventListener('click', () => {
+      company.abilities.splice(parseInt(btn.dataset.ai), 1);
+      autosave(); renderCorpsSection();
+    });
+  });
+
+  const addAbBtn = el.querySelector('.pc-add-ability-btn');
+  const picker   = el.querySelector('.pc-ability-picker');
+  if (addAbBtn && picker) {
+    addAbBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const showing = picker.style.display !== 'none';
+      picker.style.display = showing ? 'none' : 'block';
+      addAbBtn.classList.toggle('active', !showing);
+    });
+    picker.addEventListener('click', e => e.stopPropagation());
+    document.addEventListener('click', function closePicker() {
+      picker.style.display = 'none'; addAbBtn.classList.remove('active');
+    }, { once: true });
+    el.querySelectorAll('.pc-pick-type').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const type = btn.dataset.type, def = ABILITY_DEFS[type];
+        if (!def) return;
+        const newAb = { type };
+        def.fields.forEach(f => { newAb[f.key] = f.type === 'tags' ? [] : (f.default !== undefined ? f.default : ''); });
+        company.abilities.push(newAb);
+        autosave(); renderCorpsSection();
+      });
+    });
+  }
+
+  return el;
+}
+
+// ── + New Pack button ─────────────────────────────────────────────────────────
+document.getElementById('addPackBtn').addEventListener('click', () => {
+  const type = 'major';
+  const defs = _packDefaults(type);
+  const newPack = Object.assign({ id: _cpRandId('pk'), label: 'New Pack', type, companies: [] }, defs);
+  state.corpPacks.push(newPack);
+  _selectedPackIdx   = state.corpPacks.length - 1;
+  _selectedCompanyId = null;
+  autosave();
+  renderCorpsSection();
+});

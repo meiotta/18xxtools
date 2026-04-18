@@ -406,36 +406,24 @@
         <span class="fullview-title">Companies</span>
         <div class="corp-tab-bar">
           <button class="corp-tab-btn active" data-corp-tab="privates">Privates</button>
-          <button class="corp-tab-btn" data-corp-tab="minors">Minors</button>
-          <button class="corp-tab-btn" data-corp-tab="majors">Majors</button>
+          <button class="corp-tab-btn" data-corp-tab="corps">Corporations</button>
         </div>
         <div style="flex:1;"></div>
         <button id="addPrivateBtn" class="corp-add-btn" data-add-for="privates">+ Add Private</button>
-        <button id="addMinorBtn"   class="corp-add-btn" data-add-for="minors"   style="display:none;">+ Add Minor</button>
-        <button id="addCompanyBtn" class="corp-add-btn" data-add-for="majors"   style="display:none;">+ Add Major</button>
+        <button id="addPackBtn"    class="corp-add-btn" data-add-for="corps" style="display:none;">+ New Pack</button>
+        <!-- hidden stubs kept for JS compat -->
+        <button id="addMinorBtn"   style="display:none;"></button>
+        <button id="addCompanyBtn" style="display:none;"></button>
       </div>
 
-      <!-- content area — privates is full-bleed master-detail; minors/majors are padded tables -->
+      <!-- content area -->
       <div id="corpContentWrap" style="flex:1; display:flex; flex-direction:column; overflow:hidden; background:var(--bg-base);">
 
-        <!-- Privates: master-detail (JS renders rail + editor into here) -->
+        <!-- Privates: master-detail -->
         <div id="corpPrivatesSection" style="flex:1; display:flex; overflow:hidden;"></div>
 
-        <!-- Minors table -->
-        <div id="corpMinorsSection" style="display:none; flex:1; overflow:auto; padding:24px 28px;">
-          <table class="card-table fullview-table">
-            <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Mechanism</th><th>Tokens</th><th style="width:36px;"></th></tr></thead>
-            <tbody id="minorsTableBody"></tbody>
-          </table>
-        </div>
-
-        <!-- Majors table -->
-        <div id="corpMajorsSection" style="display:none; flex:1; overflow:auto; padding:24px 28px;">
-          <table class="card-table fullview-table">
-            <thead><tr><th>Color</th><th>Name</th><th>Abbr</th><th>Home</th><th>Par</th><th>Tokens</th><th>Float %</th><th style="width:36px;"></th></tr></thead>
-            <tbody id="companiesTableBody"></tbody>
-          </table>
-        </div>
+        <!-- Corporations: pack master-detail (JS renders into here) -->
+        <div id="corpCorpsSection" style="display:none; flex:1; display:flex; overflow:hidden;"></div>
 
       </div>
     </div>

@@ -43,6 +43,7 @@ const state = {
   enabledPacks: null,
   companies: [],
   minors: [],
+  corpPacks: [],
   trains: [],
   phases: [],
   privates: [],

@@ -1641,6 +1641,288 @@ canvas { display: block; }
 .pc-strip-empty { font-size: 11px; color: var(--text-muted); font-style: italic; }
 .pc-strip-never { font-size: 12px; color: var(--text-muted); }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CORPORATION PACK SYSTEM
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Outer layout — same flex pattern as privates */
+#corpCorpsSection { display: flex; overflow: hidden; }
+
+/* ── Rail ──────────────────────────────────────────────────────────────────── */
+.cp-rail {
+  width: 230px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.cp-rail-empty {
+  padding: 24px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* Pack group header */
+.cp-pack-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px 8px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  transition: background 0.12s;
+  user-select: none;
+}
+.cp-pack-header:first-child { margin-top: 0; border-top: none; }
+.cp-pack-header:hover { background: rgba(255,255,255,0.04); }
+.cp-pack-header.active { background: rgba(255,215,0,0.07); }
+
+.cp-pack-collapse { font-size: 9px; color: var(--text-muted); flex-shrink: 0; width: 10px; }
+.cp-pack-type-badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #888;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  padding: 1px 4px;
+  flex-shrink: 0;
+}
+.cp-pack-label { flex: 1; font-size: 12px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-pack-count { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Company item within a pack */
+.cp-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 28px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.cp-rail-item:hover { background: rgba(255,255,255,0.04); }
+.cp-rail-item.active { background: rgba(255,215,0,0.08); border-right: 2px solid var(--accent); }
+
+.cp-rail-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.cp-rail-sym { font-size: 10px; font-weight: 700; font-family: monospace; color: var(--text-muted); flex-shrink: 0; min-width: 28px; }
+.cp-rail-name { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Add company button inside pack */
+.cp-add-company-btn {
+  margin: 3px 28px 6px;
+  padding: 4px 0;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  width: calc(100% - 56px);
+}
+.cp-add-company-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Detail panel (shared wrapper) ────────────────────────────────────────── */
+.cp-detail-wrap {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+
+/* Shared section blocks */
+.cp-det-section {
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cp-det-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cp-det-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-style: italic; font-size: 10px; }
+.cp-det-section-hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* ── Pack editor ───────────────────────────────────────────────────────────── */
+.cp-pack-editor { max-width: 640px; padding-bottom: 40px; }
+
+.cp-pack-det-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.cp-pack-name-input {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 4px 6px;
+}
+.cp-pack-name-input:hover, .cp-pack-name-input:focus { border-color: var(--border-mid); background: var(--bg-elevated); outline: none; }
+
+.cp-pack-delete { flex-shrink: 0; padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid var(--border-mid); color: var(--text-muted); border-radius: 4px; cursor: pointer; }
+.cp-pack-delete:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+.cp-pack-fields { display: flex; flex-direction: column; gap: 10px; }
+.cp-pack-field-row { display: flex; align-items: center; gap: 10px; }
+.cp-pack-field-label { font-size: 11px; color: var(--text-muted); min-width: 140px; flex-shrink: 0; }
+
+.cp-pack-type-sel, .cp-pack-cap {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.cp-pack-float, .cp-pack-maxown {
+  width: 64px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+/* ── Token editor ──────────────────────────────────────────────────────────── */
+.cp-token-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cp-token-chip { display: flex; align-items: center; gap: 2px; background: var(--bg-elevated); border: 1px solid var(--border-mid); border-radius: 4px; padding: 3px 6px; font-size: 12px; color: var(--text-secondary); }
+.cp-token-cost { width: 48px; background: transparent; border: none; color: var(--text-primary); font-size: 12px; text-align: right; padding: 0; }
+.cp-token-cost:focus { outline: none; }
+.cp-token-rm { background: none; border: none; color: #666; font-size: 13px; cursor: pointer; padding: 0 2px; line-height: 1; }
+.cp-token-rm:hover { color: var(--danger); }
+.cp-token-add { background: transparent; border: 1px dashed var(--border-mid); border-radius: 4px; color: var(--text-muted); font-size: 11px; padding: 3px 8px; cursor: pointer; }
+.cp-token-add:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Share editor ──────────────────────────────────────────────────────────── */
+.cp-share-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.cp-share-input { width: 38px; background: var(--bg-elevated); border: 1px solid var(--border-mid); border-radius: 4px; color: var(--text-primary); font-size: 12px; padding: 3px 4px; text-align: center; }
+.cp-share-add { background: transparent; border: 1px dashed var(--border-mid); border-radius: 4px; color: var(--text-muted); font-size: 13px; width: 26px; height: 26px; cursor: pointer; }
+.cp-share-add:hover { border-color: var(--accent); color: var(--accent); }
+.cp-share-total { font-size: 11px; font-weight: 600; margin-left: 6px; }
+.cp-share-ok   { color: #6dbf6d; }
+.cp-share-warn { color: #e88; }
+
+/* ── Company editor ────────────────────────────────────────────────────────── */
+.cp-company-editor { max-width: 640px; padding-bottom: 40px; }
+
+/* Charter band */
+.cp-company-band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 28px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  transition: background 0.2s;
+}
+.cp-co-sym { font-size: 18px; font-weight: 900; font-family: monospace; opacity: 0.75; flex-shrink: 0; pointer-events: none; }
+.cp-co-sym-input {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(0,0,0,0.25);
+  border-radius: 4px;
+  color: inherit;
+  padding: 3px 8px;
+  width: 72px;
+}
+.cp-co-sym-input:focus { outline: none; background: rgba(0,0,0,0.3); }
+
+/* Name + delete row */
+.cp-co-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  position: sticky;
+  top: 41px;
+  z-index: 2;
+}
+.cp-co-name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+}
+.cp-co-name:hover, .cp-co-name:focus { border-color: var(--border-mid); background: var(--bg-elevated); outline: none; }
+.cp-co-delete { flex-shrink: 0; padding: 4px 10px; font-size: 11px; background: transparent; border: 1px solid var(--border-mid); color: var(--text-muted); border-radius: 4px; cursor: pointer; }
+.cp-co-delete:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* Identity / override fields */
+.cp-co-fields { display: flex; flex-direction: column; gap: 10px; }
+.cp-co-field-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cp-co-field-label { font-size: 11px; color: var(--text-muted); min-width: 90px; flex-shrink: 0; }
+.cp-co-coords, .cp-co-logo, .cp-co-float-ov {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.cp-co-coords { width: 72px; }
+.cp-co-float-ov { width: 56px; }
+.cp-co-logo { flex: 1; min-width: 160px; }
+.cp-co-city { width: 48px; background: var(--bg-elevated); border: 1px solid var(--border-mid); border-radius: 4px; color: var(--text-primary); font-size: 12px; padding: 4px 8px; }
+
+/* Inherit / override affordance */
+.cp-inherit-val { font-size: 12px; color: var(--text-muted); font-style: italic; margin-right: 6px; }
+.cp-override-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cp-override-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cp-reset-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-left: 4px;
+}
+.cp-reset-btn:hover { border-color: #e88; color: #e88; }
+
 /* ── Light mode ────────────────────────────────────────────────────────────── */
 [data-theme="light"] .pc-rail { background: #fff; border-right-color: #e0e0e0; }
 [data-theme="light"] .pc-rail-item:hover { background: #f0f0f0; }
