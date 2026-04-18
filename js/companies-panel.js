@@ -956,28 +956,60 @@ function _findCompany(id) {
 
 // ── Token editor HTML ─────────────────────────────────────────────────────────
 function _buildTokenEditorHTML(tokens, prefix) {
-  const chips = (tokens || []).map((cost, ti) =>
-    `<span class="cp-token-chip">
-      $<input type="number" class="cp-token-cost" data-prefix="${prefix}" data-ti="${ti}" value="${cost}" min="0">
+  const arr = tokens || [];
+  const slots = arr.map((cost, ti) => {
+    const isFree = cost === 0;
+    return `<div class="cp-token-slot">
+      <div class="cp-token-slot-icon"></div>
+      <div class="cp-token-slot-body">
+        <span class="cp-token-slot-num">Slot ${ti + 1}</span>
+        <div class="cp-token-slot-cost">
+          <span class="cp-token-dollar">$</span>
+          <input type="number" class="cp-token-cost" data-prefix="${prefix}" data-ti="${ti}" value="${cost}" min="0">
+        </div>
+        ${isFree ? '<span class="cp-token-free-badge">Free</span>' : ''}
+      </div>
       <button class="cp-token-rm" data-prefix="${prefix}" data-ti="${ti}" title="Remove slot">×</button>
-    </span>`
-  ).join('');
-  return `<div class="cp-token-row" data-prefix="${prefix}">
-    ${chips}
-    <button class="cp-token-add" data-prefix="${prefix}" title="Add token slot">+ slot</button>
+    </div>`;
+  }).join('');
+  return `<div class="cp-token-editor" data-prefix="${prefix}">
+    <div class="cp-token-slots">${slots}</div>
+    <button class="cp-token-add" data-prefix="${prefix}">+ Add slot</button>
   </div>`;
 }
 
 // ── Share template editor HTML ────────────────────────────────────────────────
 function _buildShareEditorHTML(shares, prefix) {
-  const total = (shares || []).reduce((a, b) => a + b, 0);
-  const chips = (shares || []).map((pct, si) =>
-    `<input type="number" class="cp-share-input" data-prefix="${prefix}" data-si="${si}" value="${pct}" min="1" max="100" title="Share ${si + 1}">`
+  const arr   = shares || [];
+  const total = arr.reduce((a, b) => a + b, 0);
+  const ok    = total === 100;
+
+  // Visual proportions bar — each segment width proportional to share value
+  const barSegs = arr.map((pct, si) => {
+    const w = total > 0 ? ((pct / total) * 100).toFixed(2) : 0;
+    const hue = (si * 47) % 360;
+    return `<div class="cp-share-seg" style="width:${w}%;background:hsl(${hue},55%,42%);" title="${pct}%"></div>`;
+  }).join('');
+
+  const chips = arr.map((pct, si) =>
+    `<div class="cp-share-chip">
+      <input type="number" class="cp-share-input" data-prefix="${prefix}" data-si="${si}" value="${pct}" min="1" max="100">
+      <span class="cp-share-pct-label">%</span>
+      <button class="cp-share-rm cp-share-rm-btn" data-prefix="${prefix}" data-si="${si}" title="Remove">×</button>
+    </div>`
   ).join('');
-  return `<div class="cp-share-row" data-prefix="${prefix}">
-    ${chips}
-    <button class="cp-share-add" data-prefix="${prefix}" title="Add share">+</button>
-    <span class="cp-share-total ${total === 100 ? 'cp-share-ok' : 'cp-share-warn'}">${total}%</span>
+
+  return `<div class="cp-share-editor" data-prefix="${prefix}">
+    <div class="cp-share-chips">${chips}
+      <button class="cp-share-add" data-prefix="${prefix}" title="Add share">+ Share</button>
+    </div>
+    <div class="cp-share-bar-wrap"><div class="cp-share-bar">${barSegs}</div></div>
+    <div class="cp-share-footer">
+      <span class="cp-share-total ${ok ? 'cp-share-ok' : 'cp-share-warn'}">
+        ${ok ? '✓' : '⚠'} ${total}%
+      </span>
+      ${!ok ? `<span class="cp-share-diff">${total < 100 ? '+' + (100 - total) : (total - 100)} to reach 100%</span>` : ''}
+    </div>
   </div>`;
 }
 
@@ -1016,24 +1048,40 @@ function _wireTokenEditor(el, getTokens, setTokens, rerender) {
 function _wireShareEditor(el, getShares, setShares, rerender) {
   el.querySelectorAll('.cp-share-input').forEach(inp => {
     inp.addEventListener('change', () => {
-      const si = parseInt(inp.dataset.si);
+      const si  = parseInt(inp.dataset.si);
       const arr = getShares().slice();
-      arr[si] = parseInt(inp.value) || 0;
-      setShares(arr);
-      autosave();
-      // update total display live
+      arr[si]   = parseInt(inp.value) || 0;
+      setShares(arr); autosave();
+      // Refresh bar + total without full re-render
+      const editor = inp.closest('.cp-share-editor');
+      if (!editor) return;
       const total = arr.reduce((a, b) => a + b, 0);
-      const tot = inp.closest('.cp-share-row').querySelector('.cp-share-total');
-      if (tot) { tot.textContent = total + '%'; tot.className = 'cp-share-total ' + (total === 100 ? 'cp-share-ok' : 'cp-share-warn'); }
+      const ok    = total === 100;
+      const tot   = editor.querySelector('.cp-share-total');
+      if (tot) { tot.textContent = (ok ? '✓ ' : '⚠ ') + total + '%'; tot.className = 'cp-share-total ' + (ok ? 'cp-share-ok' : 'cp-share-warn'); }
+      const diff  = editor.querySelector('.cp-share-diff');
+      if (diff)  diff.textContent = total < 100 ? '+' + (100-total) + ' to reach 100%' : (total-100) + ' to reach 100%';
+      // Redraw proportions bar
+      const bar = editor.querySelector('.cp-share-bar');
+      if (bar) bar.innerHTML = arr.map((pct, i) => {
+        const w = total > 0 ? ((pct/total)*100).toFixed(2) : 0;
+        const hue = (i * 47) % 360;
+        return `<div class="cp-share-seg" style="width:${w}%;background:hsl(${hue},55%,42%);" title="${pct}%"></div>`;
+      }).join('');
+    });
+  });
+  el.querySelectorAll('.cp-share-rm-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const si  = parseInt(btn.dataset.si);
+      const arr = getShares().slice();
+      arr.splice(si, 1);
+      setShares(arr); autosave(); rerender();
     });
   });
   el.querySelectorAll('.cp-share-add').forEach(btn => {
     btn.addEventListener('click', () => {
       const arr = getShares().slice();
-      arr.push(10);
-      setShares(arr);
-      autosave();
-      rerender();
+      arr.push(10); setShares(arr); autosave(); rerender();
     });
   });
 }
@@ -1160,37 +1208,51 @@ function _buildPackDetailEl(pi) {
 
     <div class="cp-det-section">
       <div class="cp-det-section-title">Pack Defaults</div>
-      <div class="cp-pack-fields">
-        <div class="cp-pack-field-row">
-          <label class="cp-pack-field-label">Type</label>
-          <select class="cp-pack-type-sel">${typeOpts}</select>
+      <div class="cp-pack-grid">
+        <div class="cp-pack-cell cp-pack-cell-wide">
+          <label class="cp-pack-cell-label">Type</label>
+          <select class="cp-pack-type-sel cp-pack-sel">${typeOpts}</select>
         </div>
-        <div class="cp-pack-field-row">
-          <label class="cp-pack-field-label">Float %</label>
-          <input type="number" class="cp-pack-float" value="${pack.floatPct || 60}" min="0" max="100">
+        <div class="cp-pack-cell">
+          <label class="cp-pack-cell-label">Float %</label>
+          <div class="cp-pack-num-wrap">
+            <input type="number" class="cp-pack-float cp-pack-num" value="${pack.floatPct || 60}" min="0" max="100">
+            <span class="cp-pack-num-suffix">%</span>
+          </div>
         </div>
-        <div class="cp-pack-field-row">
-          <label class="cp-pack-field-label">Max ownership %</label>
-          <input type="number" class="cp-pack-maxown" value="${pack.maxOwnershipPct || 100}" min="0" max="100">
+        <div class="cp-pack-cell">
+          <label class="cp-pack-cell-label">Max ownership</label>
+          <div class="cp-pack-num-wrap">
+            <input type="number" class="cp-pack-maxown cp-pack-num" value="${pack.maxOwnershipPct || 100}" min="0" max="100">
+            <span class="cp-pack-num-suffix">%</span>
+          </div>
         </div>
-        <div class="cp-pack-field-row">
-          <label class="cp-pack-field-label">Capitalization</label>
-          <select class="cp-pack-cap">${capOpts}</select>
+        <div class="cp-pack-cell cp-pack-cell-wide">
+          <label class="cp-pack-cell-label">Capitalization</label>
+          <select class="cp-pack-cap cp-pack-sel">${capOpts}</select>
         </div>
-        <div class="cp-pack-field-row">
-          <label class="cp-pack-field-label">Always market price</label>
-          <input type="checkbox" class="cp-pack-amp"${pack.alwaysMarketPrice ? ' checked' : ''}>
+        <div class="cp-pack-cell cp-pack-cell-toggle">
+          <label class="cp-pack-toggle-label">
+            <input type="checkbox" class="cp-pack-amp"${pack.alwaysMarketPrice ? ' checked' : ''}>
+            <span class="cp-pack-toggle-text">Always market price</span>
+          </label>
         </div>
       </div>
     </div>
 
     <div class="cp-det-section">
-      <div class="cp-det-section-title">Share structure <span class="cp-det-hint">(template for all companies in this pack)</span></div>
+      <div class="cp-det-section-hd">
+        <span class="cp-det-section-title">Share structure</span>
+        <span class="cp-det-hint">template inherited by all companies</span>
+      </div>
       ${_buildShareEditorHTML(pack.shares, 'pack_sh')}
     </div>
 
     <div class="cp-det-section">
-      <div class="cp-det-section-title">Token slots <span class="cp-det-hint">(cost to place each station token)</span></div>
+      <div class="cp-det-section-hd">
+        <span class="cp-det-section-title">Station tokens</span>
+        <span class="cp-det-hint">cost to place each token</span>
+      </div>
       ${_buildTokenEditorHTML(pack.tokens, 'pack_tk')}
     </div>
   `;
