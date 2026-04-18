@@ -959,7 +959,7 @@ function importRubyMap(content) {
   const { manifest, customTiles } = parseTilesBlock(content);
 
   return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation,
-           staggerParity: transposedAxes ? 1 : 0, coordParity, pointyStaggerParity,
+           staggerParity: transposedAxes ? 1 : coordParity, coordParity, pointyStaggerParity,
            maxRowPerCol, manifest, customTiles };
 }
 
