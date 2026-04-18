@@ -847,12 +847,16 @@ function hexToSvgInner(hex, tileDef) {
       const SR = 12.5;
       const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
       if (positions.length === 2) {
-        const xs = positions.map(p => p.x);
-        const ys = positions.map(p => p.y);
-        const bx = Math.min(...xs) - SR, by = Math.min(...ys) - SR;
-        const bw = Math.max(...xs) - Math.min(...xs) + 2 * SR;
-        const bh = Math.max(...ys) - Math.min(...ys) + 2 * SR;
-        svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="white"/>`;
+        // Rotated capsule rect oriented along the axis between the two city centres.
+        // An axis-aligned bounding box is correct for horizontal/vertical pairs but
+        // produces a huge white blob for diagonal pairs (e.g. X3 at ≈30°).
+        const [p0, p1] = positions;
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+        const w = dist + 2 * SR, h = 2 * SR;
+        svg += `<rect x="${(cx - w/2).toFixed(2)}" y="${(cy - h/2).toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="white" transform="rotate(${angle.toFixed(1)},${cx.toFixed(2)},${cy.toFixed(2)})"/>`;
       } else if (positions.length >= 3) {
         svg += `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>`;
       }
