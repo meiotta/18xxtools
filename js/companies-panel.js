@@ -925,6 +925,90 @@ const CORP_TYPE_DEFAULTS = {
   custom:   { floatPct: 60,  maxOwnershipPct: 100, capitalization: 'full',        alwaysMarketPrice: false, shares: [10,10,10,10,10,10,10,10,10,10], tokens: [0,40] },
 };
 
+// ── 18xx corporation colors (sourced from 18USA + common engine palette) ──────
+const CORP_COLORS = [
+  { name: 'Black',       hex: '#1a1a1a', text: '#ffffff' },
+  { name: 'Brown',       hex: '#7B3B00', text: '#ffffff' },
+  { name: 'Crimson',     hex: '#B01020', text: '#ffffff' },
+  { name: 'DarkBlue',    hex: '#003080', text: '#ffffff' },
+  { name: 'DarkGreen',   hex: '#1A5C1A', text: '#ffffff' },
+  { name: 'DarkRed',     hex: '#8B0000', text: '#ffffff' },
+  { name: 'ForestGreen', hex: '#228B22', text: '#ffffff' },
+  { name: 'Gold',        hex: '#CFB53B', text: '#000000' },
+  { name: 'Gray',        hex: '#808080', text: '#ffffff' },
+  { name: 'Indigo',      hex: '#4B0082', text: '#ffffff' },
+  { name: 'LightBlue',   hex: '#5B9BD5', text: '#000000' },
+  { name: 'Lime',        hex: '#5EA830', text: '#000000' },
+  { name: 'Maroon',      hex: '#800000', text: '#ffffff' },
+  { name: 'Navy',        hex: '#001F5B', text: '#ffffff' },
+  { name: 'Orange',      hex: '#D46000', text: '#ffffff' },
+  { name: 'Pink',        hex: '#C85080', text: '#ffffff' },
+  { name: 'Purple',      hex: '#800080', text: '#ffffff' },
+  { name: 'Red',         hex: '#CC1010', text: '#ffffff' },
+  { name: 'Sienna',      hex: '#A0522D', text: '#ffffff' },
+  { name: 'SteelBlue',   hex: '#4682B4', text: '#ffffff' },
+  { name: 'Tan',         hex: '#C8A060', text: '#000000' },
+  { name: 'Teal',        hex: '#007070', text: '#ffffff' },
+  { name: 'White',       hex: '#F4F4F4', text: '#000000' },
+  { name: 'Yellow',      hex: '#D4B800', text: '#000000' },
+];
+
+const TEXT_COLORS = [
+  { name: 'White',  hex: '#ffffff' },
+  { name: 'Black',  hex: '#000000' },
+  { name: 'Gold',   hex: '#CFB53B' },
+  { name: 'Silver', hex: '#C0C0C0' },
+];
+
+// ── Color chip picker helpers ─────────────────────────────────────────────────
+
+function _buildColorPickerHTML(currentHex, prefix, colors) {
+  const arr  = colors || CORP_COLORS;
+  const norm = (currentHex || '').toLowerCase();
+  const chips = arr.map(c => {
+    const sel = norm === c.hex.toLowerCase();
+    return `<button type="button" class="cp-color-chip" data-color="${c.hex}" title="${c.name}" style="background:${c.hex};${sel ? 'box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(0,0,0,0.6);' : ''}"></button>`;
+  }).join('');
+  const display = currentHex || '#336699';
+  return `<div class="cp-color-pick-wrap">
+    <button type="button" class="cp-color-trigger cp-${prefix}-trigger" style="background:${display};" title="${display}"></button>
+    <div class="cp-color-popout cp-${prefix}-popout">
+      <div class="cp-color-grid">${chips}</div>
+    </div>
+  </div>`;
+}
+
+function _wireColorPicker(container, prefix, onChange) {
+  const trigger = container.querySelector('.cp-' + prefix + '-trigger');
+  const popout  = container.querySelector('.cp-' + prefix + '-popout');
+  if (!trigger || !popout) return;
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = popout.classList.contains('cp-color-open');
+    // Close every other open picker on the page
+    document.querySelectorAll('.cp-color-popout.cp-color-open').forEach(p => p.classList.remove('cp-color-open'));
+    if (!isOpen) popout.classList.add('cp-color-open');
+  });
+
+  popout.addEventListener('click', e => e.stopPropagation());
+
+  popout.querySelectorAll('.cp-color-chip').forEach(chip => {
+    chip.addEventListener('click', e => {
+      e.stopPropagation();
+      const hex = chip.dataset.color;
+      trigger.style.background = hex;
+      trigger.title = hex;
+      popout.querySelectorAll('.cp-color-chip').forEach(c => c.style.boxShadow = '');
+      chip.style.boxShadow = '0 0 0 2px #fff,0 0 0 4px rgba(0,0,0,0.6)';
+      popout.classList.remove('cp-color-open');
+      onChange(hex);
+    });
+  });
+
+  document.addEventListener('click', () => popout.classList.remove('cp-color-open'));
+}
+
 // ── Selection state ───────────────────────────────────────────────────────────
 let _selectedPackIdx   = null;  // index into state.corpPacks
 let _selectedCompanyId = null;  // company.id (null = pack settings selected)
@@ -1331,9 +1415,9 @@ function _buildCompanyDetailEl(pi, ci) {
       <div class="cp-co-fields">
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Charter color</label>
-          <input type="color" class="cp-co-color" value="${company.color || '#336699'}">
-          <label class="cp-co-field-label" style="margin-left:12px;">Text color</label>
-          <input type="color" class="cp-co-textcolor" value="${company.textColor || '#ffffff'}">
+          ${_buildColorPickerHTML(company.color || '#336699', 'co-color', CORP_COLORS)}
+          <label class="cp-co-field-label" style="margin-left:16px;">Text color</label>
+          ${_buildColorPickerHTML(company.textColor || '#ffffff', 'co-textcolor', TEXT_COLORS)}
         </div>
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Home hex</label>
@@ -1397,14 +1481,14 @@ function _buildCompanyDetailEl(pi, ci) {
     const railName = document.querySelector('.cp-rail-item.active .cp-rail-name');
     if (railName) railName.textContent = company.name || 'Unnamed';
   });
-  el.querySelector('.cp-co-color').addEventListener('change', e => {
-    company.color = e.target.value;
-    el.querySelector('.cp-company-band').style.background = company.color;
+  _wireColorPicker(el, 'co-color', hex => {
+    company.color = hex;
+    el.querySelector('.cp-company-band').style.background = hex;
     const railDot = document.querySelector('.cp-rail-item.active .cp-rail-dot');
-    if (railDot) railDot.style.background = company.color;
+    if (railDot) railDot.style.background = hex;
     autosave();
   });
-  el.querySelector('.cp-co-textcolor').addEventListener('change', e => { company.textColor    = e.target.value;                 autosave(); });
+  _wireColorPicker(el, 'co-textcolor', hex => { company.textColor = hex; autosave(); });
   el.querySelector('.cp-co-coords').addEventListener('change',    e => { company.coordinates  = e.target.value;                 autosave(); });
   el.querySelector('.cp-co-city').addEventListener('change',      e => { company.city         = parseInt(e.target.value) || 0;  autosave(); });
   el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });

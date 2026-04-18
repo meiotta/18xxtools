@@ -2101,6 +2101,65 @@ canvas { display: block; }
 }
 .cp-reset-btn:hover { border-color: #e88; color: #e88; }
 
+/* ── Color chip picker ─────────────────────────────────────────────────────── */
+.cp-color-pick-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cp-color-trigger {
+  width: 32px;
+  height: 24px;
+  border: 2px solid rgba(255,255,255,0.18);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: border-color 0.12s, transform 0.1s;
+}
+.cp-color-trigger:hover {
+  border-color: rgba(255,255,255,0.55);
+  transform: scale(1.08);
+}
+
+.cp-color-popout {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 300;
+  background: #242424;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.75);
+}
+.cp-color-popout.cp-color-open { display: block; }
+
+.cp-color-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 26px);
+  gap: 5px;
+}
+
+.cp-color-chip {
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.cp-color-chip:hover {
+  transform: scale(1.18);
+  border-color: rgba(255,255,255,0.6);
+  z-index: 1;
+  position: relative;
+}
+
 /* ── Light mode ────────────────────────────────────────────────────────────── */
 [data-theme="light"] .pc-rail { background: #fff; border-right-color: #e0e0e0; }
 [data-theme="light"] .pc-rail-item:hover { background: #f0f0f0; }
