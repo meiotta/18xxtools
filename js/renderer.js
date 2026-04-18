@@ -1241,11 +1241,36 @@ function hexToSvgInner(hex, tileDef) {
 
   } else if (hex.feature === 'offboard') {
     // Offboard exits: tobymao track_offboard.rb build_props pentagon in rotated edge frame.
-    // In tobymao 100-unit space: M hw 75 L hw 87 L -hw 87 L -hw 75 L 0 48 Z  (hw = width/2 = 4)
-    // In our 0.5 scale:          M hw 37.5 L hw 43.5 L -hw 43.5 L -hw 37.5 L 0 24 Z
+    // source: track_offboard.rb — one pentagon per path, shifted by begin_shift in edge-local space.
+    // Pentagon in tobymao 100-unit: M (hw+s) 75 L (hw+s) 87 L (-hw+s) 87 L (-hw+s) 75 L s 48 Z
+    // In our 0.5 scale:             M (hw+s) 37.5 L (hw+s) 43.5 L (-hw+s) 43.5 L (-hw+s) 37.5 L s 24 Z
+    // Build a map from exit edge number → array of lane specs from hex.paths.
+    const _obLanesByEdge = new Map();
+    for (const path of (hex.paths || [])) {
+      // Determine which endpoint is the edge and get its lane spec.
+      const isAEdge = path.a.type === 'edge';
+      const edgeN   = isAEdge ? path.a.n : (path.b.type === 'edge' ? path.b.n : null);
+      if (edgeN === null) continue;
+      const laneSpec = isAEdge ? path.aLane : path.bLane;
+      if (!laneSpec || laneSpec[0] <= 1) continue;
+      if (!_obLanesByEdge.has(edgeN)) _obLanesByEdge.set(edgeN, []);
+      _obLanesByEdge.get(edgeN).push(laneSpec);
+    }
+    const hw = DSL_TRACK_W / 2;
     for (const e of (hex.exits || [])) {
-      const hw = (DSL_TRACK_W / 2).toFixed(2);
-      svg += `<path d="M ${hw} 37.5 L ${hw} 43.5 L -${hw} 43.5 L -${hw} 37.5 L 0 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
+      const laneSpecs = _obLanesByEdge.get(e) || [];
+      if (laneSpecs.length > 0) {
+        // Render one shifted pentagon per lane — source: track_offboard.rb build_props.
+        for (const laneSpec of laneSpecs) {
+          const s  = _laneShift(laneSpec[0], laneSpec[1]);
+          const x1 = (hw + s).toFixed(2), x2 = (-hw + s).toFixed(2), xm = s.toFixed(2);
+          svg += `<path d="M ${x1} 37.5 L ${x1} 43.5 L ${x2} 43.5 L ${x2} 37.5 L ${xm} 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
+        }
+      } else {
+        // No lane data for this exit — single centred pentagon (fallback / non-parallel paths).
+        const x1 = hw.toFixed(2), x2 = (-hw).toFixed(2);
+        svg += `<path d="M ${x1} 37.5 L ${x1} 43.5 L ${x2} 43.5 L ${x2} 37.5 L 0 24 Z" transform="rotate(${e * 60})" fill="#222"/>`;
+      }
     }
 
   } else if ((hex.paths && hex.paths.length > 0) || (hex.pathPairs && hex.pathPairs.length > 0) || (hex.blankPaths && hex.blankPaths.length > 0)) {
