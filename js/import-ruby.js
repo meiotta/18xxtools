@@ -963,6 +963,175 @@ function importRubyMap(content) {
            maxRowPerCol, manifest, customTiles };
 }
 
+// ─── IMPORT ENTITIES.RB ───────────────────────────────────────────────────────
+// Parses COMPANIES and CORPORATIONS arrays from an entities.rb file and
+// populates state.privates (privates + concessions) and state.corpPacks.
+//
+// Detection rules (from IMPLEMENTATION_PLAN.md data model):
+//   Concession  — COMPANIES entry with exchange ability { from: 'par' }
+//   Assoc minor — CORPORATIONS entry with description ability matching /Associated minor for XYZ/
+
+function _rbExtractArray(src, name) {
+  const marker = name + ' =';
+  const idx = src.indexOf(marker);
+  if (idx === -1) return '';
+  let i = src.indexOf('[', idx + marker.length);
+  if (i === -1) return '';
+  let depth = 0;
+  while (i < src.length) {
+    if (src[i] === '[') depth++;
+    else if (src[i] === ']') { depth--; if (depth === 0) return src.slice(src.indexOf('[', idx + marker.length) + 1, i); }
+    i++;
+  }
+  return '';
+}
+
+function _rbSplitHashes(content) {
+  const hashes = [];
+  let depth = 0, start = -1;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '{') { if (depth === 0) start = i; depth++; }
+    else if (content[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) { hashes.push(content.slice(start, i + 1)); start = -1; }
+    }
+  }
+  return hashes;
+}
+
+function _rbStr(str, key) {
+  const m = str.match(new RegExp('\\b' + key + ':\\s*[\'"]([^\'"]*)[\'"]'));
+  return m ? m[1] : null;
+}
+
+function _rbNum(str, key) {
+  const m = str.match(new RegExp('\\b' + key + ':\\s*(-?\\d+)'));
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function _rbStrArr(str, key) {
+  const wm = str.match(new RegExp('\\b' + key + ':\\s*%w\\[([^\\]]+)\\]'));
+  if (wm) return wm[1].trim().split(/\s+/).filter(Boolean);
+  const am = str.match(new RegExp('\\b' + key + ':\\s*\\[([^\\]]*)\\]'));
+  if (am) { const ms = am[1].match(/['"]([^'"]+)['"]/g); return ms ? ms.map(s => s.slice(1, -1)) : []; }
+  return [];
+}
+
+function _rbTokens(str) {
+  const m = str.match(/\btokens:\s*\[([^\]]*)\]/);
+  if (!m) return [0];
+  return m[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+}
+
+function _rbAbilities(hashStr) {
+  const abIdx = hashStr.indexOf('abilities:');
+  if (abIdx === -1) return [];
+  let i = hashStr.indexOf('[', abIdx);
+  if (i === -1) return [];
+  let depth = 0, start = i;
+  while (i < hashStr.length) {
+    if (hashStr[i] === '[') depth++;
+    else if (hashStr[i] === ']') { depth--; if (depth === 0) break; }
+    i++;
+  }
+  return _rbSplitHashes(hashStr.slice(start + 1, i)).map(h => {
+    const ab = {};
+    const type = _rbStr(h, 'type');       if (type)  ab.type        = type;
+    const from = _rbStr(h, 'from');       if (from)  ab.from        = from;
+    const otype = _rbStr(h, 'owner_type');if (otype) ab.owner_type  = otype;
+    const desc = _rbStr(h, 'description');if (desc)  ab.description = desc;
+    const corps = _rbStrArr(h, 'corporations'); if (corps.length) ab.corporations = corps;
+    const hexes = _rbStrArr(h, 'hexes');        if (hexes.length) ab.hexes        = hexes;
+    const disc  = _rbNum(h, 'discount');  if (disc !== null) ab.discount = disc;
+    return ab;
+  });
+}
+
+function _rbParseCompany(hashStr) {
+  const sym      = _rbStr(hashStr, 'sym')        || '';
+  const name     = _rbStr(hashStr, 'name')       || '';
+  const value    = _rbNum(hashStr, 'value')      || 0;
+  const revenue  = _rbNum(hashStr, 'revenue')    || 0;
+  const color    = _rbStr(hashStr, 'color')      || '#666666';
+  const textColor= _rbStr(hashStr, 'text_color') || '#ffffff';
+  const abilities= _rbAbilities(hashStr);
+
+  const exchAb  = abilities.find(a => a.type === 'exchange' && a.from === 'par');
+  const isConc  = !!exchAb;
+
+  const priv = {
+    id: _cpRandId('prv'),
+    sym, name,
+    cost: value, revenue,
+    color, textColor,
+    companyType: isConc ? 'concession' : 'private',
+    closesOn: '', buyerType: 'any',
+    abilities: [],
+  };
+
+  if (isConc) {
+    priv.linkedMajor  = (exchAb.corporations || [])[0] || '';
+    const blockAb     = abilities.find(a => a.type === 'blocks_hexes_consent' || a.type === 'blocks_hexes');
+    priv.blocksHexes  = blockAb ? (blockAb.hexes || []) : [];
+    const discAb      = abilities.find(a => a.discount != null);
+    priv.minBidAdjust = discAb ? -discAb.discount : 0;
+  }
+
+  return priv;
+}
+
+function _rbParseCorp(hashStr) {
+  const sym         = _rbStr(hashStr, 'sym')          || '';
+  const name        = _rbStr(hashStr, 'name')         || '';
+  const type        = _rbStr(hashStr, 'type')         || 'minor';
+  const color       = _rbStr(hashStr, 'color')        || '#ffffff';
+  const textColor   = _rbStr(hashStr, 'text_color')   || '#000000';
+  const coordinates = _rbStr(hashStr, 'coordinates')  || '';
+  const city        = _rbNum(hashStr, 'city')         || 0;
+  const floatPct    = _rbNum(hashStr, 'float_percent');
+  const logo        = _rbStr(hashStr, 'logo')         || '';
+  const tokens      = _rbTokens(hashStr);
+  const abilities   = _rbAbilities(hashStr);
+
+  const descAb = abilities.find(a => a.type === 'description' && a.description);
+  let associatedMajor = null;
+  if (descAb) {
+    const m = descAb.description.match(/Associated minor for (\S+)/);
+    if (m) associatedMajor = m[1];
+  }
+
+  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens };
+  if (floatPct !== null) co.floatPctOverride = floatPct;
+  if (associatedMajor)   co.associatedMajor  = associatedMajor;
+  return { co, type };
+}
+
+function importEntitiesRb(content) {
+  // Normalize: join Ruby string-continuation lines, strip comments
+  const src = content
+    .replace(/'\s*\\\s*\n\s*'/g, '')
+    .replace(/#[^\n]*/g, '');
+
+  const privates = _rbSplitHashes(_rbExtractArray(src, 'COMPANIES')).map(_rbParseCompany);
+
+  const corpsByType = {};
+  _rbSplitHashes(_rbExtractArray(src, 'CORPORATIONS')).forEach(hashStr => {
+    const { co, type } = _rbParseCorp(hashStr);
+    if (!corpsByType[type]) corpsByType[type] = [];
+    corpsByType[type].push(co);
+  });
+
+  const packs = Object.entries(corpsByType).map(([type, companies]) =>
+    Object.assign({}, _packDefaults(type), {
+      id:    'pk_' + Math.random().toString(36).slice(2, 9),
+      type, companies,
+      label: type.charAt(0).toUpperCase() + type.slice(1) + 's',
+    })
+  );
+
+  return { privates, packs };
+}
+
 // ── Wire up the Import Map button ─────────────────────────────────────────────
 
 document.getElementById('importMapBtn').addEventListener('click', () => {
@@ -1015,4 +1184,56 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
   };
   reader.readAsText(file);
   e.target.value = ''; // reset so same file can be re-imported
+});
+
+// ── Wire up Import Entities (.rb) ─────────────────────────────────────────────
+
+document.getElementById('importEntitiesBtn').addEventListener('click', () => {
+  document.getElementById('importEntitiesFile').click();
+});
+
+document.getElementById('importEntitiesFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const { privates, packs } = importEntitiesRb(ev.target.result);
+
+      state.privates = privates;
+      if (!state.corpPacks) state.corpPacks = [];
+      packs.forEach(newPack => {
+        const xi = state.corpPacks.findIndex(p => p.type === newPack.type);
+        if (xi !== -1) state.corpPacks[xi] = newPack;
+        else state.corpPacks.push(newPack);
+      });
+
+      if (typeof renderPrivatesCards   === 'function') renderPrivatesCards();
+      if (typeof renderCorpsSection    === 'function') renderCorpsSection();
+      if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
+      autosave();
+      document.getElementById('fileMenu').style.display = 'none';
+
+      const pCount = privates.length;
+      const cCount = packs.reduce((s, p) => s + p.companies.length, 0);
+      const concCount = privates.filter(p => p.companyType === 'concession').length;
+      updateStatus(`Imported ${pCount} privates (${concCount} concessions) + ${cCount} corporations from ${file.name}`);
+    } catch (err) {
+      console.error('[importEntitiesRb] error:', err);
+      alert('Entities import failed: ' + err.message);
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// ── Stub handlers for not-yet-implemented import/export types ─────────────────
+
+['importGameBtn', 'importMarketBtn',
+ 'exportEntitiesBtn', 'exportGameBtn', 'exportMarketBtn'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', () => {
+    document.getElementById('fileMenu').style.display = 'none';
+    updateStatus('Not yet implemented.');
+  });
 });

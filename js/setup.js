@@ -200,9 +200,26 @@ document.addEventListener('DOMContentLoaded', () => {
       e.stopPropagation();
       _open = !_open;
       fileMenu.style.display = _open ? 'block' : 'none';
+      if (!_open) document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
     });
     document.addEventListener('click', () => {
-      if (_open) { _open = false; fileMenu.style.display = 'none'; }
+      if (_open) {
+        _open = false;
+        fileMenu.style.display = 'none';
+        document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
+      }
+    });
+
+    // Touch-friendly submenu toggle (CSS :hover handles desktop)
+    fileMenu.querySelectorAll('.file-menu-parent').forEach(parent => {
+      const btn = parent.querySelector('.file-menu-parent-btn');
+      if (!btn) return;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = parent.classList.contains('sub-open');
+        document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
+        if (!isOpen) parent.classList.add('sub-open');
+      });
     });
   }
 
