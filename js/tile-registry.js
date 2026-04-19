@@ -38,6 +38,11 @@ const TileRegistry = (() => {
   function _processEntry(entry) {
     if (!entry) return null;
 
+    // Accept both 'dsl' (standard) and 'code' (import-ruby.js legacy key) as the DSL string.
+    if (typeof entry.code === 'string' && typeof entry.dsl !== 'string') {
+      entry = Object.assign({}, entry, { dsl: entry.code });
+    }
+
     let tileDef;
     let _rawCityCount = 0; // track separate 1-slot city nodes for architecture decision
     if (typeof entry.dsl === 'string') {
@@ -58,53 +63,56 @@ const TileRegistry = (() => {
           // where full_distance = 50 in tobymao's scale-87 space.
           // At our scale-43.5: full_distance = 50 * (43.5 / 87) = 25.
           if (raw.nodes && raw.paths) {
-            // Detect ALL separate 1-slot city nodes regardless of current position.
-            // parseDSL may have pre-positioned them via locToPos (inradius or circumradius),
-            // but we always want them at CITY_DIST=25 (tobymao full_distance=50 at scale-87,
-            // halved for our scale-43.5). We recover the intended edge from each position.
-            const separateCityIdxs = raw.nodes.reduce((a, n, i) => {
-              if (n.type === 'city' && !(n.slots && n.slots > 1)) a.push(i);
+            // Position all separate city nodes (any slot count) at CITY_DIST=25
+            // from the hex centre.  This matches tobymao full_distance=50 at scale-87
+            // halved for our scale-43.5.
+            //
+            // Source for CITY_DIST: tobymao track_node_path.rb:
+            //   stop_x = -sin(ct_edge * π/3) * 50;  stop_y = cos(ct_edge * π/3) * 50
+            //   (in tobymao's 87-unit space → × 0.5 → 25 in our 43.5-unit space)
+            //
+            // Strategy:
+            //   • Center cities (no explicit loc:, dist ≈ 0): use topology-based preferred
+            //     edge from computeCityTownEdges, then apply the CITY_DIST formula.
+            //   • Explicitly-located cities (parseDSL placed them via locToPos at distance
+            //     43.5 for integer loc:N, or 50 for corner loc:N.5): normalise to CITY_DIST
+            //     by scaling in the same direction (node *= CITY_DIST / dist).  This is
+            //     correct for both edge-midpoint and corner positions without any pe-recovery.
+            //
+            // The earlier pe-recovery approach for corner cities was incorrect:
+            //   atan2(-x, y) does NOT invert cornerPosition(N.5) = (cos((N.5·60+90)°)·R,
+            //   -sin((N.5·60+90)°)·R).  The correct inverse is atan2(-y, x), but even that
+            //   is unnecessary — simple scaling is exact.
+
+            const allCityIdxs = raw.nodes.reduce((a, n, i) => {
+              if (n.type === 'city') a.push(i);
               return a;
             }, []);
-            if (separateCityIdxs.length >= 2) {
-              _rawCityCount = separateCityIdxs.length;
+
+            if (allCityIdxs.length >= 2) {
+              // Count separate 1-slot cities for the OO-vs-cities architecture decision
+              _rawCityCount = allCityIdxs.filter(i => !(raw.nodes[i].slots && raw.nodes[i].slots > 1)).length;
+
               const preferred = TILE_GEO.computeCityTownEdges(raw.nodes, raw.paths);
-              const CITY_DIST = 25;   // 50 * (43.5 / 87)
-              const HEX_INRAD = 43.5; // edgeMidpoint distance (integer loc:N)
-              const HEX_CIRC  = 50;   // cornerPosition distance (loc:N.5)
-              for (const i of separateCityIdxs) {
+              const CITY_DIST = 25;
+
+              for (const i of allCityIdxs) {
                 const node = raw.nodes[i];
                 const dist = Math.hypot(node.x || 0, node.y || 0);
-                let pe;
                 if (dist < 0.5) {
-                  // City is at center (no loc:) — use topology-based preferred edge
-                  pe = preferred[i];
-                } else if (Math.abs(dist - HEX_INRAD) < 2.0) {
-                  // Integer loc:N → edgeMidpoint(N). Recover N via:
-                  //   edgeMidpoint(e) = (-sin(e*π/3)*R, cos(e*π/3)*R)
-                  //   atan2(-x, y) = e*π/3  →  e = atan2(-x,y) / (π/3)
-                  let theta = Math.atan2(-(node.x || 0), node.y || 0);
-                  if (theta < 0) theta += 2 * Math.PI;
-                  pe = theta / (Math.PI / 3);
-                } else if (Math.abs(dist - HEX_CIRC) < 2.0) {
-                  // loc:N.5 → cornerPosition(N.5). Recover N.5 via:
-                  //   cornerPosition uses angle = loc*60+90 deg
-                  //   x = cos(angle)*R, y = -sin(angle)*R
-                  //   → atan2(-x, y) = angle+π/2... simplified recovery:
-                  //   atan2(-x, y) gives (loc*60+90)*π/180 mod 2π
-                  //   pe = (theta_deg - 90) / 60, where theta_deg from atan2(-x, y)
-                  let theta = Math.atan2(-(node.x || 0), node.y || 0);
-                  if (theta < 0) theta += 2 * Math.PI;
-                  pe = (theta * 180 / Math.PI - 90) / 60;
-                  if (pe < 0) pe += 6;
+                  // Center city (no explicit loc:) — place at preferred edge
+                  const pe = preferred[i];
+                  if (pe === null || pe === undefined) continue;
+                  const a = pe * Math.PI / 3;
+                  node.x = parseFloat((-Math.sin(a) * CITY_DIST).toFixed(2));
+                  node.y = parseFloat(( Math.cos(a) * CITY_DIST).toFixed(2));
                 } else {
-                  // Unexpected distance — fall back to topology
-                  pe = preferred[i];
+                  // Explicitly located (locToPos put it at 43.5 or 50) — scale to CITY_DIST.
+                  // Same direction, correct magnitude.  Works for integer and corner locs.
+                  const scale = CITY_DIST / dist;
+                  node.x = parseFloat((node.x * scale).toFixed(2));
+                  node.y = parseFloat((node.y * scale).toFixed(2));
                 }
-                if (pe === null || pe === undefined) continue;
-                const a = pe * Math.PI / 3;
-                node.x = parseFloat((-Math.sin(a) * CITY_DIST).toFixed(2));
-                node.y = parseFloat(( Math.cos(a) * CITY_DIST).toFixed(2));
               }
             }
           }

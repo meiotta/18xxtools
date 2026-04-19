@@ -591,10 +591,18 @@ function normalizeTileDef(def) {
       totalSlots += slots;
 
       if (slots >= 2) {
-        // Multi-slot city: OO (2-slot) or triangle (3-slot).
-        // Positions match palette.js swatch rendering for consistency.
+        // Multi-slot city: mirroring tobymao city.rb CITY_SLOT_POSITION + rotation formula.
+        // CITY_SLOT_POSITION[n] (tobymao 100-unit × 0.5 for our scale):
+        //   2: [-12.5, 0]   → two circles at ±12.5 x
+        //   3: [0, -14.5]   → triangle (3 circles at 120° intervals)
+        //   4: [-12.5,-12.5]→ 2×2 grid (4 circles at 90° intervals)
+        //   5+: larger radius circle spread (≥5 slots uncommon in tile packs)
         const cx = node.x, cy = node.y;
-        if (slots >= 3) {
+        if (slots === 2) {
+          // Standard OO: two circles side by side
+          cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
+          cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+        } else if (slots === 3) {
           // Matches tobymao CITY_SLOT_POSITION[3]=[0,-29] at 50/100 scale → R3=14.5.
           // Circles at rotate(0°/120°/240°)(0,-R3); center-to-center≈25.1 ≈ 2×SLOT_RADIUS → barely touching.
           const R3 = 14.5;
@@ -603,9 +611,19 @@ function normalizeTileDef(def) {
           cityPositions.push({ x: cx + h3,  y: cy + R3 * 0.5 });   // bottom-right
           cityPositions.push({ x: cx - h3,  y: cy + R3 * 0.5 });   // bottom-left
         } else {
-          // Standard OO: two circles side by side
-          cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
-          cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+          // slots ≥ 4: CITY_SLOT_POSITION[4]=[-12.5,-12.5] rotated at 360/slots × i.
+          // source: tobymao city.rb BOX_ATTRS slots=4 rect backdrop + 4 circles.
+          // For slots>4, use the same formula with a slightly larger base offset.
+          const SR = SLOT_RADIUS; // 12.5
+          const [bx, by] = slots === 4 ? [-SR, -SR] : [0, -SR * 1.5];
+          for (let si = 0; si < slots && si < 9; si++) {
+            const rad = (2 * Math.PI / slots) * si;
+            const cos = Math.cos(rad), sin = Math.sin(rad);
+            cityPositions.push({
+              x: parseFloat((cx + cos * bx - sin * by).toFixed(2)),
+              y: parseFloat((cy + sin * bx + cos * by).toFixed(2)),
+            });
+          }
         }
         if (node.revenue !== undefined) {
           revenues.push({ x: cx + 33.5, y: cy, v: node.revenue });

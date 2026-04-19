@@ -169,34 +169,30 @@ function buildManifestView() {
       .manifest-remove:hover { background:#e03020; transform:scale(1.2); }
       .manifest-card:hover .manifest-remove { display:block; }
       /* ── Stepper ── */
-      .mc-stepper {
-        display:flex; align-items:stretch; width:100%; margin-top:8px; height:30px;
-        background:#161616; border:1px solid #333; border-radius:7px; overflow:hidden;
-        box-shadow:inset 0 1px 3px rgba(0,0,0,.5); }
+      /* ── Count display bar (above buttons, no text input) ── */
+      .mc-count-bar {
+        width:100%; margin-top:7px; height:22px;
+        display:flex; align-items:center; justify-content:center;
+        background:rgba(0,0,0,.35); border-radius:5px;
+        font-size:13px; font-weight:700; font-variant-numeric:tabular-nums;
+        color:#e8e8e8; letter-spacing:.03em; user-select:none; }
+      .mc-count-bar.is-inf { color:#f0c040; font-size:12px; letter-spacing:.05em; }
+      /* ── 4-button row ── */
+      .mc-btns {
+        display:grid; grid-template-columns:repeat(4,1fr); gap:4px;
+        width:100%; margin-top:5px; }
       .mc-btn {
-        flex:0 0 28px; border:none; background:transparent; color:#666;
-        font-size:17px; padding:0; cursor:pointer; display:flex;
-        align-items:center; justify-content:center;
-        transition:background .1s,color .12s,transform .08s; }
-      .mc-btn:hover:not(:disabled) { background:#222; color:#ddd; }
-      .mc-btn:active:not(:disabled) { transform:scale(.84); color:#fff; }
-      .mc-btn:disabled { opacity:.18; cursor:default; }
-      .mc-display {
-        flex:1; min-width:0; display:flex; align-items:center; justify-content:center;
-        border-left:1px solid #2a2a2a; border-right:1px solid #2a2a2a; }
-      .mc-input {
-        width:100%; text-align:center; background:transparent; border:none;
-        outline:none; color:#e8e8e8; font-size:13px; font-weight:600;
-        font-variant-numeric:tabular-nums; padding:0 3px;
-        transition:color .15s; }
-      .mc-input.is-inf { color:#f0c040; font-size:15px; letter-spacing:.02em; }
-      .mc-inf {
-        flex:0 0 26px; border:none; border-left:1px solid #2a2a2a;
-        background:transparent; color:#444; font-size:13px;
-        padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center;
-        transition:background .1s,color .12s; }
-      .mc-inf:hover { background:#1e1e1e; color:#c8a020; }
-      .mc-inf.is-inf { color:#f0c040; background:rgba(240,192,64,.07); }
+        height:26px; border:1px solid #333; border-radius:5px;
+        background:#1c1c1c; color:#777; font-size:12px; font-weight:600;
+        cursor:pointer; display:flex; align-items:center; justify-content:center;
+        transition:background .1s,color .1s,transform .07s,border-color .1s; padding:0; }
+      .mc-btn:hover { background:#272727; color:#ccc; border-color:#555; }
+      .mc-btn:active { transform:scale(.86); color:#fff; }
+      .mc-btn-reset { color:#5599ee; border-color:#2a3a55; }
+      .mc-btn-reset:hover { background:#1a2840; color:#88bbff; border-color:#4477cc; }
+      .mc-btn-inf { color:#666; }
+      .mc-btn-inf.is-inf { color:#f0c040; background:rgba(240,192,64,.09); border-color:rgba(240,192,64,.35); }
+      .mc-btn-inf.is-inf:hover { background:rgba(240,192,64,.16); border-color:rgba(240,192,64,.55); }
       #manifestGrid.accepting { outline:2px dashed #88aaff; outline-offset:-4px; border-radius:4px; }
       .manifest-drop-hint { color:#666; font-size:12px; margin:auto; padding:32px; text-align:center; user-select:none; line-height:1.8; }
     `;
@@ -239,7 +235,6 @@ function buildManifestView() {
 
 function makeManifestCard(id) {
   const isUnlimited = state.manifest[id] === null;
-  const count = isUnlimited ? 1 : (state.manifest[id] || 1);
 
   const card = document.createElement('div');
   card.className = 'manifest-card' + (isUnlimited ? ' is-unlimited' : '');
@@ -258,81 +253,90 @@ function makeManifestCard(id) {
   svgWrap.innerHTML = _makeSwatchSvg(id);
   card.appendChild(svgWrap);
 
-  // ── Casino-polish count stepper: [−] [display] [+] [∞] ───────────────────
-  // null = unlimited (shown as ∞, gold glow on card + ∞ button active).
-  // Typing ∞ / inf in the field also sets unlimited.
+  // ── Count display bar (read-only, no input) ───────────────────────────────
+  const countBar = document.createElement('div');
+  countBar.className = 'mc-count-bar' + (isUnlimited ? ' is-inf' : '');
+  countBar.textContent = isUnlimited ? 'unlimited' : String(state.manifest[id] || 1);
+  card.appendChild(countBar);
 
-  const stepper = document.createElement('div');
-  stepper.className = 'mc-stepper';
+  // ── 4-button row: [↺ reset] [+1] [+5] [∞] ───────────────────────────────
+  // ↺  = reset to 1 (blue)
+  // +1 = increment by 1
+  // +5 = increment by 5
+  // ∞  = toggle unlimited (gold when active)
+  const btns = document.createElement('div');
+  btns.className = 'mc-btns';
 
-  const dec = document.createElement('button');
-  dec.className = 'mc-btn';
-  dec.textContent = '−';
-  dec.disabled = isUnlimited;
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'mc-btn mc-btn-reset';
+  resetBtn.textContent = '↺';
+  resetBtn.title = 'Reset to 1';
 
-  const display = document.createElement('div');
-  display.className = 'mc-display';
+  const plus1Btn = document.createElement('button');
+  plus1Btn.className = 'mc-btn';
+  plus1Btn.textContent = '+1';
+  plus1Btn.title = 'Add 1';
 
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.className = 'mc-input' + (isUnlimited ? ' is-inf' : '');
-  inp.value = isUnlimited ? '∞' : count;
-  inp.title = 'Count (type ∞ for unlimited)';
-
-  const inc = document.createElement('button');
-  inc.className = 'mc-btn';
-  inc.textContent = '+';
-  inc.disabled = isUnlimited;
+  const plus5Btn = document.createElement('button');
+  plus5Btn.className = 'mc-btn';
+  plus5Btn.textContent = '+5';
+  plus5Btn.title = 'Add 5';
 
   const infBtn = document.createElement('button');
-  infBtn.className = 'mc-inf' + (isUnlimited ? ' is-inf' : '');
+  infBtn.className = 'mc-btn mc-btn-inf' + (isUnlimited ? ' is-inf' : '');
   infBtn.textContent = '∞';
-  infBtn.title = isUnlimited ? 'Click to set a fixed count' : 'Click for unlimited';
+  infBtn.title = isUnlimited ? 'Click to set a fixed count' : 'Set unlimited';
 
-  // Shared helper — switches between unlimited and fixed-count mode
-  function _setUnlimited(on) {
-    if (on) {
-      state.manifest[id] = null;
-      inp.value = '∞';
-      inp.classList.add('is-inf');
-      dec.disabled = true;
-      inc.disabled = true;
-      infBtn.classList.add('is-inf');
-      infBtn.title = 'Click to set a fixed count';
-      card.classList.add('is-unlimited');
-    } else {
-      const v = Math.max(1, parseInt(inp.value) || 1);
-      state.manifest[id] = v;
-      inp.value = v;
-      inp.classList.remove('is-inf');
-      dec.disabled = false;
-      inc.disabled = false;
-      infBtn.classList.remove('is-inf');
-      infBtn.title = 'Click for unlimited';
-      card.classList.remove('is-unlimited');
-    }
-    autosave();
+  // Shared helper — refresh the display bar + card glow state
+  function _refresh() {
+    const unl = state.manifest[id] === null;
+    countBar.textContent = unl ? 'unlimited' : String(state.manifest[id]);
+    countBar.className = 'mc-count-bar' + (unl ? ' is-inf' : '');
+    card.classList.toggle('is-unlimited', unl);
+    infBtn.classList.toggle('is-inf', unl);
+    infBtn.title = unl ? 'Click to set a fixed count' : 'Set unlimited';
+    resetBtn.style.opacity = unl ? '0.25' : '1';
+    plus1Btn.style.opacity = unl ? '0.25' : '1';
+    plus5Btn.style.opacity = unl ? '0.25' : '1';
+    resetBtn.disabled = unl;
+    plus1Btn.disabled = unl;
+    plus5Btn.disabled = unl;
   }
+  _refresh(); // set initial disabled state
 
-  inp.addEventListener('change', () => {
-    const raw = inp.value.trim();
-    if (raw === '∞' || raw.toLowerCase() === 'inf' || raw === '') {
-      _setUnlimited(true);
+  resetBtn.addEventListener('click', () => {
+    if (state.manifest[id] === null) return;
+    state.manifest[id] = 1;
+    _refresh();
+    autosave();
+  });
+  plus1Btn.addEventListener('click', () => {
+    if (state.manifest[id] === null) return;
+    state.manifest[id] = (state.manifest[id] || 1) + 1;
+    _refresh();
+    autosave();
+  });
+  plus5Btn.addEventListener('click', () => {
+    if (state.manifest[id] === null) return;
+    state.manifest[id] = (state.manifest[id] || 1) + 5;
+    _refresh();
+    autosave();
+  });
+  infBtn.addEventListener('click', () => {
+    if (state.manifest[id] === null) {
+      state.manifest[id] = 1; // turn off unlimited
     } else {
-      _setUnlimited(false); // sets inp.value = parseInt(inp.value)||1, state, autosave
+      state.manifest[id] = null; // turn on unlimited
     }
+    _refresh();
+    autosave();
   });
 
-  dec.addEventListener('click', () => adjustCount(id, inp, dec, inc, -1));
-  inc.addEventListener('click', () => adjustCount(id, inp, dec, inc, +1));
-  infBtn.addEventListener('click', () => _setUnlimited(state.manifest[id] !== null));
-
-  display.appendChild(inp);
-  stepper.appendChild(dec);
-  stepper.appendChild(display);
-  stepper.appendChild(inc);
-  stepper.appendChild(infBtn);
-  card.appendChild(stepper);
+  btns.appendChild(resetBtn);
+  btns.appendChild(plus1Btn);
+  btns.appendChild(plus5Btn);
+  btns.appendChild(infBtn);
+  card.appendChild(btns);
 
   // ── Card as drop target ───────────────────────────────────────────────────
   card.addEventListener('dragover', e => {
@@ -356,26 +360,18 @@ function makeManifestCard(id) {
 
 // ── Count logic ───────────────────────────────────────────────────────────────
 
-function adjustCount(id, inputEl, decBtn, incBtn, delta) {
-  if (state.manifest[id] === null) return; // unlimited — ignore
-  const next = Math.max(1, (parseInt(inputEl.value) || 1) + delta);
-  inputEl.value = next;
-  state.manifest[id] = next;
-  autosave();
-}
-
 function addOrIncrement(id) {
   if (state.manifest[id] === null) {
     // Already unlimited — nothing to change
     return;
   }
   if (state.manifest[id] > 0) {
-    // Existing tile: increment and update in-place (no rebuild needed)
+    // Existing tile: increment and update display bar in-place (no rebuild needed)
     state.manifest[id]++;
     const card = document.querySelector(`.manifest-card[data-tile="${CSS.escape(id)}"]`);
     if (card) {
-      const inp = card.querySelector('input[type="text"]');
-      if (inp) inp.value = state.manifest[id];
+      const bar = card.querySelector('.mc-count-bar');
+      if (bar) bar.textContent = String(state.manifest[id]);
     } else {
       buildManifestView(); // shouldn't happen but safe fallback
     }

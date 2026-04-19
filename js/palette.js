@@ -38,10 +38,12 @@ function makeTileSwatchSvg(tileId) {
       inner += `<text x="${rv.x}" y="${rv.y}" font-size="10.5" fill="#000" font-weight="300" text-anchor="middle" dominant-baseline="central">${rv.v}</text>`;
     }
   }
-  // Tile label (Y / T / OO etc.) — shown as a small badge in the bottom-right corner,
-  // outside the rotated group so it stays upright
+  // Tile label (Y / T / OO / M etc.) — centered inside the hex, white with dark
+  // outline so it reads on any tile color.  Tobymao renders labels prominently
+  // inside the city symbol; this approximation places it at hex centre.
+  // Outside the rotated group so it stays upright on pointy-top maps.
   const labelBadge = td.tileLabel
-    ? `<text x="36" y="44" font-size="8" fill="rgba(255,255,255,0.55)" font-weight="bold" text-anchor="end" dominant-baseline="auto">${td.tileLabel}</text>`
+    ? `<text x="0" y="3" font-size="18" fill="white" font-weight="bold" text-anchor="middle" dominant-baseline="middle" stroke="#333" stroke-width="3" paint-order="stroke">${td.tileLabel}</text>`
     : '';
   // Tile number — small badge bottom-right, semi-transparent, doesn't rotate
   const numBadge = `<text x="46" y="44" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end" dominant-baseline="auto">#${tileId}</text>`;

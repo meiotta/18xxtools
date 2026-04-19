@@ -989,6 +989,13 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
         state.manifest = result.manifest;
         if (!state.customTiles) state.customTiles = {};
         Object.assign(state.customTiles, result.customTiles);
+        // Register game-specific tiles (X-series etc.) immediately so they render in
+        // the manifest view.  customTiles format is { id: { count, color, code } }
+        // where `code` is the DSL string.  _processEntry now accepts `code` as an
+        // alias for `dsl` so we can pass customTiles directly.
+        if (Object.keys(result.customTiles).length > 0) {
+          TileRegistry.setEmbeddedTiles(result.customTiles);
+        }
       }
       // Sync orientation select and dimension inputs in the toolbar/config panel
       syncOrientationSelect();
