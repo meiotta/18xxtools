@@ -143,31 +143,62 @@ function buildManifestView() {
     const style = document.createElement('style');
     style.id = 'manifestStyles';
     style.textContent = `
-      .manifest-card { position:relative; display:inline-flex; flex-direction:column;
-        align-items:center; background:#2a2a2a; border:2px solid #444;
-        border-radius:7px; padding:8px 8px 9px; width:116px; box-sizing:border-box;
-        transition:border-color .12s, transform .1s; cursor:default; }
-      .manifest-card:hover { border-color:#888; }
-      .manifest-card.drag-over { border-color:#88aaff; transform:scale(1.04); }
-      .manifest-remove { position:absolute; top:4px; right:4px; width:16px; height:16px;
-        background:#c0392b; border:none; border-radius:50%; color:#fff;
-        font-size:10px; line-height:16px; text-align:center; cursor:pointer;
-        display:none; padding:0; z-index:3; font-weight:bold; }
+      .manifest-card {
+        position:relative; display:inline-flex; flex-direction:column; align-items:center;
+        background:linear-gradient(170deg,#2c2c2c 0%,#242424 100%);
+        border:1px solid #3d3d3d; border-radius:10px;
+        padding:9px 9px 10px; width:128px; box-sizing:border-box;
+        box-shadow:0 2px 10px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04);
+        transition:border-color .15s,transform .12s,box-shadow .15s; cursor:default; }
+      .manifest-card:hover {
+        border-color:#5a5a5a; transform:translateY(-2px);
+        box-shadow:0 6px 20px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06); }
+      .manifest-card.is-unlimited {
+        border-color:rgba(255,200,60,.3);
+        box-shadow:0 2px 10px rgba(0,0,0,.45),0 0 14px rgba(255,200,60,.12),inset 0 1px 0 rgba(255,255,255,.04); }
+      .manifest-card.is-unlimited:hover {
+        border-color:rgba(255,200,60,.5);
+        box-shadow:0 6px 20px rgba(0,0,0,.55),0 0 20px rgba(255,200,60,.2),inset 0 1px 0 rgba(255,255,255,.06); }
+      .manifest-card.drag-over { border-color:#88aaff; transform:scale(1.03); }
+      .manifest-remove {
+        position:absolute; top:5px; right:5px; width:17px; height:17px;
+        background:rgba(180,40,30,.8); border:none; border-radius:50%; color:#fff;
+        font-size:11px; line-height:17px; text-align:center; cursor:pointer;
+        display:none; padding:0; z-index:3;
+        transition:background .1s,transform .1s; }
+      .manifest-remove:hover { background:#e03020; transform:scale(1.2); }
       .manifest-card:hover .manifest-remove { display:block; }
-      .manifest-count { display:flex; align-items:stretch; gap:0; margin-top:7px;
-        width:100%; background:#1a1a1a; border:1px solid #3a3a3a; border-radius:5px;
-        overflow:hidden; }
-      .manifest-count button { flex:0 0 28px; font-size:15px; padding:0; line-height:1;
-        cursor:pointer; border:none; background:transparent; color:#888; }
-      .manifest-count button:hover:not(:disabled) { background:#2e2e2e; color:#fff; }
-      .manifest-count button:disabled { opacity:.2; cursor:default; }
-      .manifest-count input { flex:1; min-width:0; text-align:center; font-size:12px;
-        padding:0; height:24px; background:transparent; color:#eee;
-        border:none; border-left:1px solid #2e2e2e; border-right:1px solid #2e2e2e; }
-      #manifestGrid.accepting { outline:2px dashed #88aaff; outline-offset:-4px;
-        border-radius:4px; }
-      .manifest-drop-hint { color:#777; font-size:12px; margin:auto;
-        padding:24px; text-align:center; user-select:none; }
+      /* ── Stepper ── */
+      .mc-stepper {
+        display:flex; align-items:stretch; width:100%; margin-top:8px; height:30px;
+        background:#161616; border:1px solid #333; border-radius:7px; overflow:hidden;
+        box-shadow:inset 0 1px 3px rgba(0,0,0,.5); }
+      .mc-btn {
+        flex:0 0 28px; border:none; background:transparent; color:#666;
+        font-size:17px; padding:0; cursor:pointer; display:flex;
+        align-items:center; justify-content:center;
+        transition:background .1s,color .12s,transform .08s; }
+      .mc-btn:hover:not(:disabled) { background:#222; color:#ddd; }
+      .mc-btn:active:not(:disabled) { transform:scale(.84); color:#fff; }
+      .mc-btn:disabled { opacity:.18; cursor:default; }
+      .mc-display {
+        flex:1; min-width:0; display:flex; align-items:center; justify-content:center;
+        border-left:1px solid #2a2a2a; border-right:1px solid #2a2a2a; }
+      .mc-input {
+        width:100%; text-align:center; background:transparent; border:none;
+        outline:none; color:#e8e8e8; font-size:13px; font-weight:600;
+        font-variant-numeric:tabular-nums; padding:0 3px;
+        transition:color .15s; }
+      .mc-input.is-inf { color:#f0c040; font-size:15px; letter-spacing:.02em; }
+      .mc-inf {
+        flex:0 0 26px; border:none; border-left:1px solid #2a2a2a;
+        background:transparent; color:#444; font-size:13px;
+        padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center;
+        transition:background .1s,color .12s; }
+      .mc-inf:hover { background:#1e1e1e; color:#c8a020; }
+      .mc-inf.is-inf { color:#f0c040; background:rgba(240,192,64,.07); }
+      #manifestGrid.accepting { outline:2px dashed #88aaff; outline-offset:-4px; border-radius:4px; }
+      .manifest-drop-hint { color:#666; font-size:12px; margin:auto; padding:32px; text-align:center; user-select:none; line-height:1.8; }
     `;
     document.head.appendChild(style);
   }
@@ -207,11 +238,14 @@ function buildManifestView() {
 // ── Card factory ──────────────────────────────────────────────────────────────
 
 function makeManifestCard(id) {
+  const isUnlimited = state.manifest[id] === null;
+  const count = isUnlimited ? 1 : (state.manifest[id] || 1);
+
   const card = document.createElement('div');
-  card.className = 'manifest-card';
+  card.className = 'manifest-card' + (isUnlimited ? ' is-unlimited' : '');
   card.setAttribute('data-tile', id);
 
-  // Remove button (shown on hover via CSS)
+  // ── Remove button (shown on hover via CSS) ────────────────────────────────
   const removeBtn = document.createElement('button');
   removeBtn.className = 'manifest-remove';
   removeBtn.textContent = '×';
@@ -219,55 +253,88 @@ function makeManifestCard(id) {
   removeBtn.addEventListener('click', e => { e.stopPropagation(); removeFromManifest(id); });
   card.appendChild(removeBtn);
 
-  // SVG swatch — tile number is already rendered inside the SVG top-left
+  // ── SVG swatch ────────────────────────────────────────────────────────────
   const svgWrap = document.createElement('div');
   svgWrap.innerHTML = _makeSwatchSvg(id);
   card.appendChild(svgWrap);
 
-  // Count stepper — null = unlimited (displayed as ∞)
-  // Simplified: [−] [n] [+]  — type ∞ in the field to set unlimited
-  const isUnlimited = state.manifest[id] === null;
-  const count = isUnlimited ? 1 : (state.manifest[id] || 1);
-  const wrap = document.createElement('div');
-  wrap.className = 'manifest-count';
+  // ── Casino-polish count stepper: [−] [display] [+] [∞] ───────────────────
+  // null = unlimited (shown as ∞, gold glow on card + ∞ button active).
+  // Typing ∞ / inf in the field also sets unlimited.
+
+  const stepper = document.createElement('div');
+  stepper.className = 'mc-stepper';
 
   const dec = document.createElement('button');
+  dec.className = 'mc-btn';
   dec.textContent = '−';
   dec.disabled = isUnlimited;
-  dec.addEventListener('click', () => adjustCount(id, inp, dec, inc, -1));
+
+  const display = document.createElement('div');
+  display.className = 'mc-display';
 
   const inp = document.createElement('input');
   inp.type = 'text';
+  inp.className = 'mc-input' + (isUnlimited ? ' is-inf' : '');
   inp.value = isUnlimited ? '∞' : count;
   inp.title = 'Count (type ∞ for unlimited)';
-  inp.addEventListener('change', () => {
-    const raw = inp.value.trim();
-    if (raw === '∞' || raw === 'inf' || raw === '') {
-      inp.value = '∞';
-      state.manifest[id] = null;
-      dec.disabled = true;
-      inc.disabled = true;
-    } else {
-      const v = Math.max(1, parseInt(raw) || 1);
-      inp.value = v;
-      state.manifest[id] = v;
-      dec.disabled = false;
-      inc.disabled = false;
-    }
-    autosave();
-  });
 
   const inc = document.createElement('button');
+  inc.className = 'mc-btn';
   inc.textContent = '+';
   inc.disabled = isUnlimited;
+
+  const infBtn = document.createElement('button');
+  infBtn.className = 'mc-inf' + (isUnlimited ? ' is-inf' : '');
+  infBtn.textContent = '∞';
+  infBtn.title = isUnlimited ? 'Click to set a fixed count' : 'Click for unlimited';
+
+  // Shared helper — switches between unlimited and fixed-count mode
+  function _setUnlimited(on) {
+    if (on) {
+      state.manifest[id] = null;
+      inp.value = '∞';
+      inp.classList.add('is-inf');
+      dec.disabled = true;
+      inc.disabled = true;
+      infBtn.classList.add('is-inf');
+      infBtn.title = 'Click to set a fixed count';
+      card.classList.add('is-unlimited');
+    } else {
+      const v = Math.max(1, parseInt(inp.value) || 1);
+      state.manifest[id] = v;
+      inp.value = v;
+      inp.classList.remove('is-inf');
+      dec.disabled = false;
+      inc.disabled = false;
+      infBtn.classList.remove('is-inf');
+      infBtn.title = 'Click for unlimited';
+      card.classList.remove('is-unlimited');
+    }
+    autosave();
+  }
+
+  inp.addEventListener('change', () => {
+    const raw = inp.value.trim();
+    if (raw === '∞' || raw.toLowerCase() === 'inf' || raw === '') {
+      _setUnlimited(true);
+    } else {
+      _setUnlimited(false); // sets inp.value = parseInt(inp.value)||1, state, autosave
+    }
+  });
+
+  dec.addEventListener('click', () => adjustCount(id, inp, dec, inc, -1));
   inc.addEventListener('click', () => adjustCount(id, inp, dec, inc, +1));
+  infBtn.addEventListener('click', () => _setUnlimited(state.manifest[id] !== null));
 
-  wrap.appendChild(dec);
-  wrap.appendChild(inp);
-  wrap.appendChild(inc);
-  card.appendChild(wrap);
+  display.appendChild(inp);
+  stepper.appendChild(dec);
+  stepper.appendChild(display);
+  stepper.appendChild(inc);
+  stepper.appendChild(infBtn);
+  card.appendChild(stepper);
 
-  // Card as drop target: same tile → increment; different tile → add/increment
+  // ── Card as drop target ───────────────────────────────────────────────────
   card.addEventListener('dragover', e => {
     if (e.dataTransfer.types.includes('text/plain')) {
       e.preventDefault();

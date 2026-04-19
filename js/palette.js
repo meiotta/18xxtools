@@ -14,11 +14,15 @@ function makeTileSwatchSvg(tileId) {
   let inner = '';
   // Hex background — inradius 43.5 matches ep() in renderer (DSL track termination point)
   inner += `<polygon points="50,0 25,43.5 -25,43.5 -50,0 -25,-43.5 25,-43.5" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
-  // Track + station geometry via canonical DSL renderer — pass tileDef as first arg
-  // so hexToSvgInner enters the DSL branch (hex.nodes/paths) rather than the legacy
-  // geometry-field branch.  All tile-pack tiles have nodes[] and paths[] on their
-  // tileDef (set by tile-registry _processEntry).
-  inner += hexToSvgInner(td, null);
+  // Track + station geometry via the legacy tileDef branch of hexToSvgInner.
+  // Pass null as hex and td as tileDef so the function reads the pre-computed
+  // geometry fields (svgPath, city, oo, cities, town, townAt, dualTown, cityPositions,
+  // townPositions) that normalizeTileDef built.  Do NOT pass td as hex — that
+  // routes to the DSL branch which (a) silently skips pure-track tiles because
+  // tile-registry only sets td.nodes when raw.nodes.length > 0, and (b) leaves
+  // td.paths un-normalized for node-free tiles (normalization is inside the same
+  // guard), so path endpoints read as undefined.type → zero-length lines.
+  inner += hexToSvgInner(null, td);
   // Revenue bubble(s) — tobymao single_revenue.rb:
   //   radius_for_revenue(v): 15 at scale 100 → 7.5 at scale 50
   //   text: font-size 21px → 10.5 at scale 50, font-weight 300, dominant-baseline central
