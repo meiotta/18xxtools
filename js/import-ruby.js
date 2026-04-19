@@ -1067,7 +1067,7 @@ function _rbParseCompany(hashStr) {
     color, textColor,
     companyType: isConc ? 'concession' : 'private',
     closesOn: '', buyerType: 'any',
-    description: desc,
+    ability: desc,
     abilities: isConc
       ? abilities.filter(a => a.type !== 'exchange' && a.type !== 'blocks_hexes_consent' && a.type !== 'blocks_hexes')
       : abilities,
@@ -1214,6 +1214,8 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
         else state.corpPacks.push(newPack);
       });
 
+      // Auto-select first private so detail panel opens immediately
+      if (typeof _selectedPrivateIdx !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
       if (typeof renderPrivatesCards   === 'function') renderPrivatesCards();
       if (typeof renderCorpsSection    === 'function') renderCorpsSection();
       if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
@@ -1223,7 +1225,8 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
       const pCount = privates.length;
       const cCount = packs.reduce((s, p) => s + p.companies.length, 0);
       const concCount = privates.filter(p => p.companyType === 'concession').length;
-      updateStatus(`Imported ${pCount} privates (${concCount} concessions) + ${cCount} corporations from ${file.name}`);
+      const abCount  = privates.reduce((s, p) => s + (p.abilities || []).length, 0);
+      updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations from ${file.name}`);
     } catch (err) {
       console.error('[importEntitiesRb] error:', err);
       alert('Entities import failed: ' + err.message);
