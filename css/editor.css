@@ -473,23 +473,18 @@ canvas { display: block; }
 .file-menu-item:last-child { border-bottom: none; }
 .file-menu-sep { height: 1px; background: #3a3a3a; margin: 2px 0; }
 
-/* ── File menu submenus ─────────────────────────────────────────────────────── */
-.file-menu-parent { position: relative; }
+/* ── File menu submenus (inline accordion — no viewport overflow) ─────────── */
 .file-menu-parent-btn { display: flex; align-items: center; justify-content: space-between; }
-.sub-arrow { font-size: 10px; margin-left: 8px; color: #888; pointer-events: none; }
+.sub-arrow { font-size: 10px; color: #888; pointer-events: none; transition: transform 0.15s; }
+.file-menu-parent.sub-open .sub-arrow { transform: rotate(90deg); }
 .file-submenu {
   display: none;
-  position: absolute;
-  left: 100%;
-  top: -1px;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 5px;
-  min-width: 175px;
-  z-index: 301;
-  box-shadow: 4px 6px 18px rgba(0,0,0,0.6);
-  overflow: hidden;
+  border-top: 1px solid #2e2e2e;
+  border-bottom: 1px solid #2e2e2e;
+  background: #222;
 }
+.file-submenu .file-menu-item { padding-left: 28px; font-size: 12px; }
+.file-submenu .file-menu-sep  { margin: 1px 0; background: #2e2e2e; }
 .file-menu-parent:hover .file-submenu,
 .file-menu-parent.sub-open .file-submenu { display: block; }
 .file-menu-stub { opacity: 0.48; }
