@@ -237,13 +237,104 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Loading splash — show for 2200ms with a 300ms fade-out at 1900ms
-  const splash = document.getElementById('loadingSplash');
-  if (splash) {
+  // Loading splash — real async validation replaces the old 2.2s CSS timer.
+  // Steps: validate tile packs → check custom packs → check localStorage state.
+  // Bar fills via JS transitions; status text shows live progress.
+  // Errors are shown as amber warnings; splash auto-dismisses after ≥1.8s total.
+  (async () => {
+    const splash    = document.getElementById('loadingSplash');
+    const bar       = document.getElementById('splashBar');
+    const statusEl  = document.getElementById('splashStatus');
+    if (!splash) return;
+
+    const setStatus = (msg, isWarn) => {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.className = 'splash-status' + (isWarn ? ' warn' : '');
+    };
+    const setBar = pct => { if (bar) bar.style.width = pct + '%'; };
+    const delay  = ms  => new Promise(r => setTimeout(r, ms));
+
     splash.style.display = 'flex';
-    setTimeout(() => { splash.classList.add('splash-fadeout'); }, 1900);
-    setTimeout(() => { splash.style.display = 'none'; splash.classList.remove('splash-fadeout'); }, 2200);
-  }
+    setBar(0);
+
+    // ── Step 1: validate tile packs ─────────────────────────────────────────
+    setStatus('Validating tile packs…');
+    await delay(0); // yield to paint
+    setBar(20);
+
+    let badTiles = 0, badPackNames = [];
+    if (typeof TILE_PACKS !== 'undefined' && typeof TILE_GEO !== 'undefined') {
+      const COLOR_KEYS = new Set(['yellow','green','brown','gray','grey','white']);
+      for (const packName of (typeof TILE_PACK_ORDER !== 'undefined' ? TILE_PACK_ORDER : [])) {
+        const pack = TILE_PACKS[packName];
+        if (!pack) continue;
+        let packBad = 0;
+        const validateEntry = (id, entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          if (!('dsl' in entry)) return; // not a leaf
+          if (!entry.dsl || entry.dsl === '') return; // blank DSL is valid (white tiles)
+          try {
+            const r = TILE_GEO.parseDSL(entry.dsl, entry.color);
+            if (!r) packBad++;
+          } catch (_) { packBad++; }
+        };
+        for (const [k, v] of Object.entries(pack)) {
+          if (COLOR_KEYS.has(k) && v && typeof v === 'object' && !Array.isArray(v)) {
+            for (const [id, entry] of Object.entries(v)) validateEntry(id, entry);
+          } else {
+            validateEntry(k, v);
+          }
+        }
+        if (packBad > 0) { badTiles += packBad; badPackNames.push(packName); }
+      }
+    }
+
+    setBar(55);
+    setStatus('Validating custom packs…');
+    await delay(0);
+
+    // ── Step 2: check custom packs in localStorage ──────────────────────────
+    let customPackErr = false;
+    try {
+      const raw = localStorage.getItem('18xx_custom_packs_v1');
+      if (raw) JSON.parse(raw); // parse check only
+    } catch (_) { customPackErr = true; }
+
+    setBar(80);
+    setStatus('Checking saved state…');
+    await delay(0);
+
+    // ── Step 3: check localStorage state ───────────────────────────────────
+    let stateErr = false;
+    try {
+      const raw = localStorage.getItem('18xx_map_state');
+      if (raw) JSON.parse(raw);
+    } catch (_) { stateErr = true; }
+
+    setBar(100);
+
+    // ── Show result ─────────────────────────────────────────────────────────
+    if (badTiles > 0) {
+      setStatus(`⚠ ${badTiles} malformed tile${badTiles !== 1 ? 's' : ''} in: ${badPackNames.join(', ')}`, true);
+      await delay(2000); // hold longer so user can read
+    } else if (stateErr) {
+      setStatus('⚠ Saved state may be corrupt — check browser console', true);
+      await delay(1500);
+    } else if (customPackErr) {
+      setStatus('⚠ Custom pack storage unreadable — packs may be missing', true);
+      await delay(1500);
+    } else {
+      setStatus('All systems nominal');
+      await delay(400); // brief "all clear" pause before fade
+    }
+
+    // ── Fade out ────────────────────────────────────────────────────────────
+    splash.classList.add('splash-fadeout');
+    await delay(300);
+    splash.style.display = 'none';
+    splash.classList.remove('splash-fadeout');
+  })();
 
   // Populate toolbar dim selects
   const dimColsSel = document.getElementById('dimCols');

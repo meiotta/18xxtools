@@ -602,3 +602,80 @@ const DEFAULT_ENABLED_PACKS = {
   'Unclassified (Review Needed)': false,
   'Unsupported': false,
 };
+
+// ── Custom pack runtime import ─────────────────────────────────────────────────
+// Custom packs are stored in localStorage as an array of {name, tiles} objects.
+// tiles is either flat { id: {dsl,color} } or nested { color: { id: {dsl,color} } }.
+// On startup, loadCustomPacksFromStorage() injects them into TILE_PACKS /
+// TILE_PACK_ORDER so TileRegistry.rebuildRegistry() picks them up automatically.
+
+const _CUSTOM_PACKS_LS_KEY = '18xx_custom_packs_v1';
+
+function loadCustomPacksFromStorage() {
+  try {
+    const raw = localStorage.getItem(_CUSTOM_PACKS_LS_KEY);
+    if (!raw) return;
+    const packs = JSON.parse(raw);
+    if (!Array.isArray(packs)) return;
+    for (const pack of packs) {
+      if (!pack.name || typeof pack.name !== 'string') continue;
+      if (!pack.tiles || typeof pack.tiles !== 'object') continue;
+      if (!TILE_PACK_ORDER.includes(pack.name)) TILE_PACK_ORDER.push(pack.name);
+      TILE_PACKS[pack.name] = pack.tiles;
+    }
+  } catch (_) { /* ignore localStorage errors */ }
+}
+
+// Merge a new named pack into the runtime registry + persist.
+// tiles: flat { id: {dsl,color} } or nested { color: { id: {dsl,color} } }
+function addCustomPack(name, tiles) {
+  if (!name || typeof name !== 'string' || !tiles) return;
+  // In-memory
+  if (!TILE_PACK_ORDER.includes(name)) TILE_PACK_ORDER.push(name);
+  TILE_PACKS[name] = tiles;
+  // Persist
+  try {
+    const raw = localStorage.getItem(_CUSTOM_PACKS_LS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex(p => p.name === name);
+    if (idx >= 0) list[idx] = { name, tiles };
+    else list.push({ name, tiles });
+    localStorage.setItem(_CUSTOM_PACKS_LS_KEY, JSON.stringify(list));
+  } catch (_) { /* ignore */ }
+  // Rebuild registry + palette + config UI
+  if (typeof TileRegistry !== 'undefined') TileRegistry.rebuildRegistry();
+  if (typeof buildPalette === 'function') buildPalette();
+  if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
+}
+
+// Remove a named custom pack from the runtime registry + storage.
+function removeCustomPack(name) {
+  const idx = TILE_PACK_ORDER.indexOf(name);
+  if (idx >= 0) TILE_PACK_ORDER.splice(idx, 1);
+  delete TILE_PACKS[name];
+  try {
+    const raw = localStorage.getItem(_CUSTOM_PACKS_LS_KEY);
+    if (raw) {
+      const list = JSON.parse(raw).filter(p => p.name !== name);
+      localStorage.setItem(_CUSTOM_PACKS_LS_KEY, JSON.stringify(list));
+    }
+  } catch (_) { /* ignore */ }
+  if (typeof TileRegistry !== 'undefined') TileRegistry.rebuildRegistry();
+  if (typeof buildPalette === 'function') buildPalette();
+  if (typeof renderTilePackToggles === 'function') renderTilePackToggles();
+}
+
+// Returns array of custom pack names currently stored.
+function getCustomPackNames() {
+  try {
+    const raw = localStorage.getItem(_CUSTOM_PACKS_LS_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.map(p => p.name).filter(Boolean);
+  } catch (_) { return []; }
+}
+
+// Inject persisted custom packs into TILE_PACKS / TILE_PACK_ORDER at startup
+// (before TileRegistry first builds — tile-packs.js loads before tile-registry.js).
+loadCustomPacksFromStorage();

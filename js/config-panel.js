@@ -61,6 +61,73 @@ function renderTilePackToggles() {
 
     container.appendChild(row);
   }
+
+  // ── Custom packs section ───────────────────────────────────────────────────
+  // Shows currently loaded custom packs + a file-picker button to load more.
+
+  const divider = document.createElement('div');
+  divider.style.cssText = 'border-top:1px solid #333;margin:10px 0 8px;';
+  container.appendChild(divider);
+
+  const cpLabel = document.createElement('div');
+  cpLabel.style.cssText = 'font-size:10px;color:#666;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;';
+  cpLabel.textContent = 'Custom Packs';
+  container.appendChild(cpLabel);
+
+  // List installed custom packs
+  const customNames = typeof getCustomPackNames === 'function' ? getCustomPackNames() : [];
+  if (customNames.length === 0) {
+    const none = document.createElement('div');
+    none.style.cssText = 'font-size:11px;color:#555;margin-bottom:6px;';
+    none.textContent = 'No custom packs loaded';
+    container.appendChild(none);
+  } else {
+    for (const name of customNames) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;';
+      row.innerHTML = `
+        <span style="flex:1;font-size:11px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${name}">${name}</span>
+        <button style="flex-shrink:0;padding:1px 6px;font-size:10px;background:#3a1a1a;border:1px solid #664;border-radius:3px;color:#c88;cursor:pointer;" data-pack="${name}">×</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => {
+        if (typeof removeCustomPack === 'function') removeCustomPack(name);
+        renderTilePackToggles(); // rebuild this UI
+      });
+      container.appendChild(row);
+    }
+  }
+
+  // File-picker button
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.json';
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const data = JSON.parse(evt.target.result);
+        // Validate: must have name (string) and tiles (object)
+        if (!data.name || typeof data.name !== 'string') throw new Error('Missing "name" field');
+        if (!data.tiles || typeof data.tiles !== 'object') throw new Error('Missing "tiles" field');
+        addCustomPack(data.name, data.tiles);
+        renderTilePackToggles(); // rebuild this UI
+      } catch (err) {
+        alert('Invalid pack file: ' + err.message + '\n\nFormat: { "name": "My Pack", "tiles": { "id": { "dsl": "...", "color": "yellow" }, ... } }');
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = ''; // allow re-picking same file
+  });
+  container.appendChild(fileInput);
+
+  const loadBtn = document.createElement('button');
+  loadBtn.textContent = '+ Load pack file…';
+  loadBtn.style.cssText = 'margin-top:2px;padding:4px 10px;font-size:11px;background:#1e2a1e;border:1px solid #3a5a3a;border-radius:4px;color:#8bc88b;cursor:pointer;width:100%;';
+  loadBtn.addEventListener('click', () => fileInput.click());
+  container.appendChild(loadBtn);
 }
 
 function renderTerrainCostsTable() {
