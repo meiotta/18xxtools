@@ -22,5 +22,5 @@ const EDGE_MIDPOINTS = [
   { x: 37.5,  y: -21.65 }, // edge 5: upper-right
 ];
 
-// Tile hex fill colors by upgrade era
-const TILE_HEX_COLORS = { white: '#D4B483', yellow: '#F0D070', green: '#71BF44', brown: '#CB7745', grey: '#BCBDC0' };
+// Tile hex fill colors by upgrade era — source: tobymao lib/hex.rb Lib::Hex::COLOR
+const TILE_HEX_COLORS = { white: '#EAE0C8', yellow: '#fde900', green: '#71BF44', brown: '#CB7745', grey: '#BCBDC0' };
