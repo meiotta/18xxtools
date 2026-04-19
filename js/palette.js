@@ -12,22 +12,26 @@ function makeTileSwatchSvg(tileId) {
   const normColor = td.color === 'gray' ? 'grey' : td.color;
   const hexColor = TILE_HEX_COLORS[normColor] || '#c8a87a';
   let inner = '';
-  // Hex background
-  inner += `<polygon points="50,0 25,43.3 -25,43.3 -50,0 -25,-43.3 25,-43.3" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
-  // Track + station geometry via canonical hexToSvgInner — same pipeline and constants
-  // as the canvas renderer (track.rb:16 width=9→DSL_TRACK_W; city.rb:14 SLOT_RADIUS=25→DSL_SLOT_R)
-  inner += hexToSvgInner(null, td);
-  // Revenue bubble(s) — positions from tileDef (canonical tobymao revenue placement)
+  // Hex background — inradius 43.5 matches ep() in renderer (DSL track termination point)
+  inner += `<polygon points="50,0 25,43.5 -25,43.5 -50,0 -25,-43.5 25,-43.5" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
+  // Track + station geometry via canonical DSL renderer — pass tileDef as first arg
+  // so hexToSvgInner enters the DSL branch (hex.nodes/paths) rather than the legacy
+  // geometry-field branch.  All tile-pack tiles have nodes[] and paths[] on their
+  // tileDef (set by tile-registry _processEntry).
+  inner += hexToSvgInner(td, null);
+  // Revenue bubble(s) — tobymao single_revenue.rb:
+  //   radius_for_revenue(v): 15 at scale 100 → 7.5 at scale 50
+  //   text: font-size 21px → 10.5 at scale 50, font-weight 300, dominant-baseline central
   if (td.revenue && td.revenue.v !== 0) {
     const rv = td.revenue;
-    inner += `<circle cx="${rv.x}" cy="${rv.y}" r="9" fill="white" stroke="#777" stroke-width="1"/>`;
-    inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
+    inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+    inner += `<text x="${rv.x}" y="${rv.y}" font-size="10.5" fill="#000" font-weight="300" text-anchor="middle" dominant-baseline="central">${rv.v}</text>`;
   }
   if (td.revenues) {
     for (const rv of td.revenues) {
       if (rv.v === 0) continue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y + 0.5}" font-size="8" fill="#000" font-weight="bold" text-anchor="middle" dominant-baseline="middle">${rv.v}</text>`;
+      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
+      inner += `<text x="${rv.x}" y="${rv.y}" font-size="10.5" fill="#000" font-weight="300" text-anchor="middle" dominant-baseline="central">${rv.v}</text>`;
     }
   }
   // Tile label (Y / T / OO etc.) — shown as a small badge in the bottom-right corner,

@@ -152,24 +152,13 @@
     </div>
 
     <!-- TILE MANIFEST VIEW (replaces canvas in flex row) -->
-    <div id="tileManifestView" style="display:none;flex:1;flex-direction:column;background:#1e1e1e;overflow:auto;min-width:0;">
+    <div id="tileManifestView" style="display:none;flex:1;flex-direction:column;background:#1e1e1e;overflow:auto;min-width:0;position:relative;">
       <div id="manifestHeader" style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#2a2a2a;border-bottom:1px solid #444;flex-shrink:0;">
-        <button id="manifestMapBtn" style="padding:5px 12px;">← Map</button>
         <span style="color:#fff;font-size:15px;font-weight:bold;">Tile Manifest</span>
-        <select id="manifestTileSet" style="margin-left:auto;padding:4px 8px;">
-          <option value="manifest">1822 (manifest.txt)</option>
-          <option value="1822">1822</option>
-          <option value="1830">1830</option>
-          <option value="1846">1846</option>
-          <option value="1856">1856</option>
-          <option value="1861">1861</option>
-          <option value="1882">1882</option>
-          <option value="1889">1889</option>
-          <option value="18Chesapeake">18Chesapeake</option>
-          <option value="18NewEngland">18NewEngland</option>
-        </select>
+        <span style="color:#888;font-size:12px;">Drag tiles from the left panel · type ∞ for unlimited</span>
       </div>
       <div id="manifestGrid" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px;align-content:flex-start;"></div>
+      <button id="manifestMapBtn" style="position:absolute;bottom:16px;right:16px;z-index:5;padding:7px 14px;background:#3a3a3a;color:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px;">← Map</button>
     </div>
 
     <!-- MARKET VIEW -->

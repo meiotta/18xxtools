@@ -3,102 +3,9 @@
 // Replaces the canvas area (left sidebar stays visible for drag-and-drop).
 // Load order: LAST — after all other modules.
 //
-// Tile sort order: yellow → green → brown → grey, numeric low→high per color,
-// X-tiles after numeric within each color.
+// Tile sort order: yellow → green → brown → grey, numeric low→high per color.
 // Drag from left sidebar → dropped tile added with count 1 (if new to manifest).
 // Cards never show count 0. Hover reveals × to remove entirely.
-
-// ── Base tile sets ────────────────────────────────────────────────────────────
-
-const BASE_TILE_SETS = {
-  manifest: {
-    "white-blank":1,"white-town":1,"white-dual-town":1,"white-city":1,"white-oo":1,
-    "1":1,"2":1,"3":6,"4":6,"5":6,"6":8,"7":1,"56":1,"57":6,"58":6,"69":1,
-    "X1":1,"X2":2,"X3":1,"X4":1,"X21":1,
-    "14":6,"15":6,"80":6,"81":6,"82":8,"83":8,
-    "141":4,"142":4,"143":4,"144":4,
-    "207":2,"208":1,"405":3,"619":6,"622":1,"X5":3,
-    "X6":1,"X7":2,"X8":1,"X9":1,"X10":3,"X22":1,
-    "63":8,"544":6,"545":6,"546":8,"611":4,"767":4,"768":4,"769":6,
-    "X11":2,"X12":1,"X13":2,"X14":1,"X15":1,"X16":2,"X17":2,"X18":2,"X19":4,"X23":1,
-    "60":2,"169":2
-  },
-  '1822': {
-    "1":1,"2":1,"3":6,"4":6,"5":6,"6":8,
-    "14":6,"15":6,"55":1,"56":1,"57":6,"58":6,"60":2,"63":8,"69":1,
-    "80":6,"81":6,"82":8,"83":8,
-    "141":4,"142":4,"143":4,"144":4,
-    "207":2,"208":1,"544":6,"545":6,"546":8,"611":4,"619":6,"622":1
-  },
-  '1830': {
-    "1":1,"2":1,"3":2,"4":2,"7":4,"8":8,"9":7,
-    "14":3,"15":2,"16":1,"18":1,"19":1,"20":1,
-    "23":3,"24":3,"25":1,"26":1,"27":1,"28":1,"29":1,
-    "39":1,"40":1,"41":2,"42":2,"43":2,"44":1,"45":2,"46":2,"47":1,
-    "53":2,"54":1,"55":1,"56":1,"57":4,"58":2,"59":2,
-    "61":2,"62":1,"63":3,"64":1,"65":1,"66":1,"67":1,"68":1,"69":1,"70":1
-  },
-  '1846': {
-    "5":3,"6":4,
-    "14":4,"15":5,"16":2,"17":1,"18":1,"19":2,"20":2,"21":1,"22":1,
-    "23":4,"24":4,"25":2,"26":1,"27":1,"28":1,"29":1,"30":1,"31":1,
-    "39":1,"40":1,"41":2,"42":2,"43":2,"44":1,"45":2,"46":2,"47":2,
-    "51":2,"57":4,"70":1,"611":4,"619":3
-  },
-  '1856': {
-    "1":1,"2":1,"3":3,"4":3,"5":2,"6":2,"7":7,"8":13,"9":13,
-    "14":4,"15":4,"16":1,"17":1,"18":1,"19":1,"20":1,
-    "23":4,"24":4,"25":1,"26":1,"27":1,"28":1,"29":1,
-    "39":1,"40":1,"41":3,"42":3,"43":2,"44":1,"45":2,"46":2,"47":2,
-    "55":1,"56":1,"57":4,"58":3,"59":2,
-    "63":4,"64":1,"65":1,"66":1,"67":1,"68":1,"69":1,"70":1,
-    "120":1,"121":2,"122":1,"123":1,"124":1,"126":1,"127":1
-  },
-  '1861': {
-    "3":2,"4":4,"5":2,"6":2,
-    "14":2,"15":2,"16":2,"17":2,"18":2,"19":2,"20":2,"21":2,"22":2,
-    "23":5,"24":5,"25":4,"26":2,"27":2,"28":2,"29":2,"30":2,"31":2,
-    "39":2,"40":2,"41":2,"42":2,"43":2,"44":2,"45":2,"46":2,"47":2,
-    "57":2,"58":4,"63":3,"87":2,"88":2,
-    "201":3,"202":3,"204":2,"207":5,"208":2,
-    "611":3,"619":2,"621":2,"622":2,"623":3,"624":1,"625":1,"626":1,
-    "801":2,"911":3
-  },
-  '1882': {
-    "1":1,"2":1,"3":1,"4":1,"7":5,"8":10,"9":10,
-    "14":3,"15":2,"18":1,"19":1,"20":1,
-    "23":3,"24":3,"26":1,"27":1,
-    "41":2,"42":2,"43":2,"44":1,"45":2,"46":2,"47":1,
-    "55":1,"56":1,"57":4,"58":1,"59":1,
-    "63":3,"66":1,"67":1,"68":1,"69":1
-  },
-  '1889': {
-    "3":2,"5":2,"6":2,"7":2,"8":5,"9":5,
-    "12":1,"13":1,"14":1,"15":3,"16":1,"19":1,"20":1,
-    "23":2,"24":2,"25":1,"26":1,"27":1,"28":1,"29":1,
-    "39":1,"40":1,"41":1,"42":1,"45":1,"46":1,"47":1,
-    "57":2,"58":3,
-    "205":1,"206":1,"437":1,"438":1,"439":1,"440":1,"448":4,"465":1,"466":1,"492":1,
-    "611":2
-  },
-  '18Chesapeake': {
-    "1":1,"2":1,"3":2,"4":2,
-    "14":5,"15":6,"16":1,"19":1,"20":1,
-    "23":3,"24":3,"25":2,"26":1,"27":1,"28":1,"29":1,
-    "39":1,"40":1,"41":1,"42":1,"43":2,"44":1,"45":1,"46":1,"47":2,
-    "55":1,"56":1,"57":7,"58":2,"69":1,"70":1,
-    "611":5,"915":1
-  },
-  '18NewEngland': {
-    "3":5,"4":5,"6":8,"7":5,"8":18,"9":15,
-    "14":4,"15":4,"16":2,"19":2,"20":2,
-    "23":5,"24":5,"25":4,"26":2,"27":2,"28":2,"29":2,"30":2,"31":2,
-    "39":2,"40":2,"41":2,"42":2,"43":2,"44":2,"45":2,"46":2,"47":2,
-    "58":5,"63":7,"70":2,"87":4,"88":4,
-    "204":4,"207":1,"216":2,
-    "611":3,"619":4,"622":1,"911":4
-  }
-};
 
 // ── Tile def lookup ───────────────────────────────────────────────────────────
 
@@ -143,61 +50,37 @@ function sortedManifestIds() {
 if (!state.manifest) state.manifest = {};
 
 let currentView = 'map';
-let manifestInitialized = false;
 
 // ── Toggle ────────────────────────────────────────────────────────────────────
 
-function toggleManifestView() {
-  if (currentView === 'map') {
-    currentView = 'manifest';
-    document.getElementById('canvasContainer').style.display = 'none';
-    document.getElementById('tileManifestView').style.display = 'flex';
-    document.getElementById('tileManifestBtn').textContent = 'Map';
-    if (!manifestInitialized) initManifestFromBaseSet();
-    buildManifestView();
-  } else {
-    currentView = 'map';
-    document.getElementById('canvasContainer').style.display = '';
-    document.getElementById('tileManifestView').style.display = 'none';
-    document.getElementById('tileManifestBtn').textContent = 'Tile Manifest';
-  }
+function _enterManifest() {
+  currentView = 'manifest';
+  document.getElementById('canvasContainer').style.display = 'none';
+  document.getElementById('tileManifestView').style.display = 'flex';
+  document.getElementById('tileManifestBtn').textContent = 'Map';
+  buildManifestView();
 }
 
-document.getElementById('tileManifestBtn').addEventListener('click', toggleManifestView);
-document.getElementById('manifestMapBtn').addEventListener('click', () => {
+function _exitManifest() {
   currentView = 'map';
   document.getElementById('canvasContainer').style.display = '';
   document.getElementById('tileManifestView').style.display = 'none';
   document.getElementById('tileManifestBtn').textContent = 'Tile Manifest';
-});
-
-// ── Base set loaders ──────────────────────────────────────────────────────────
-
-function initManifestFromBaseSet() {
-  const setKey = document.getElementById('manifestTileSet').value;
-  const base = BASE_TILE_SETS[setKey] || BASE_TILE_SETS['manifest'];
-  for (const [id, count] of Object.entries(base)) {
-    if (!(id in state.manifest)) state.manifest[id] = count;
-  }
-  manifestInitialized = true;
 }
 
-function loadBaseSet(setKey) {
-  const base = BASE_TILE_SETS[setKey] || BASE_TILE_SETS['manifest'];
-  state.manifest = Object.assign({}, base);
-  autosave();
-  buildManifestView();
+function toggleManifestView() {
+  if (currentView === 'map') _enterManifest(); else _exitManifest();
 }
 
-document.getElementById('manifestTileSet').addEventListener('change', e => {
-  if (currentView === 'manifest') loadBaseSet(e.target.value);
-});
+document.getElementById('tileManifestBtn').addEventListener('click', toggleManifestView);
+document.getElementById('manifestMapBtn').addEventListener('click', _exitManifest);
 
 // ── Grid builder ──────────────────────────────────────────────────────────────
 
 // ── Pack short labels ─────────────────────────────────────────────────────────
 
 const PACK_LABELS = {
+  'White Tiles': 'White',
   'Basic Tile Pack': 'Basic',
   'Junctions & Nontraditional Cities': 'Junctions',
   'Limited Exit & Token Cities': 'Token Cities',
@@ -364,14 +247,12 @@ function makeManifestCard(id) {
       state.manifest[id] = null;
       dec.disabled = true;
       inc.disabled = true;
-      if (inf) inf.disabled = true;
     } else {
       const v = Math.max(1, parseInt(raw) || 1);
       inp.value = v;
       state.manifest[id] = v;
       dec.disabled = false;
       inc.disabled = false;
-      if (inf) inf.disabled = false;
     }
     autosave();
   });
@@ -381,23 +262,9 @@ function makeManifestCard(id) {
   inc.disabled = isUnlimited;
   inc.addEventListener('click', () => adjustCount(id, inp, dec, inc, +1));
 
-  const inf = document.createElement('button');
-  inf.textContent = '∞';
-  inf.title = 'Set unlimited';
-  inf.addEventListener('click', () => {
-    state.manifest[id] = null;
-    inp.value = '∞';
-    dec.disabled = true;
-    inc.disabled = true;
-    inf.disabled = true;
-    autosave();
-  });
-  if (isUnlimited) inf.disabled = true;
-
   wrap.appendChild(dec);
   wrap.appendChild(inp);
   wrap.appendChild(inc);
-  wrap.appendChild(inf);
   card.appendChild(wrap);
 
   // Card as drop target: same tile → increment; different tile → add/increment
