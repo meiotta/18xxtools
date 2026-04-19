@@ -1059,6 +1059,7 @@ function _rbParseCompany(hashStr) {
   const exchAb  = abilities.find(a => a.type === 'exchange' && a.from === 'par');
   const isConc  = !!exchAb;
 
+  const desc = _rbStr(hashStr, 'desc') || '';
   const priv = {
     id: _cpRandId('prv'),
     sym, name,
@@ -1066,7 +1067,10 @@ function _rbParseCompany(hashStr) {
     color, textColor,
     companyType: isConc ? 'concession' : 'private',
     closesOn: '', buyerType: 'any',
-    abilities: [],
+    description: desc,
+    abilities: isConc
+      ? abilities.filter(a => a.type !== 'exchange' && a.type !== 'blocks_hexes_consent' && a.type !== 'blocks_hexes')
+      : abilities,
   };
 
   if (isConc) {
@@ -1112,7 +1116,9 @@ function importEntitiesRb(content) {
     .replace(/'\s*\\\s*\n\s*'/g, '')
     .replace(/#[^\n]*/g, '');
 
-  const privates = _rbSplitHashes(_rbExtractArray(src, 'COMPANIES')).map(_rbParseCompany);
+  const privates = _rbSplitHashes(_rbExtractArray(src, 'COMPANIES'))
+    .map(_rbParseCompany)
+    .filter(p => !p.name.startsWith('MINOR:'));
 
   const corpsByType = {};
   _rbSplitHashes(_rbExtractArray(src, 'CORPORATIONS')).forEach(hashStr => {
