@@ -44,9 +44,10 @@ window.debugHex = function(key) {
 };
 
 // ─── DSL HEX COLORS ───────────────────────────────────────────────────────────
+// Source: tobymao lib/hex.rb Lib::Hex::COLOR — must match TILE_HEX_COLORS in constants.js
 const STATIC_BG_COLORS = {
-  white:  '#D4B483',
-  yellow: '#F0D070',
+  white:  '#EAE0C8',
+  yellow: '#fde900',
   green:  '#71BF44',
   brown:  '#CB7745',
   gray:   '#BCBDC0',
@@ -55,7 +56,7 @@ const STATIC_BG_COLORS = {
 };
 
 const STATIC_PHASE_COLORS = {
-  yellow: '#F0D070',
+  yellow: '#fde900',
   green:  '#71BF44',
   brown:  '#CB7745',
   gray:   '#BCBDC0',

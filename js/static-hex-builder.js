@@ -45,12 +45,13 @@
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const PHASES       = ['yellow', 'green', 'brown', 'gray'];
-const PHASE_COLORS = { yellow:'#F0D070', green:'#71BF44', brown:'#CB7745', gray:'#BCBDC0' };
+// Source: tobymao lib/hex.rb Lib::Hex::COLOR — must match TILE_HEX_COLORS in constants.js
+const PHASE_COLORS = { yellow:'#fde900', green:'#71BF44', brown:'#CB7745', gray:'#BCBDC0' };
 
 // Color rail definitions (no "Blank" option)
 const BG_OPTS = [
-  { v:'white',  label:'White',  hex:'#D4B483', border:'#bba060', title:'White — upgrades to Yellow'  },
-  { v:'yellow', label:'Yellow', hex:'#F0D070', border:'#c8a800', title:'Yellow — upgrades to Green'  },
+  { v:'white',  label:'White',  hex:'#EAE0C8', border:'#bba060', title:'White — upgrades to Yellow'  },
+  { v:'yellow', label:'Yellow', hex:'#fde900', border:'#c8a800', title:'Yellow — upgrades to Green'  },
   { v:'green',  label:'Green',  hex:'#71BF44', border:'#3a8a1a', title:'Green — upgrades to Brown'   },
   { v:'brown',  label:'Brown',  hex:'#CB7745', border:'#8a4010', title:'Brown — fully upgraded'      },
   { v:'gray',   label:'Gray',   hex:'#BCBDC0', border:'#888',    title:'Gray — cannot be upgraded'   },
@@ -415,7 +416,7 @@ function _buildPanel() {
 }
 
 function _bgHexColor() {
-  return BG_OPTS.find(o => o.v === _bg)?.hex || '#D4B483';
+  return BG_OPTS.find(o => o.v === _bg)?.hex || '#EAE0C8';
 }
 
 function _panelHtml() {

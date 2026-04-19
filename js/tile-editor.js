@@ -255,7 +255,7 @@ function drawEditor(rubberBand) {
   ctx2.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
   const corners   = localHexCorners();
-  const fillColor = TILE_HEX_COLORS[editorState.color] || '#F0D070';
+  const fillColor = TILE_HEX_COLORS[editorState.color] || '#fde900';
 
   // 1 — Hex background
   ctx2.beginPath();
@@ -495,7 +495,7 @@ function drawNode(node) {
   const rby = node.type === 'town' ? -rr * 2.2 : -rr * 2.0;
   ctx2.beginPath();
   ctx2.arc(rbx, rby, rr, 0, Math.PI * 2);
-  ctx2.fillStyle   = TILE_HEX_COLORS[editorState.color] || '#F0D070';
+  ctx2.fillStyle   = TILE_HEX_COLORS[editorState.color] || '#fde900';
   ctx2.fill();
   ctx2.strokeStyle = '#666';
   ctx2.lineWidth   = 1.5;
