@@ -32,188 +32,51 @@ const TileRegistry = (() => {
   let _embeddedTiles = {};  // from loaded save file; set by setEmbeddedTiles()
 
   // ── Entry processor ───────────────────────────────────────────────────────
-  // Accepts either:
-  //   { dsl: string, color: string }  — DSL entry; parsed + normalized
-  //   { svgPath, color, ... }         — old-format entry; normalizeTileDef pass-through
+  // DSL → { color, nodes, paths, tileLabel? }
+  // One pipeline: parseDSL emits locStr (same shape as import-ruby.js), path
+  // endpoints are normalised to {type,n}, renderer handles all positions.
   function _processEntry(entry) {
     if (!entry) return null;
 
-    // Accept both 'dsl' (standard) and 'code' (import-ruby.js legacy key) as the DSL string.
+    // Accept 'code' (import-ruby.js legacy key) as the DSL string.
     if (typeof entry.code === 'string' && typeof entry.dsl !== 'string') {
       entry = Object.assign({}, entry, { dsl: entry.code });
     }
 
-    let tileDef;
-    let _rawCityCount = 0; // track separate 1-slot city nodes for architecture decision
+    // ── DSL entry ─────────────────────────────────────────────────────────
     if (typeof entry.dsl === 'string') {
       if (entry.dsl === '') {
-        tileDef = { color: entry.color || 'white', svgPath: '' };
-      } else {
-        const raw = TILE_GEO.parseDSL(entry.dsl, entry.color);
-        if (!raw) {
-          tileDef = { color: entry.color || 'yellow', svgPath: '' };
-        } else {
-          // ── Canonical multi-city position computation ─────────────────────
-          // For tiles with 2+ separate 1-slot city nodes (all at center, no
-          // explicit loc:), compute each city's position from path topology
-          // before normalizeTileDef — so buildSvgPath routes to the same
-          // positions as the city circles. Formula from tobymao track_node_path.rb:
-          //   stop_x = -sin(ct_edge * π/3) * full_distance
-          //   stop_y =  cos(ct_edge * π/3) * full_distance
-          // where full_distance = 50 in tobymao's scale-87 space.
-          // At our scale-43.5: full_distance = 50 * (43.5 / 87) = 25.
-          if (raw.nodes && raw.paths) {
-            // Position all separate city nodes (any slot count) at CITY_DIST=25
-            // from the hex centre.  This matches tobymao full_distance=50 at scale-87
-            // halved for our scale-43.5.
-            //
-            // Source for CITY_DIST: tobymao track_node_path.rb:
-            //   stop_x = -sin(ct_edge * π/3) * 50;  stop_y = cos(ct_edge * π/3) * 50
-            //   (in tobymao's 87-unit space → × 0.5 → 25 in our 43.5-unit space)
-            //
-            // Strategy:
-            //   • Center cities (no explicit loc:, dist ≈ 0): use topology-based preferred
-            //     edge from computeCityTownEdges, then apply the CITY_DIST formula.
-            //   • Explicitly-located cities (parseDSL placed them via locToPos at distance
-            //     43.5 for integer loc:N, or 50 for corner loc:N.5): normalise to CITY_DIST
-            //     by scaling in the same direction (node *= CITY_DIST / dist).  This is
-            //     correct for both edge-midpoint and corner positions without any pe-recovery.
-            //
-            // The earlier pe-recovery approach for corner cities was incorrect:
-            //   atan2(-x, y) does NOT invert cornerPosition(N.5) = (cos((N.5·60+90)°)·R,
-            //   -sin((N.5·60+90)°)·R).  The correct inverse is atan2(-y, x), but even that
-            //   is unnecessary — simple scaling is exact.
-
-            const allCityIdxs = raw.nodes.reduce((a, n, i) => {
-              if (n.type === 'city') a.push(i);
-              return a;
-            }, []);
-
-            if (allCityIdxs.length >= 2) {
-              // Count separate 1-slot cities for the OO-vs-cities architecture decision
-              _rawCityCount = allCityIdxs.filter(i => !(raw.nodes[i].slots && raw.nodes[i].slots > 1)).length;
-
-              const preferred = TILE_GEO.computeCityTownEdges(raw.nodes, raw.paths);
-              const CITY_DIST = 25;
-
-              for (const i of allCityIdxs) {
-                const node = raw.nodes[i];
-                const dist = Math.hypot(node.x || 0, node.y || 0);
-                if (dist < 0.5) {
-                  // Center city (no explicit loc:) — place at preferred edge
-                  const pe = preferred[i];
-                  if (pe === null || pe === undefined) continue;
-                  const a = pe * Math.PI / 3;
-                  node.x = parseFloat((-Math.sin(a) * CITY_DIST).toFixed(2));
-                  node.y = parseFloat(( Math.cos(a) * CITY_DIST).toFixed(2));
-                } else {
-                  // Explicitly located (locToPos put it at 43.5 or 50) — scale to CITY_DIST.
-                  // Same direction, correct magnitude.  Works for integer and corner locs.
-                  const scale = CITY_DIST / dist;
-                  node.x = parseFloat((node.x * scale).toFixed(2));
-                  node.y = parseFloat((node.y * scale).toFixed(2));
-                }
-              }
-            }
-          }
-          tileDef = TILE_GEO.normalizeTileDef(raw);
-          if (raw.nodes && raw.nodes.length > 0) tileDef.nodes = raw.nodes;
-          if (raw.paths && raw.paths.length > 0) tileDef.paths = raw.paths;
-        }
+        return { color: entry.color || 'white', nodes: [], paths: [] };
       }
-    } else {
-      tileDef = TILE_GEO.normalizeTileDef(entry);
+      const raw = TILE_GEO.parseDSL(entry.dsl, entry.color);
+      if (!raw) return { color: entry.color || 'yellow', nodes: [], paths: [] };
+
+      // Normalize path endpoints: parseDSL emits integer edges + {node:N} objects;
+      // renderer expects {type:'edge'|'node', n:int} — same as import-ruby.js.
+      const _ne = ep =>
+        typeof ep === 'number'  ? { type: 'edge', n: ep }
+        : (ep && 'node' in ep) ? { type: 'node', n: ep.node }
+        : ep;
+      const tileDef = {
+        color: raw.color === 'gray' ? 'grey' : raw.color,
+        nodes: raw.nodes,
+        paths: raw.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) })),
+      };
+      if (raw.label) tileDef.tileLabel = raw.label;
+      return tileDef;
     }
 
+    // ── Legacy non-DSL entry (svgPath format) ─────────────────────────────
+    const tileDef = TILE_GEO.normalizeTileDef(entry);
     if (!tileDef) return null;
-
-    // Normalize 'gray' → 'grey' for consistent TILE_HEX_COLORS lookup.
     if (tileDef.color === 'gray') tileDef.color = 'grey';
-
-    // ── Multi-city architectural restructuring ────────────────────────────
-    // Tobymao iterates @tile.cities independently — each city renders at its
-    // own position with its own slot count. Tiles with 2+ separate 1-slot
-    // city nodes use tileDef.cities (not tileDef.oo) so the renderer can
-    // draw each circle independently, without a connecting rect.
-    // tileDef.oo is reserved exclusively for a single city with 2+ slots
-    // (the standard OO "double bubble" with the white background rect).
-    if (_rawCityCount >= 2 && tileDef.oo && tileDef.cityPositions) {
-      tileDef.cities = tileDef.cityPositions;
-      delete tileDef.oo;
-      delete tileDef.cityPositions;
+    if (tileDef.paths) {
+      const _ne = ep =>
+        typeof ep === 'number'  ? { type: 'edge', n: ep }
+        : (ep && 'node' in ep) ? { type: 'node', n: ep.node }
+        : ep;
+      tileDef.paths = tileDef.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) }));
     }
-
-    // Ruby town.rect? = exits.size == 2 (bar). 0 exits or 3+ exits = dot.
-    // tile-geometry.js uses isBar = pathCount < 3, which incorrectly makes
-    // 0-exit unconnected towns into bars. Fix: convert 0-exit bar entries to dots.
-    if (tileDef.townPositions && Array.isArray(tileDef.townPositions)) {
-      tileDef.townPositions = tileDef.townPositions.map(p =>
-        (!p.dot && p.rw > 0 && !tileDef.svgPath)
-          ? { x: p.x, y: p.y, dot: true }
-          : p
-      );
-    }
-    if (tileDef.townAt && !tileDef.svgPath) {
-      // Single unconnected town — should be a center dot, not a positioned bar
-      tileDef.town = true;
-      delete tileDef.townAt;
-    }
-
-    // Spread overlapping town dots (e.g. dual-town with no exits: both land at 0,0).
-    if (tileDef.townPositions && tileDef.townPositions.length >= 2) {
-      const first = tileDef.townPositions[0];
-      const allSame = tileDef.townPositions.every(
-        p => Math.abs(p.x - first.x) < 1 && Math.abs(p.y - first.y) < 1
-      );
-      if (allSame) {
-        const n = tileDef.townPositions.length;
-        tileDef.townPositions = tileDef.townPositions.map((p, i) => ({
-          ...p, x: (i - (n - 1) / 2) * 28, y: 0
-        }));
-      }
-    }
-
-    // ── Enrich tileDef.nodes with canonical rendered positions + normalize paths ──
-    // normalizeTileDef computes final stop positions via townPosition() / cityEdgePos()
-    // but stores them in tileDef.townPositions / tileDef.cities / tileDef.cityX,Y etc.
-    // Copy them back onto tileDef.nodes[] so hexToSvgInner's unified DSL rendering
-    // pipeline can use node.x/y directly — exactly as it does for DSL map hexes.
-    // Mark node._tileComputed=true → renderer skips locStr-based position lookup.
-    //
-    // Path endpoints are normalized from tile-geometry format (integer edge or {node:N})
-    // to the DSL format ({type:'edge'|'node', n:int}) that import-ruby.js produces, so
-    // hexToSvgInner handles both tile defs and map hexes through identical code.
-    if (tileDef.nodes && tileDef.nodes.length > 0) {
-      let _twnI = 0;
-      for (const _nd of tileDef.nodes) {
-        if (_nd.type === 'town') {
-          // Final position comes from townPositions[] (post dot-fix + post spread-fix).
-          // Centered dot town (tileDef.town=true) has no townPositions entry → (0,0,0).
-          const _tp = tileDef.townPositions?.[_twnI]
-                   ?? (tileDef.townAt && _twnI === 0 ? tileDef.townAt : null)
-                   ?? { x: 0, y: 0, rot: 0 };
-          _nd.x = _tp.x ?? 0;  _nd.y = _tp.y ?? 0;  _nd.rot = _tp.rot ?? 0;
-          _nd._tileComputed = true;
-          _twnI++;
-        } else if (_nd.type === 'city' || _nd.type === 'offboard') {
-          // City center: tile-geometry already wrote the correct value onto node.x/y
-          // (via locToPos for explicit loc:, or tile-registry multi-city edge placement).
-          // Nothing to recompute — just mark as pre-computed.
-          _nd._tileComputed = true;
-        } else if (_nd.type === 'junction') {
-          _nd.x = 0;  _nd.y = 0;  _nd._tileComputed = true;
-        }
-      }
-      // Normalize path endpoints to {type:'edge'|'node', n:int}.
-      if (tileDef.paths) {
-        const _ne = ep =>
-          typeof ep === 'number' ? { type: 'edge', n: ep }
-          : (ep && 'node' in ep) ? { type: 'node', n: ep.node }
-          : ep;  // already {type,n} — pass through
-        tileDef.paths = tileDef.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) }));
-      }
-    }
-
     return tileDef;
   }
 

@@ -23,36 +23,29 @@ function makeTileSwatchSvg(tileId) {
   // td.paths un-normalized for node-free tiles (normalization is inside the same
   // guard), so path endpoints read as undefined.type → zero-length lines.
   inner += hexToSvgInner(null, td);
-  // Revenue bubble(s) — tobymao single_revenue.rb:
-  //   radius_for_revenue(v): 15 at scale 100 → 7.5 at scale 50
-  //   text: font-size 21px → 10.5 at scale 50, font-weight 300, dominant-baseline central
-  if (td.revenue && td.revenue.v !== 0) {
-    const rv = td.revenue;
-    inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-    inner += `<text x="${rv.x}" y="${rv.y}" font-size="10.5" fill="#000" font-weight="300" text-anchor="middle" dominant-baseline="central">${rv.v}</text>`;
+  // Revenue bubble(s) — unified via _buildDslRevenueSvg (renderer.js).
+  // sc=1 because makeTileSwatchSvg already works in 50-unit tile space;
+  // totalDeg=0 because orientation rotation is applied to the outer group below.
+  {
+    const _revHex = { nodes: td.nodes || [], paths: td.paths || [], exits: _exitsFromPaths(td.paths || []) };
+    if (_revHex.nodes.length > 0) inner += _buildDslRevenueSvg(_revHex, 0, 1);
   }
-  if (td.revenues) {
-    for (const rv of td.revenues) {
-      if (rv.v === 0) continue;
-      inner += `<circle cx="${rv.x}" cy="${rv.y}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-      inner += `<text x="${rv.x}" y="${rv.y}" font-size="10.5" fill="#000" font-weight="300" text-anchor="middle" dominant-baseline="central">${rv.v}</text>`;
-    }
+  // ── Tile label (Y / T / OO / M etc.) ─────────────────────────────────────────
+  // Delegated to _buildLabelSvg (renderer.js) — the single canonical implementation
+  // of tobymao label.rb preferred_render_locations + base.rb render_location.
+  // sz=50 → tile-space coordinates (50-unit space), same unit system as svgPath/cities.
+  if (td.tileLabel) {
+    inner += _buildLabelSvg(td.tileLabel, td.nodes || [], td.paths || [], 50);
   }
-  // Tile label (Y / T / OO / M etc.) — centered inside the hex, white with dark
-  // outline so it reads on any tile color.  Tobymao renders labels prominently
-  // inside the city symbol; this approximation places it at hex centre.
-  // Outside the rotated group so it stays upright on pointy-top maps.
-  const labelBadge = td.tileLabel
-    ? `<text x="0" y="3" font-size="18" fill="white" font-weight="bold" text-anchor="middle" dominant-baseline="middle" stroke="#333" stroke-width="3" paint-order="stroke">${td.tileLabel}</text>`
-    : '';
   // Tile number — small badge bottom-right, semi-transparent, doesn't rotate
   const numBadge = `<text x="46" y="44" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end" dominant-baseline="auto">#${tileId}</text>`;
   // Rotate entire hex + track for pointy-top orientation (30° = flat→pointy)
+  // Label is inside inner so it rotates with the tile (tobymao behaviour).
   const isPointy = (state.meta && state.meta.orientation === 'pointy');
   const hexGroup = isPointy
     ? `<g transform="rotate(30)">${inner}</g>`
     : inner;
-  return `<svg viewBox="-50 -50 100 100" width="90" height="90">${hexGroup}${labelBadge}${numBadge}</svg>`;
+  return `<svg viewBox="-50 -50 100 100" width="90" height="90">${hexGroup}${numBadge}</svg>`;
 }
 // ── Palette builder ──────────────────────────────────────────────────────────
 function buildPalette() {

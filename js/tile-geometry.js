@@ -553,6 +553,7 @@ function normalizeTileDef(def) {
   const townPositions = [];
   const revenues      = [];
   const cityPositions = [];
+  const cityGroups    = [];   // per-city-node [{cx,cy,slots,positions}] for independent rendering
   let townCount  = 0;
   let cityCount  = 0;
   let totalSlots = 0;
@@ -589,37 +590,33 @@ function normalizeTileDef(def) {
     } else if (node.type === 'city') {
       const slots = node.slots || 1;
       totalSlots += slots;
+      const cx = node.x, cy = node.y;
 
+      // Build slot positions for THIS city node only.
+      // tobymao city.rb CITY_SLOT_POSITION[n] (100-unit × 0.5 for our scale):
+      //   1: center circle at (cx, cy)
+      //   2: two circles at cx ± SLOT_RADIUS
+      //   3: triangle — CITY_SLOT_POSITION[3]=[0,−29] × 0.5 → R3=14.5
+      //   4: CITY_SLOT_POSITION[4]=[−12.5,−12.5] rotated at 90° intervals
+      //   5+: [0,−SLOT_RADIUS×1.5] rotated at 360/n intervals
+      const slotPositions = [];
       if (slots >= 2) {
-        // Multi-slot city: mirroring tobymao city.rb CITY_SLOT_POSITION + rotation formula.
-        // CITY_SLOT_POSITION[n] (tobymao 100-unit × 0.5 for our scale):
-        //   2: [-12.5, 0]   → two circles at ±12.5 x
-        //   3: [0, -14.5]   → triangle (3 circles at 120° intervals)
-        //   4: [-12.5,-12.5]→ 2×2 grid (4 circles at 90° intervals)
-        //   5+: larger radius circle spread (≥5 slots uncommon in tile packs)
-        const cx = node.x, cy = node.y;
         if (slots === 2) {
-          // Standard OO: two circles side by side
-          cityPositions.push({ x: cx - SLOT_RADIUS, y: cy });
-          cityPositions.push({ x: cx + SLOT_RADIUS, y: cy });
+          slotPositions.push({ x: cx - SLOT_RADIUS, y: cy });
+          slotPositions.push({ x: cx + SLOT_RADIUS, y: cy });
         } else if (slots === 3) {
-          // Matches tobymao CITY_SLOT_POSITION[3]=[0,-29] at 50/100 scale → R3=14.5.
-          // Circles at rotate(0°/120°/240°)(0,-R3); center-to-center≈25.1 ≈ 2×SLOT_RADIUS → barely touching.
           const R3 = 14.5;
           const h3 = R3 * Math.sqrt(3) / 2; // ≈12.56
-          cityPositions.push({ x: cx,       y: cy - R3 });         // top
-          cityPositions.push({ x: cx + h3,  y: cy + R3 * 0.5 });   // bottom-right
-          cityPositions.push({ x: cx - h3,  y: cy + R3 * 0.5 });   // bottom-left
+          slotPositions.push({ x: cx,       y: cy - R3 });
+          slotPositions.push({ x: cx + h3,  y: cy + R3 * 0.5 });
+          slotPositions.push({ x: cx - h3,  y: cy + R3 * 0.5 });
         } else {
-          // slots ≥ 4: CITY_SLOT_POSITION[4]=[-12.5,-12.5] rotated at 360/slots × i.
-          // source: tobymao city.rb BOX_ATTRS slots=4 rect backdrop + 4 circles.
-          // For slots>4, use the same formula with a slightly larger base offset.
           const SR = SLOT_RADIUS; // 12.5
           const [bx, by] = slots === 4 ? [-SR, -SR] : [0, -SR * 1.5];
           for (let si = 0; si < slots && si < 9; si++) {
             const rad = (2 * Math.PI / slots) * si;
             const cos = Math.cos(rad), sin = Math.sin(rad);
-            cityPositions.push({
+            slotPositions.push({
               x: parseFloat((cx + cos * bx - sin * by).toFixed(2)),
               y: parseFloat((cy + sin * bx + cos * by).toFixed(2)),
             });
@@ -629,7 +626,8 @@ function normalizeTileDef(def) {
           revenues.push({ x: cx + 33.5, y: cy, v: node.revenue });
         }
       } else {
-        cityPositions.push({ x: node.x, y: node.y });
+        // 1-slot city: single circle at city centre
+        slotPositions.push({ x: cx, y: cy });
         if (node.revenue !== undefined) {
           const rp = node.revenueX !== undefined
             ? { x: node.revenueX, y: node.revenueY }
@@ -639,6 +637,11 @@ function normalizeTileDef(def) {
           revenues.push(rev);
         }
       }
+
+      // Flat array (backward compat for revenue placement & misc code)
+      for (const p of slotPositions) cityPositions.push(p);
+      // Per-node group: canonical data for independent per-city rendering
+      cityGroups.push({ cx, cy, slots, positions: slotPositions });
       cityCount++;
     }
     // offboard / junction: extend later
@@ -646,6 +649,11 @@ function normalizeTileDef(def) {
 
   const out = { color, svgPath: buildSvgPath(nodes, paths) };
   if (label) out.tileLabel = label;
+  // Always output cityGroups — canonical per-city rendering data.
+  // Each group: { cx, cy, slots, positions: [{x,y}...] }
+  // Renderer iterates groups independently so each city node gets its own
+  // render_box (when slots≥2) and slot circles — exactly as tobymao city.rb does.
+  if (cityGroups.length) out.cityGroups = cityGroups;
 
   if (townCount === 1 && cityCount === 0) {
     const t = townPositions[0];
@@ -663,22 +671,23 @@ function normalizeTileDef(def) {
 
   } else if (cityCount === 1 && townCount === 0) {
     if (totalSlots >= 2) {
-      // 2-slot (or more) city → OO visual (two overlapping circles, no box border)
       out.oo   = true;
-      out.cityPositions = cityPositions; // [{x:-12.5,y:0},{x:12.5,y:0}] for standard
+      out.cityPositions = cityPositions;
     } else {
       out.city = true;
-      // Preserve off-center position for corner/edge cities (loc: placement).
       const cp = cityPositions[0];
       if (cp && (cp.x !== 0 || cp.y !== 0)) { out.cityX = cp.x; out.cityY = cp.y; }
     }
     if (revenues.length > 0) out.revenue = revenues[0];
 
   } else if (cityCount >= 2 && townCount === 0) {
-    // Two (or more) separate city nodes → OO / multi-city
+    // Two (or more) separate city nodes — cityGroups handles rendering.
+    // Keep oo+cityPositions for hasCityFeature checks elsewhere.
     out.oo = true;
     out.cityPositions = cityPositions;
-    if (revenues.length > 0) out.revenue = revenues[0];
+    // Multiple cities → multiple revenue bubbles; use revenues[] not revenue
+    if (revenues.length === 1) out.revenue  = revenues[0];
+    else if (revenues.length > 1) out.revenues = revenues;
 
   }
   // Mixed (town + city) and offboard: extend later
@@ -789,8 +798,8 @@ function parseDSL(dslString, color) {
       const nodeIdx = nodes.length;
       const revStr = kv['revenue'];
       const rev = revStr !== undefined ? parseRevenue(revStr) : undefined;
-      const pos = kv['loc'] !== undefined ? locToPos(kv['loc']) : { x: 0, y: 0 };
-      const node = { type, x: pos.x, y: pos.y };
+      const node = { type };
+      if (kv['loc'] !== undefined) node.locStr = kv['loc'];
       if (rev !== undefined) node.revenue = rev;
       // Preserve the full phase string so renderer can draw a phase-color bar
       if (revStr && revStr.includes('|')) node.revenuePhases = revStr;
@@ -815,8 +824,10 @@ function parseDSL(dslString, color) {
 
     } else if (type === 'label') {
       labelStr = kv['label'] || Object.keys(kv)[0] || null;
-      // label=label:OO or label=label:Chi
-      if (labelStr === null && kv['label']) labelStr = kv['label'];
+      // label=Y format (bare value, no colon separator) — tobymao standard.
+      // kvStr.split(',')[0] handles any trailing comma-continuations; split(';')[0]
+      // handles any semicolon-appended continuation components.
+      if (!labelStr) labelStr = kvStr.split(';')[0].split(',')[0].trim() || null;
 
     } else if (type === 'upgrade') {
       // upgrade component tells us tile color transitions — we don't need it

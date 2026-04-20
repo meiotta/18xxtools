@@ -810,78 +810,52 @@ function computePreferredEdges(hex) {
 //   <g transform="translate(cx,cy) rotate(orientOff + tileDeg) scale(sc)">
 // where orientOff is 0 for flat-top maps, 30 for pointy-top maps.
 //
-// Two rendering paths:
+// SINGLE RENDERING PATH — all three tile sources converge here:
 //
-//   1. TILE (tileDef != null) — pre-parsed SVG geometry from tile-registry.js.
-//      Used for player tiles placed from the tile pool (hex.tile = '6', '57', etc.).
-//      tileDef carries svgPath, city, oo, town, dualTown, townAt, cities fields.
+//   tile-packs.js tile   → TileRegistry → tileDef {nodes+paths, locStr on nodes}
+//                          → hex synthesis below → DSL branch
 //
-//   2. DSL HEX (tileDef == null) — drawn from the hex model in state.hexes[].
-//      Used for map tiles (printed on the board), offboards, blank/terrain hexes.
-//      Rendering is driven by hex.nodes[] + hex.paths[] (see block below).
-//      hex.feature is a DERIVED SUMMARY — it is NOT used for rendering.
+//   manifest tile def    → TileRegistry (same pipeline as tile-packs)
+//
+//   inline DSL hex       → hex.nodes[] + hex.paths[] directly → DSL branch
+//
+// All sources produce nodes with locStr (set by parseDSL / import-ruby.js) and
+// paths with {type,n} endpoints.  The renderer computes all positions itself —
+// one canonical implementation, no pre-computation bypass.
 //
 // hex model fields consumed here:
-//   nodes[]     — [{type, slots, locStr}]  required for any town/city to appear
-//   paths[]     — [{a:{type,n/e}, b:{type,n/e}, terminal?}]  tracks + connections
-//   pathPairs[] — [[ea,eb], …]  edge-to-edge bypass routes imported from Ruby DSL
-//   blankPaths[]— [[ea,eb], …]  edge-to-edge routes drawn in the hex builder
+//   nodes[]     — [{type, slots, locStr?, revenue?, style?}]
+//   paths[]     — [{a:{type,n}, b:{type,n}, terminal?, aLane?, bLane?}]
+//   pathPairs[] — [[ea,eb], …]  legacy edge-pairs (import fallback)
+//   blankPaths[]— [[ea,eb], …]  hex-builder drawn tracks
 //   exits[]     — [edge,…]      used for region_use initialisation only
-//   feature     — string        used by terrain/revenue code, NOT rendering
+//   feature     — string        terrain/revenue use only, NOT rendering
 //   bg          — color string  used by the caller, not here
+
+// Private helper — collect unique exit edge numbers from a normalised paths[].
+function _exitsFromPaths(paths) {
+  const s = new Set();
+  for (const p of (paths || [])) {
+    if (p.a?.type === 'edge') s.add(p.a.n);
+    if (p.b?.type === 'edge') s.add(p.b.n);
+  }
+  return [...s];
+}
+
 function hexToSvgInner(hex, tileDef) {
   let svg = '';
 
-  // For placed tiles: use tileDef geometry
+  // ── Canonical path unification ────────────────────────────────────────────
+  // When tileDef is provided, synthesise a hex-like object so the single DSL
+  // branch below handles everything.  tileDef.nodes carry locStr (from parseDSL);
+  // the renderer computes all positions the same way it does for map hexes.
   if (tileDef) {
-    if (tileDef.svgPath) {
-      // Track stroke-width from tobymao track.rb:16 — width:9 at scale 100 → DSL_TRACK_W (5) at scale 50
-      svg += `<path d="${tileDef.svgPath}" stroke="#222" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
-    }
-
-    if (tileDef.city) {
-      const cix = tileDef.cityX || 0, ciy = tileDef.cityY || 0;
-      // City radius from tobymao city.rb:14 — SLOT_RADIUS=25 at scale 100 → DSL_SLOT_R (12.5) at scale 50
-      svg += `<circle cx="${cix}" cy="${ciy}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="2"/>`;
-
-    } else if (tileDef.oo) {
-      // tobymao city.rb: each city in an OO tile is a separate 1-slot city node.
-      // render_box() is only called when slots.size.between?(2,9) — it never fires
-      // for individual 1-slot cities.  No connecting background exists between the
-      // two city circles; each renders independently, identical to tileDef.cities.
-      const SR = 12.5;
-      const positions = tileDef.cityPositions || [{ x: -SR, y: 0 }, { x: SR, y: 0 }];
-      for (const pos of positions) {
-        svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
-      }
-
-    } else if (tileDef.cities && tileDef.cities.length) {
-      const SR = 12.5;
-      for (const pos of tileDef.cities) {
-        svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${SR}" fill="white" stroke="#333" stroke-width="1.5"/>`;
-      }
-
-    } else if (tileDef.town) {
-      svg += `<circle cx="0" cy="0" r="5" fill="black"/>`;
-
-    } else if (tileDef.townAt) {
-      const { x, y, rot, rw, rh } = tileDef.townAt;
-      svg += `<g transform="translate(${x},${y}) rotate(${rot})"><rect x="${-rw / 2}" y="${-rh / 2}" width="${rw}" height="${rh}" fill="black"/></g>`;
-
-    } else if (tileDef.dualTown) {
-      const dtPos = (tileDef.townPositions && tileDef.townPositions.length)
-        ? tileDef.townPositions
-        : [{ x: -10, y: 0, rot: 0, rw: 16, rh: 4 }, { x: 10, y: 0, rot: 0, rw: 16, rh: 4 }];
-      for (const pos of dtPos) {
-        if (pos.dot) {
-          svg += `<circle cx="${pos.x}" cy="${pos.y}" r="5" fill="black"/>`;
-        } else {
-          const rw = pos.rw || 16, rh = pos.rh || 4;
-          svg += `<g transform="translate(${pos.x},${pos.y}) rotate(${pos.rot || 0})"><rect x="${-rw / 2}" y="${-rh / 2}" width="${rw}" height="${rh}" fill="black"/></g>`;
-        }
-      }
-    }
-    return svg;
+    hex = {
+      nodes: tileDef.nodes || [],
+      paths: tileDef.paths || [],
+      exits: _exitsFromPaths(tileDef.paths || []),
+    };
+    tileDef = null; // fall through to DSL branch below
   }
 
   // ─── DSL hexes (no tileDef) ──────────────────────────────────────────────────
@@ -957,16 +931,6 @@ function hexToSvgInner(hex, tileDef) {
     // increment_cost: add weight to each region after placement
     const _otInc  = loc => { for (const r of loc.r) _ru[r] += loc.w; };
 
-    // Count towns with no edge connection — mirrors tobymao's condition:
-    //   @tile.towns.count { |t| !@tile.preferred_city_town_edges[t] } > 1
-    // source: town_dot.rb preferred_render_locations
-    const noEdgeTownCount = hex.nodes.filter((n, ni) =>
-      n.type === 'town' &&
-      !(hex.paths || []).some(p =>
-        (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
-        (p.b.type === 'node' && p.b.n === ni && p.a.type === 'edge'))
-    ).length;
-
     const cityNodeCount = hex.nodes.filter(n => n.type === 'city').length;
 
     // Pre-compute preferred edges for all city/town nodes using tobymao's
@@ -974,10 +938,21 @@ function hexToSvgInner(hex, tileDef) {
     // (below), revenue bubble positions, and location-name placement.
     const prefEdges = computePreferredEdges(hex);
 
+    // Count towns without a preferred edge — exact port of tobymao's condition:
+    //   @tile.towns.count { |t| !@tile.preferred_city_town_edges[t] } > 1
+    // source: town_dot.rb preferred_render_locations
+    // This correctly includes junction towns (3+ exits → null prefEdge) in addition
+    // to isolated towns (0 exits → null prefEdge).  Bar towns always have a
+    // non-null prefEdge so they are never counted here.
+    const noEdgeTownCount = hex.nodes.filter((n, ni) =>
+      n.type === 'town' && (prefEdges[ni] === null || prefEdges[ni] === undefined)
+    ).length;
+
     // Sequential position computation
     const nodePos = [];
     for (let ni = 0; ni < hex.nodes.length; ni++) {
       const node = hex.nodes[ni];
+
       const connEdges = (hex.paths || [])
         .filter(p =>
           (p.a.type === 'node' && p.a.n === ni && p.b.type === 'edge') ||
@@ -1018,6 +993,7 @@ function hexToSvgInner(hex, tileDef) {
 
       } else {
         // Town
+        // source: tobymao town.rb, town_rect.rb, town_dot.rb
         let pos;
         if (node.locStr && node.locStr !== 'center') {
           const f = parseFloat(node.locStr);
@@ -1027,25 +1003,51 @@ function hexToSvgInner(hex, tileDef) {
           }
         }
         if (!pos) {
-          if (connEdges.length === 0) {
-            if (noEdgeTownCount > 1) {
-              // Multiple no-edge towns: OFFSET_TOWNS via combinedCost, index tiebreak
-              // source: town_dot.rb preferred_render_locations + base.rb min_by logic
-              let best = _OT[0], bestCost = _otCost(_OT[0]);
-              for (let i = 1; i < _OT.length; i++) {
-                const c = _otCost(_OT[i]);
-                if (c < bestCost) { best = _OT[i]; bestCost = c; }
-              }
-              _otInc(best); // update region_use for subsequent no-edge towns
-              pos = { x: best.x, y: best.y, angle: 0 };
-            } else {
-              // Single no-edge town: CENTER_TOWN at origin
-              // source: town_dot.rb CENTER_TOWN = [{ region_weights: CENTER, x: 0, y: 0 }]
-              pos = { x: 0, y: 0, angle: 0 };
-            }
-          } else {
+          // Determine bar vs dot — port of tobymao town.rb rect?:
+          //   @style ? (@style == :rect) : (!paths.empty? && paths.size < 3)
+          // paths = ALL paths touching this town (edge→node AND node→node).
+          const allTownPaths = (hex.paths || []).filter(p =>
+            (p.a?.type === 'node' && p.a.n === ni) ||
+            (p.b?.type === 'node' && p.b.n === ni)
+          );
+          const isTownBar = node.style
+            ? node.style === 'rect'
+            : (allTownPaths.length > 0 && allTownPaths.length < 3);
+
+          if (isTownBar) {
+            // Bar town: position at arc midpoint between track endpoints.
+            // source: town_rect.rb — bar sits on the track segment.
             const tp = computeTownPos(connEdges);
             pos = { x: tp.x, y: tp.y, angle: tp.angle };
+          } else {
+            // Dot town: use preferred edge from computePreferredEdges.
+            // source: town_dot.rb preferred_render_locations → @edge branch.
+            const prefEdge = prefEdges[ni]; // null when no preferred edge
+            if (prefEdge !== null && prefEdge !== undefined) {
+              // Dot with a preferred edge: 25 units toward that edge.
+              // source: town_dot.rb → x: -sin(@edge*60°)*50, y: cos(@edge*60°)*50
+              //   (tobymao 100-unit → our 50-unit = ÷2)
+              const a = prefEdge * Math.PI / 3;
+              pos = { x: -Math.sin(a) * 25, y: Math.cos(a) * 25, angle: prefEdge * 60 };
+            } else {
+              // Dot with no preferred edge: CENTER_TOWN or OFFSET_TOWNS.
+              // source: town_dot.rb → !@tile.preferred_city_town_edges[t] branch.
+              if (noEdgeTownCount > 1) {
+                // Multiple centerless towns: OFFSET_TOWNS via combinedCost, index tiebreak.
+                // source: town_dot.rb preferred_render_locations + base.rb min_by logic.
+                let best = _OT[0], bestCost = _otCost(_OT[0]);
+                for (let i = 1; i < _OT.length; i++) {
+                  const c = _otCost(_OT[i]);
+                  if (c < bestCost) { best = _OT[i]; bestCost = c; }
+                }
+                _otInc(best); // update region_use for subsequent centerless towns
+                pos = { x: best.x, y: best.y, angle: 0 };
+              } else {
+                // Single centerless town: CENTER_TOWN at origin.
+                // source: town_dot.rb CENTER_TOWN = [{ region_weights: CENTER, x: 0, y: 0 }]
+                pos = { x: 0, y: 0, angle: 0 };
+              }
+            }
           }
         }
         nodePos.push(pos);
@@ -1209,16 +1211,20 @@ function hexToSvgInner(hex, tileDef) {
         }
 
       } else if (node.type === 'town') {
-        // Does this town node have any connected paths?
-        const hasConnected = (hex.paths || []).some(p =>
-          (p.a.type === 'node' && p.a.n === ni) ||
-          (p.b.type === 'node' && p.b.n === ni));
+        // tobymao town.rb: rect? = @style ? (@style == :rect) : (!paths.empty? && paths.size < 3)
+        // paths = ALL paths that include this town as an endpoint (edge→node AND node→node).
+        const _townPaths = (hex.paths || []).filter(_p =>
+          (_p.a?.type === 'node' && _p.a.n === ni) ||
+          (_p.b?.type === 'node' && _p.b.n === ni)
+        );
+        const isBarTown = node.style
+          ? node.style === 'rect'
+          : (_townPaths.length > 0 && _townPaths.length < 3);
 
-        if (!hasConnected) {
-          // No connected paths → TownDot (circle).
-          // Covers lone dit (single town, no exits) AND double-dit (dualTown, no exits).
-          // tobymao source: town_dot.rb — rendered when town has no @edge connection.
-          // pos.x/y: (0,0) for single lone-dit; spread (±15,0) for double-dit (no exits).
+        if (!isBarTown) {
+          // TownDot (circle) — 0 paths (isolated dit) or 3+ paths (junction), or explicit style:dot.
+          // tobymao source: town_dot.rb rendered when rect? is false.
+          // pos.x/y: (0,0) for lone-dit; spread (±14,0) for double-dit (no exits).
           svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="5" fill="black" stroke="white" stroke-width="2"/>`;
         } else {
           // Town bar at computed position and angle
@@ -1770,10 +1776,13 @@ function _nodeEdge(node) {
 }
 
 // _revNodeValue: resolve flat revenue for hex.nodes[i], with legacy fallbacks.
+// node.flat  — DSL map hexes (set by import-ruby.js)
+// node.revenue — tile-packs / tileDef nodes (set by parseDSL / normalizeTileDef)
+// hex.cityRevenues / hex.townRevenues — legacy save-file format
 function _revNodeValue(hex, i) {
   const node = hex.nodes[i];
   const tIdx = hex.nodes.slice(0, i).filter(n => n.type === 'town').length;
-  return node.flat ?? hex.cityRevenues?.[i] ?? hex.townRevenues?.[tIdx] ?? null;
+  return node.flat ?? node?.revenue ?? hex.cityRevenues?.[i] ?? hex.townRevenues?.[tIdx] ?? null;
 }
 
 // ── _shouldRenderRevenue: port of tile.rb Tile#should_render_revenue? ────────
@@ -1786,7 +1795,7 @@ function _shouldRenderRevenue(hex) {
   const revenues  = cityTowns.map((node) => {
     const origIdx = nodes.indexOf(node);
     const tIdx    = nodes.slice(0, origIdx).filter(n => n.type === 'town').length;
-    return node.flat ?? hex.cityRevenues?.[origIdx] ?? hex.townRevenues?.[tIdx] ?? null;
+    return node.flat ?? node?.revenue ?? hex.cityRevenues?.[origIdx] ?? hex.townRevenues?.[tIdx] ?? null;
   }).filter(r => r !== null);
 
   if (revenues.length === 0)   return false; // nothing to render
@@ -1813,8 +1822,9 @@ function _shouldRenderRevenue(hex) {
 }
 
 // ── _buildDslRevenueSvg ───────────────────────────────────────────────────────
-// Tobymao-safe revenue rendering for DSL hex nodes (city + town).
-// Only called when !tileDef && hex.nodes.length > 0.
+// Tobymao-safe revenue rendering for any hex-like object with nodes[].
+// Called for both tileDef tiles (via synthesised hex) and DSL map hexes.
+// _revNodeValue reads node.flat (DSL hexes) or node.revenue (tileDef nodes).
 // totalDeg: tile orientation in degrees (orientOff + tileDeg).
 // sc: world-unit scale (= HEX_SIZE / 50).
 function _buildDslRevenueSvg(hex, totalDeg, sc) {
@@ -1962,52 +1972,130 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       y50 = (nodeY100 + offY) / 2;
 
     } else {
-      // ── Town revenue (town_rect.rb render_revenue) ──────────────────────
-      // Town exits from hex paths (edge endpoints connected to this node).
+      // ── Town revenue (town_rect.rb render_revenue + town_location.rb) ──────
+      // source: town_rect.rb render_revenue, town_location.rb town_position +
+      //         town_rotation_angles + center_town? + normalized_edges
+
+      // Edge-connected exits for this town node.
       const exits = (hex.paths || []).filter(p =>
         (p.a.type === 'node' && p.a.n === i && p.b.type === 'edge') ||
         (p.b.type === 'node' && p.b.n === i && p.a.type === 'edge')
       ).map(p => p.a.type === 'edge' ? p.a.n : p.b.n);
 
-      let revAngle, dispT;
+      // Preferred edge for this town (tobymao: @edge = preferred_city_town_edges[@town]).
+      const tPrefEdge = prefEdges[i];
 
-      if (exits.length === 2) {
-        // Through-town (2 exits): center_town vs OO-style edge town.
-        // center_town? = exits==2 && total tile exit count <=3 (tobymao town_rect.rb).
-        const allTileExits = new Set();
-        (hex.paths || []).forEach(p => {
-          if (p.a?.type === 'edge') allTileExits.add(p.a.n);
-          if (p.b?.type === 'edge') allTileExits.add(p.b.n);
-        });
-        const isCenterTown = allTileExits.size <= 3;
-        if (isCenterTown || edge === null) {
-          // Center through-town: revenue perpendicular to track, simplified as edge*60.
-          revAngle = edge !== null ? edge * 60 : 0;
-        } else {
-          // Non-center 2-exit edge town (OO-style): DOUBLE_DIT_REVENUE_ANGLES.
-          // [170, -130, 130, -10, 50, -50] for edges 0-5 (tobymao town_rect.rb).
-          const _DDIT = [170, -130, 130, -10, 50, -50];
-          revAngle = _DDIT[Math.round(edge)] ?? (edge * 60);
+      // Total tile exits (for center_town? check).
+      const allTileExits = new Set();
+      (hex.paths || []).forEach(p => {
+        if (p.a?.type === 'edge') allTileExits.add(p.a.n);
+        if (p.b?.type === 'edge') allTileExits.add(p.b.n);
+      });
+
+      // normalized_edges(tPrefEdge, exits) — port of town_location.rb normalized_edges.
+      // Makes ea = tPrefEdge; adjusts the smaller of [ea, eb] by +6 when they wrap.
+      let ea = tPrefEdge, eb = null;
+      if (tPrefEdge !== null && tPrefEdge !== undefined && exits.length === 2) {
+        eb = exits.find(e => e !== tPrefEdge) ?? null;
+        if (eb !== null) {
+          if (Math.abs(ea - eb) > 3) {
+            // tobymao: edges[edges.index(edges.min)] += 6
+            if (Math.min(ea, eb) === ea) ea = ea + 6; else eb = eb + 6;
+          }
         }
-        dispT = 35;
-      } else if (edge !== null) {
-        // Edge town with 0 or 1 exit: EDGE_TOWN_REVENUE_REGIONS.
-        const [, invert] = _EDGE_TOWN_REV[edge] || [[], false];
-        revAngle = edge * 60; // town_rotation_angles: [edge * 60] for single-exit edge town
-        dispT    = invert ? -35 : 35;
-      } else {
-        // Center/no-edge town: revenue to the right (regions=CENTER).
-        revAngle = 0;
-        dispT    = 35;
+      }
+      // min_edge = min of the (possibly +6 adjusted) pair.
+      const minEdge = (eb !== null && eb !== undefined) ? Math.min(ea, eb) : (tPrefEdge ?? 0);
+
+      // town_track_type — port of town_location.rb town_track_type.
+      // :straight if diff==3, :sharp if diff==1, :gentle if diff==2.
+      let trackType = 'straight';
+      if (eb !== null && eb !== undefined) {
+        const diff = Math.abs(ea - eb);
+        trackType = diff === 1 ? 'sharp' : diff === 2 ? 'gentle' : 'straight';
       }
 
-      // Revenue position: T(town_pos) × R(revAngle) × T(dispT, 0).
-      const raRad = revAngle * Math.PI / 180;
-      const offX  = dispT * Math.cos(raRad);
-      const offY  = dispT * Math.sin(raRad);
+      // center_town? — port of town_location.rb center_town?.
+      // true when town has 2 exits AND the tile has exactly 2 or 3 exits total.
+      const isCenterTown = exits.length === 2 &&
+        (allTileExits.size === 2 || allTileExits.size === 3);
 
-      x50 = (nodeX100 + offX) / 2;
-      y50 = (nodeY100 + offY) / 2;
+      // Compute bar center position (barX100, barY100) in tobymao 100-unit space.
+      // Source: town_location.rb town_position.
+      let barX100 = 0, barY100 = 0, revAngle, dispT;
+
+      if (exits.length === 2 && isCenterTown) {
+        // center_town? branch: bar sits on the track at the arc midpoint.
+        // town_position: angles=[(minEdge+offset)*60], positions=[p]
+        const barAxisDeg = trackType === 'sharp'  ? (minEdge + 0.5) * 60
+                         : trackType === 'gentle' ? (minEdge + 1)   * 60
+                         : 0; // straight → position=0 → stays at origin
+        const barPos     = trackType === 'sharp'  ? 50
+                         : trackType === 'gentle' ? 23.2
+                         : 0;
+        const barAxisRad = barAxisDeg * Math.PI / 180;
+        barX100 = -Math.sin(barAxisRad) * barPos;
+        barY100 =  Math.cos(barAxisRad) * barPos;
+
+        // town_rotation_angles for center_town? (same formula as computeTownPos angle).
+        // source: town_location.rb town_rotation_angles → center_town? case.
+        const baseAngle = trackType === 'sharp'  ? (minEdge + 2) * 60
+                        : trackType === 'gentle' ? (minEdge * 60) - 30
+                        : minEdge * 60; // straight
+
+        // reverse_side = (track_type == :sharp) → angle += 180.
+        // source: town_rect.rb render_revenue → reverse_side logic.
+        revAngle = trackType === 'sharp' ? baseAngle + 180 : baseAngle;
+        dispT = 38; // source: town_rect.rb — default displacement for center_town?
+
+      } else if (exits.length === 2) {
+        // Non-center 2-exit town (double-dit style, tile has ≥4 exits).
+        // town_position uses POSITIONAL_ANGLE and edge_a (= ea) direction.
+        // source: town_location.rb town_position → else (exits.size==2) branch.
+        const POSITIONAL_ANGLE = { sharp: 12.12, gentle: 6.11 };
+        const posAngle = POSITIONAL_ANGLE[trackType] || 0;
+        // town_track_direction: ea > eb → :right, ea < eb → :left, diff==3 → :straight
+        const dir = ea > eb ? 'right' : ea < eb ? 'left' : 'straight';
+        const delta = dir === 'left' ? posAngle : dir === 'right' ? -posAngle : 0;
+        const barPos = trackType === 'sharp' ? 55.70 : trackType === 'gentle' ? 48.05 : 40;
+        const barAxisRad = (ea * 60 + delta) * Math.PI / 180;
+        barX100 = -Math.sin(barAxisRad) * barPos;
+        barY100 =  Math.cos(barAxisRad) * barPos;
+
+        // Revenue: DOUBLE_DIT_REVENUE_ANGLES[@edge] for non-center 2-exit towns.
+        // source: town_rect.rb → @town.exits.size == 2 && !center_town? branch.
+        const _DDIT = [170, -130, 130, -10, 50, -50];
+        revAngle = _DDIT[Math.round(tPrefEdge ?? 0) % 6] ?? (tPrefEdge ?? 0) * 60;
+        dispT = 35;
+
+      } else if (tPrefEdge !== null && tPrefEdge !== undefined) {
+        // 1-exit (or 0-exit with edge assignment) town: positioned toward preferred edge.
+        // town_position: angles=[prefEdge*60], positions=[50].
+        // source: town_location.rb → elsif edge_a branch (single-exit town).
+        const barAxisRad = (tPrefEdge * 60) * Math.PI / 180;
+        barX100 = -Math.sin(barAxisRad) * 50;
+        barY100 =  Math.cos(barAxisRad) * 50;
+
+        // Revenue: EDGE_TOWN_REVENUE_REGIONS[@edge] → invert → displacement sign.
+        // town_rotation_angles for edge_a case: [edge_a * 60].
+        // source: town_rect.rb → else (exits!=2) → @edge branch.
+        const [, invert] = _EDGE_TOWN_REV[tPrefEdge] || [[], false];
+        revAngle = tPrefEdge * 60;
+        dispT    = invert ? -35 : 35;
+
+      } else {
+        // No exits, no preferred edge (isolated/junction dot town) → center.
+        // source: town_rect.rb → else (exits!=2) → no @edge → regions=CENTER.
+        barX100 = 0; barY100 = 0;
+        revAngle = 0;
+        dispT = 38;
+      }
+
+      // Revenue position = bar_center + R(revAngle) × (dispT, 0), all in 100-unit.
+      // Divide by 2 to convert to our 50-unit tile space.
+      const raRad = revAngle * Math.PI / 180;
+      x50 = (barX100 + dispT * Math.cos(raRad)) / 2;
+      y50 = (barY100 + dispT * Math.sin(raRad)) / 2;
     }
 
     svg += bubble(toWorld(x50, y50), rev);
@@ -2042,6 +2130,93 @@ const _LOC_NAME_FLAT = [
 function _locNameCost(ru, rw) {
   return rw.reduce((s, [regions, weight]) =>
     s + weight * regions.reduce((t, r) => t + ru[r], 0), 0);
+}
+
+// ── _buildLabelSvg ────────────────────────────────────────────────────────────
+// Canonical tobymao label.rb preferred_render_locations + base.rb render_location.
+// Called by BOTH the tileDef branch (placed pack/manifest tiles) and the DSL
+// hex branch (static map hexes with hex.label), and by palette.js for swatches.
+// Ensures every label goes through the same single implementation.
+//
+// Parameters:
+//   label  — string (Y, M, T, OO, etc.)
+//   nodes  — node array with .type ('city'|'town') and .slots
+//             — either tileDef.nodes or hex.nodes
+//   paths  — path array with .a/.b = {type:'edge'|'node', n:int}
+//             — either tileDef.paths or hex.paths
+//   sz     — coordinate scale:
+//             HEX_SIZE → world coordinates (placed tiles on map)
+//             50       → tile coordinates   (palette swatches)
+//
+// Returns SVG <text> string in (sz/100)-scaled space, or '' for empty label.
+// Font: tobymao tile__text (14px × scale(1.5) = 21px effective at 100-unit).
+// Style: fill:black, no bold, no stroke (exact tobymao tile__text CSS).
+function _buildLabelSvg(label, nodes, paths, sz) {
+  if (!label || label === '') return '';
+
+  const _cities    = nodes.filter(n => n.type === 'city');
+  const _cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
+
+  // region_use — port of tobymao base.rb TRACK_TO_EDGE_N + CENTER
+  const _TTE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]]; // TRACK_TO_EDGE_N
+  const _CTR = [7,8,9,14,15,16];                             // CENTER
+  const _ru  = new Array(24).fill(0);
+  for (const p of (paths || [])) {
+    if (p.a?.type === 'edge') { const rr = _TTE[p.a.n]; if (rr) for (const r of rr) _ru[r] += 1; }
+    if (p.b?.type === 'edge') { const rr = _TTE[p.b.n]; if (rr) for (const r of rr) _ru[r] += 1; }
+  }
+  for (const n of nodes) { if (n.type === 'city') for (const r of _CTR) _ru[r] += 1; }
+
+  // Candidate positions — tobymao label.rb preferred_render_locations, flat layout.
+  // Coordinates in tobymao 100-unit space; scaled to output space by × sz/100 below.
+  //   LEFT_MID=[6,13] LEFT_CORNER=[5,12] LEFT_CENTER=[7,14]
+  //   RIGHT_MID=[10,17] RIGHT_CORNER=[11,18] RIGHT_CENTER=[9,16]
+  //   UPPER_LEFT_CORNER=[0,1]  UPPER_RIGHT_CORNER=[3,4]
+  //   BOTTOM_LEFT_CORNER=[19,20] BOTTOM_RIGHT_CORNER=[22,23]
+  let _cands;
+  if (_cityTowns.length === 1) {
+    if (_cities.length === 1 && (_cities[0].slots || 1) > 1) {
+      // single city, 2+ slots → P_LEFT_CORNER only (label.rb line 188)
+      _cands = [{ rw:[[[5,12],1.0]],                       x:-71.25, y:0 }];
+    } else {
+      // single city 1-slot or single town (label.rb line 190)
+      _cands = [
+        { rw:[[[5,6,12,13],1],[[7,14],0.5]],   x:-55,    y:0 }, // SINGLE_CITY_ONE_SLOT
+        { rw:[[[10,11,17,18],1],[[9,16],0.5]],  x: 55,    y:0 }, // SINGLE_CITY_ONE_SLOT_RIGHT
+        { rw:[[[11,18],1.0]],                   x: 71.25, y:0 }, // P_RIGHT_CORNER
+      ];
+    }
+  } else if (_cityTowns.length > 1) {
+    // MULTI_CITY_LOCATIONS flat (label.rb line 193)
+    _cands = [
+      { rw:[[[2],1.0],[[1,3],0.5]],        x:   0,    y:-60 }, // top centre
+      { rw:[[[6],1.0],[[5,7],0.5]],         x: -50,    y:-31 }, // edge 2
+      { rw:[[[17],1.0],[[16,18],0.5]],      x:  50,    y: 37 }, // edge 5
+      { rw:[[[0,1],1.0]],                   x: -40,    y:-65 }, // top-left corner
+      { rw:[[[3,4],1.0]],                   x:  40,    y:-65 }, // top-right corner
+      { rw:[[[5,12],1.0]],                  x: -71.25, y:  0 }, // P_LEFT_CORNER
+      { rw:[[[11,18],1.0]],                 x:  71.25, y:  0 }, // P_RIGHT_CORNER
+      { rw:[[[19,20],1.0]],                 x: -30,    y: 65 }, // P_BOTTOM_LEFT_CORNER
+      { rw:[[[22,23],1.0]],                 x:  40,    y: 65 }, // bottom-right corner
+      { rw:[[[12,13],1.0]],                 x: -50,    y: 25 }, // edge 1
+      { rw:[[[21],1.0],[[20,22],0.5]],      x:   0,    y: 60 }, // bottom centre
+    ];
+  } else {
+    // no city_towns → P_LEFT_CORNER (label.rb line 197)
+    _cands = [{ rw:[[[5,12],1.0]], x:-71.25, y:0 }];
+  }
+
+  // Pick min combined_cost; first minimum wins (tobymao min_by order preserved)
+  let _lx = _cands[0].x, _ly = _cands[0].y, _best = Infinity;
+  for (const c of _cands) {
+    const cost = _locNameCost(_ru, c.rw);
+    if (cost < _best) { _best = cost; _lx = c.x; _ly = c.y; }
+  }
+
+  // tobymao 100-unit → output space: × sz/100
+  // Font: 14px (tile__text CSS) × scale(1.5) = 21px at 100-unit → × sz/100
+  const fz = (21 * sz / 100).toFixed(1);
+  return `<text x="${(_lx * sz / 100).toFixed(1)}" y="${(_ly * sz / 100).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="${fz}" fill="black" text-anchor="middle" dominant-baseline="middle">${escSvg(label)}</text>`;
 }
 
 // ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
@@ -2253,109 +2428,14 @@ function buildHexSvg(r, c, hex) {
       // Clipped rotated tile content — uses shared #tile-clip from mapDefs
       g += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
 
-      // Tile label (upright)
+      // Tile label (placed pack/manifest tiles) — canonical via _buildLabelSvg
       if (tileDef?.tileLabel) {
-        g += `<text x="${(-sz*0.62).toFixed(1)}" y="0" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(tileDef.tileLabel)}</text>`;
+        g += _buildLabelSvg(tileDef.tileLabel, tileDef.nodes || [], tileDef.paths || [], sz);
       }
 
-      // Revenue bubbles (orbit with tile rotation, text stays upright)
-      const revList = tileDef?.revenues || (tileDef?.revenue ? [tileDef.revenue] : []);
-      if (revList.length > 0) {
-        const revRotRad = tileDeg * Math.PI / 180 + (isPointy ? Math.PI / 6 : 0);
-        const cosR = Math.cos(revRotRad), sinR = Math.sin(revRotRad);
-        for (const rev of revList) {
-          if (!rev || rev.v === 0) continue;
-          const rx = (rev.x * cosR - rev.y * sinR) * sc;
-          const ry = (rev.x * sinR + rev.y * cosR) * sc;
-          if (rev.phases) {
-            const segs = rev.phases.split('|').map(s => {
-              const u = s.indexOf('_');
-              return u < 0 ? null : { ph: s.slice(0,u) === 'gray' ? 'grey' : s.slice(0,u), val: +s.slice(u+1) };
-            }).filter(Boolean);
-            if (segs.length) {
-              const bw = 13*sc, bh = 9*sc, gapW = sc;
-              const tw = segs.length * bw + (segs.length - 1) * gapW;
-              let bx = rx - tw / 2;
-              const byp = ry - bh / 2;
-              for (const { ph, val } of segs) {
-                const pc = TILE_HEX_COLORS[ph] || '#ccc';
-                g += `<rect x="${bx.toFixed(1)}" y="${byp.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${pc}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
-                g += `<text x="${(bx+bw/2).toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${val}</text>`;
-                bx += bw + gapW;
-              }
-            }
-          } else {
-            g += `<circle cx="${rx.toFixed(1)}" cy="${ry.toFixed(1)}" r="7.5" fill="white" stroke="#777" stroke-width="1"/>`;
-            g += `<text x="${rx.toFixed(1)}" y="${ry.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev.v}</text>`;
-          }
-        }
-      }
-
-      // DSL hex label (C, Y, OO, NY, etc.)
-      // Port of tobymao label.rb preferred_render_locations + base.rb render_location.
+      // DSL hex label (C, Y, OO, NY, etc.) — canonical via _buildLabelSvg
       if (!tileDef && hex?.label && hex.label !== '') {
-        const _lNodes     = hex.nodes || [];
-        const _lCities    = _lNodes.filter(n => n.type === 'city');
-        const _lCityTowns = _lNodes.filter(n => n.type === 'city' || n.type === 'town');
-
-        // region_use: exits → TRACK_TO_EDGE_N, cities → CENTER (label renders after cities)
-        const _lTTE = [[15,21],[13,14],[6,7],[2,8],[9,10],[16,17]];
-        const _lCTR = [7,8,9,14,15,16];
-        const _lRU  = new Array(24).fill(0);
-        for (const p of (hex.paths || [])) {
-          if (p.a?.type === 'edge') { const rr = _lTTE[p.a.n]; if (rr) for (const r of rr) _lRU[r] += 1; }
-          if (p.b?.type === 'edge') { const rr = _lTTE[p.b.n]; if (rr) for (const r of rr) _lRU[r] += 1; }
-        }
-        for (const n of _lNodes) { if (n.type === 'city') for (const r of _lCTR) _lRU[r] += 1; }
-
-        // Candidate positions (tobymao label.rb, flat layout).
-        // Each: { rw: [[regions[], weight], …], x, y } in tobymao 100-unit space.
-        //   LEFT_MID=[6,13]  LEFT_CORNER=[5,12]   LEFT_CENTER=[7,14]
-        //   RIGHT_MID=[10,17] RIGHT_CORNER=[11,18] RIGHT_CENTER=[9,16]
-        //   UPPER_LEFT_CORNER=[0,1]  UPPER_RIGHT_CORNER=[3,4]
-        //   BOTTOM_LEFT_CORNER=[19,20]  BOTTOM_RIGHT_CORNER=[22,23]
-        let _lCands;
-        if (_lCityTowns.length === 1) {
-          if (_lCities.length === 1 && (_lCities[0].slots || 1) > 1) {
-            // single city, 2+ slots → P_LEFT_CORNER only (label.rb line 188)
-            _lCands = [{ rw:[[[5,12],1.0]],                         x:-71.25, y:0 }];
-          } else {
-            // single city 1-slot or single town (label.rb line 190)
-            _lCands = [
-              { rw:[[[5,6,12,13],1],[[7,14],0.5]],     x:-55,    y:0 }, // SINGLE_CITY_ONE_SLOT
-              { rw:[[[10,11,17,18],1],[[9,16],0.5]],   x: 55,    y:0 }, // SINGLE_CITY_ONE_SLOT_RIGHT
-              { rw:[[[11,18],1.0]],                    x: 71.25, y:0 }, // P_RIGHT_CORNER
-            ];
-          }
-        } else if (_lCityTowns.length > 1) {
-          // MULTI_CITY_LOCATIONS flat (label.rb line 193)
-          _lCands = [
-            { rw:[[[2],1.0],[[1,3],0.5]],        x:   0,    y:-60 }, // top center
-            { rw:[[[6],1.0],[[5,7],0.5]],         x: -50,    y:-31 }, // edge 2
-            { rw:[[[17],1.0],[[16,18],0.5]],      x:  50,    y: 37 }, // edge 5
-            { rw:[[[0,1],1.0]],                   x: -40,    y:-65 }, // top left corner
-            { rw:[[[3,4],1.0]],                   x:  40,    y:-65 }, // top right corner
-            { rw:[[[5,12],1.0]],                  x: -71.25, y:  0 }, // P_LEFT_CORNER
-            { rw:[[[11,18],1.0]],                 x:  71.25, y:  0 }, // P_RIGHT_CORNER
-            { rw:[[[19,20],1.0]],                 x: -30,    y: 65 }, // P_BOTTOM_LEFT_CORNER
-            { rw:[[[22,23],1.0]],                 x:  40,    y: 65 }, // bottom right corner
-            { rw:[[[12,13],1.0]],                 x: -50,    y: 25 }, // edge 1
-            { rw:[[[21],1.0],[[20,22],0.5]],      x:   0,    y: 60 }, // bottom center
-          ];
-        } else {
-          // no city_towns → P_LEFT_CORNER (label.rb line 197)
-          _lCands = [{ rw:[[[5,12],1.0]], x:-71.25, y:0 }];
-        }
-
-        // Pick min_by combined_cost; tiebreak by index (first minimum wins).
-        let _lx = _lCands[0].x, _ly = _lCands[0].y, _lBest = Infinity;
-        for (const c of _lCands) {
-          const cost = _locNameCost(_lRU, c.rw);
-          if (cost < _lBest) { _lBest = cost; _lx = c.x; _ly = c.y; }
-        }
-
-        // tobymao 100-unit → world units (× sz/100)
-        g += `<text x="${(_lx*sz/100).toFixed(1)}" y="${(_ly*sz/100).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" dominant-baseline="middle">${escSvg(hex.label)}</text>`;
+        g += _buildLabelSvg(hex.label, hex.nodes || [], hex.paths || [], sz);
       }
 
       // DSL phase revenue — for offboards and phase-coloured city nodes (flat=null).
@@ -2366,7 +2446,7 @@ function buildHexSvg(r, c, hex) {
       // wrong fixed position AND _buildDslRevenueSvg would render it again at the
       // correct tobymao position.
       const _hasFlatNodeRev = !!(hex?.nodes?.some(
-        n => (n.type === 'city' || n.type === 'town') && n.flat !== null && n.flat !== 0));
+        n => (n.type === 'city' || n.type === 'town') && n.flat !== null && n.flat !== undefined && n.flat !== 0));
       if (!tileDef && !_hasFlatNodeRev && hex?.phaseRevenue) {
         const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
         const activeP = phaseKeys.filter(p => hex.activePhases && hex.activePhases[p]);
@@ -2404,12 +2484,17 @@ function buildHexSvg(r, c, hex) {
         }
       }
 
-      // DSL flat revenue — tobymao-safe positioning via _buildDslRevenueSvg.
-      // Handles city inline (REVENUE_LOCATIONS_BY_EDGE / CENTER_REVENUE_EDGE_PRIORITY)
-      // and town inline (EDGE_TOWN_REVENUE_REGIONS), plus central badge for same-revenue
-      // multi-stop tiles.  Full port of tobymao city.rb + town_rect.rb render_revenue.
-      if (!tileDef && hex?.nodes && hex.nodes.length > 0) {
-        g += _buildDslRevenueSvg(hex, totalDeg, sc);
+      // Revenue — unified via _buildDslRevenueSvg for both tileDef tiles and
+      // DSL map hexes.  For tileDef tiles a synthesised hex-like object is built
+      // from tileDef.nodes (enriched by tile-registry.js with node.revenue) so
+      // _revNodeValue can read them through the node.flat ?? node.revenue chain.
+      {
+        const _revHex = tileDef
+          ? { nodes: tileDef.nodes || [], paths: tileDef.paths || [], exits: _exitsFromPaths(tileDef.paths || []) }
+          : hex;
+        if (_revHex?.nodes?.length > 0) {
+          g += _buildDslRevenueSvg(_revHex, totalDeg, sc);
+        }
       }
     }
 
