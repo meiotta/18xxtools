@@ -734,20 +734,37 @@ function onMechanicsInputChange(e) {
   renderMechanicsLeft(); // re-render to show/hide conditional sections
 }
 
+function hideMechanicsView() {
+  const view = document.getElementById('mechanicsView');
+  if (view) view.style.display = 'none';
+  const navBtn = document.querySelector('[data-lsec="mechanics"]');
+  if (navBtn) navBtn.classList.remove('active');
+}
+
 function wireMechanicsPanel() {
   const navBtn = document.querySelector('[data-lsec="mechanics"]');
   if (!navBtn) return;
 
   navBtn.addEventListener('click', () => {
-    // Hide all main views
-    document.querySelectorAll('#canvasContainer, #marketView, #corpView, #trainsView, #mechanicsView').forEach(el => {
+    // Hide all other main views (setup.js owns these; we just mirror their hide list)
+    document.querySelectorAll('#canvasContainer, #marketView, #corpView, #trainsView').forEach(el => {
       el.style.display = 'none';
     });
+    // Remove active from all other nav buttons; mark ours active
+    document.querySelectorAll('.nav-rail-btn').forEach(b => b.classList.remove('active'));
+    navBtn.classList.add('active');
+
     const view = document.getElementById('mechanicsView');
     if (view) view.style.display = 'flex';
     initMechanicsState();
     renderMechanicsLeft();
     renderMechanicsRight();
+  });
+
+  // When any OTHER nav button is clicked, hide mechanicsView.
+  // setup.js handles showing the correct view; we just need to get out of the way.
+  document.querySelectorAll('.nav-rail-btn[data-lsec]:not([data-lsec="mechanics"])').forEach(btn => {
+    btn.addEventListener('click', hideMechanicsView);
   });
 
   // Add event handler wiring (delegated)
