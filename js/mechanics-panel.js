@@ -750,6 +750,12 @@ function wireMechanicsPanel() {
     document.querySelectorAll('#canvasContainer, #marketView, #corpView, #trainsView').forEach(el => {
       el.style.display = 'none';
     });
+    // Hide the right panel and its toggle — setup.js only shows these in canvas view
+    // (mirrors setup.js:34-39 logic for non-canvas nav sections)
+    const rightPanel = document.getElementById('rightPanel');
+    if (rightPanel) rightPanel.style.display = 'none';
+    const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
+    if (toggleRightBtn) toggleRightBtn.style.display = 'none';
     // Remove active from all other nav buttons; mark ours active
     document.querySelectorAll('.nav-rail-btn').forEach(b => b.classList.remove('active'));
     navBtn.classList.add('active');
