@@ -948,6 +948,17 @@ function hexToSvgInner(hex, tileDef) {
       n.type === 'town' && (prefEdges[ni] === null || prefEdges[ni] === undefined)
     ).length;
 
+    // Total unique exit edges on this tile — used for center_town? check on every town.
+    // source: town_location.rb center_town? → tile.exits.size
+    const _allTileExitCount = (() => {
+      const s = new Set();
+      for (const p of (hex.paths || [])) {
+        if (p.a?.type === 'edge') s.add(p.a.n);
+        if (p.b?.type === 'edge') s.add(p.b.n);
+      }
+      return s.size;
+    })();
+
     // Sequential position computation
     const nodePos = [];
     for (let ni = 0; ni < hex.nodes.length; ni++) {
@@ -1015,10 +1026,51 @@ function hexToSvgInner(hex, tileDef) {
             : (allTownPaths.length > 0 && allTownPaths.length < 3);
 
           if (isTownBar) {
-            // Bar town: position at arc midpoint between track endpoints.
-            // source: town_rect.rb — bar sits on the track segment.
-            const tp = computeTownPos(connEdges);
-            pos = { x: tp.x, y: tp.y, angle: tp.angle };
+            // center_town? = exits.size==2 && tile.exits.size ∈ {2,3}
+            // source: town_location.rb center_town?
+            const isCenterTown = connEdges.length === 2 &&
+              (_allTileExitCount === 2 || _allTileExitCount === 3);
+
+            if (isCenterTown || connEdges.length !== 2) {
+              // Center town or non-2-exit bar: arc-midpoint formula.
+              // source: town_location.rb town_position → center_town? branch.
+              const tp = computeTownPos(connEdges);
+              pos = { x: tp.x, y: tp.y, angle: tp.angle };
+            } else {
+              // Non-center 2-exit bar town (tile has ≥4 exits total).
+              // source: town_location.rb town_position + town_rotation_angles → else branch.
+              const _POSITIONAL_ANGLE = { sharp: 12.12, gentle: 6.11 };
+              const _RECTANGLE_TILT   = { sharp: 40,    gentle: 15    };
+
+              // normalized_edges: ea = prefEdge (or connEdges[0]), eb = other exit
+              // if |ea-eb|>3, add 6 to the smaller to unwrap the short path.
+              // source: town_location.rb normalized_edges
+              const pe = prefEdges[ni];
+              let ea = (pe !== null && pe !== undefined) ? pe : connEdges[0];
+              let eb = connEdges.find(e => e !== ea) ?? connEdges[1];
+              if (Math.abs(ea - eb) > 3) {
+                if (Math.min(ea, eb) === ea) ea += 6; else eb += 6;
+              }
+
+              const diff = Math.abs(ea - eb);
+              const trackType = diff === 1 ? 'sharp' : diff === 2 ? 'gentle' : 'straight';
+              const dir = diff === 3 ? 'straight' : ea > eb ? 'right' : 'left';
+
+              const posAngle = _POSITIONAL_ANGLE[trackType] || 0;
+              const tilt     = _RECTANGLE_TILT[trackType]   || 0;
+              const deltaPos = dir === 'left' ? posAngle : dir === 'right' ? -posAngle : 0;
+              const deltaRot = dir === 'left' ? -tilt    : dir === 'right' ?  tilt     : 0;
+
+              // barPos values from tobymao town_location.rb POSITIONAL_RADIUS constants
+              const barPos  = trackType === 'sharp' ? 55.70 : trackType === 'gentle' ? 48.05 : 40;
+              const axisRad = (ea * 60 + deltaPos) * Math.PI / 180;
+
+              pos = {
+                x: +(-Math.sin(axisRad) * barPos / 2).toFixed(2),
+                y: +( Math.cos(axisRad) * barPos / 2).toFixed(2),
+                angle: ea * 60 + deltaRot,
+              };
+            }
           } else {
             // Dot town: use preferred edge from computePreferredEdges.
             // source: town_dot.rb preferred_render_locations → @edge branch.

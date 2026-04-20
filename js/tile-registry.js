@@ -185,6 +185,67 @@ const TileRegistry = (() => {
     rebuildRegistry();
   }
 
+  // ── detectEmbeddedCollisions ──────────────────────────────────────────────
+  // Checks which embedded tile IDs collide with built-in pack tiles.
+  // Returns an array of collision objects:
+  //   { id, sameDefinition, suggestedPackId }
+  //   id               — the embedded tile ID that conflicts
+  //   sameDefinition   — true when embedded DSL === pack DSL (safe collision)
+  //   suggestedPackId  — ID of a pack tile whose DSL matches the embedded tile
+  //                      (may equal id when sameDefinition is true, or be a
+  //                       different pack ID when the embedded def matches another
+  //                       pack tile, or null when no match exists)
+  //
+  // source: called before setEmbeddedTiles() to produce user-visible warnings.
+  function detectEmbeddedCollisions(rawTiles) {
+    // Build pack-only entry index: id → raw entry, dslFingerprint → first id
+    const packEntries = {};   // id → raw entry { dsl|code, color }
+    const packDslIdx  = {};   // dslFingerprint → id
+    const _normDsl = s => (s || '').replace(/\s+/g, ' ').trim();
+
+    if (typeof TILE_PACKS !== 'undefined') {
+      const order = typeof TILE_PACK_ORDER !== 'undefined'
+        ? TILE_PACK_ORDER : Object.keys(TILE_PACKS);
+      for (const packName of order) {
+        const pack = TILE_PACKS[packName];
+        if (!pack) continue;
+        for (const [key, val] of Object.entries(pack)) {
+          if (COLOR_KEYS.has(key) && val && typeof val === 'object' && !Array.isArray(val)) {
+            for (const [id, entry] of Object.entries(val)) {
+              if (!packEntries[id]) {
+                packEntries[id] = entry;
+                const fp = _normDsl(entry.dsl || entry.code);
+                if (fp && !packDslIdx[fp]) packDslIdx[fp] = id;
+              }
+            }
+          } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+            if (!packEntries[key]) {
+              packEntries[key] = val;
+              const fp = _normDsl(val.dsl || val.code);
+              if (fp && !packDslIdx[fp]) packDslIdx[fp] = key;
+            }
+          }
+        }
+      }
+    }
+
+    const collisions = [];
+    for (const [id, entry] of Object.entries(rawTiles || {})) {
+      if (!packEntries[id]) continue; // no ID collision — not a conflict
+
+      const embFp  = _normDsl(entry.dsl || entry.code);
+      const packFp = _normDsl(packEntries[id].dsl || packEntries[id].code);
+      const sameDefinition = embFp !== '' && embFp === packFp;
+
+      // Find a pack tile whose DSL matches the embedded tile's DSL.
+      // When sameDefinition=true this is just `id` itself.
+      const suggestedPackId = packDslIdx[embFp] || null;
+
+      collisions.push({ id, sameDefinition, suggestedPackId });
+    }
+    return collisions;
+  }
+
   return {
     getTileDef,
     getAllTileDefs,
@@ -194,5 +255,6 @@ const TileRegistry = (() => {
     nextCustomId,
     exportCustomPack,
     importCustomPack,
+    detectEmbeddedCollisions,
   };
 })();

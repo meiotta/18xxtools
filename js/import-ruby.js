@@ -1148,6 +1148,123 @@ document.getElementById('importMapBtn').addEventListener('click', () => {
   document.getElementById('importMapFile').click();
 });
 
+// ── Tile collision dialog ─────────────────────────────────────────────────────
+// Shows a modal when embedded tiles from a map.rb conflict with built-in pack
+// tiles.  For each collision the user can see whether it is safe (identical DSL)
+// or whether a pack tile with the same DSL exists under a different ID.
+// "Swap" replaces all hex tile references with the suggested pack tile ID so the
+// embedded definition is no longer needed.
+//
+// onApply(swaps) is called after the user dismisses.
+// swaps = { [oldId]: newId } — empty when user chose not to swap anything.
+function _showTileCollisionDialog(collisions, onApply) {
+  // ── Build overlay ──────────────────────────────────────────────────────────
+  const overlay = document.createElement('div');
+  overlay.style.cssText = [
+    'position:fixed;inset:0;z-index:9999',
+    'background:rgba(0,0,0,0.72)',
+    'display:flex;align-items:center;justify-content:center',
+  ].join(';');
+
+  const modal = document.createElement('div');
+  modal.style.cssText = [
+    'background:#1e1e1e;color:#ddd;font-family:monospace;font-size:13px',
+    'border:1px solid #555;border-radius:6px',
+    'padding:20px 24px;max-width:560px;width:90%',
+    'max-height:80vh;overflow-y:auto',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.7)',
+  ].join(';');
+
+  modal.innerHTML = `
+    <div style="font-size:15px;font-weight:bold;color:#f0c040;margin-bottom:14px">
+      ⚠ Tile import collision${collisions.length > 1 ? 's' : ''}
+    </div>
+    <div style="color:#aaa;margin-bottom:16px;font-size:12px">
+      The following tiles in your map are already defined in the built-in tile packs.<br>
+      The <strong style="color:#ddd">pack version always takes precedence</strong> unless you swap.
+    </div>
+  `;
+
+  // Track pending swaps (old id → suggested pack id)
+  const pendingSwaps = {};
+
+  for (const col of collisions) {
+    const { id, sameDefinition, suggestedPackId } = col;
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-bottom:14px;padding:10px;background:#2a2a2a;border-radius:4px;border-left:3px solid ' +
+      (sameDefinition ? '#4caf50' : suggestedPackId && suggestedPackId !== id ? '#ff9800' : '#f44336');
+
+    let html = `<span style="color:#fff;font-weight:bold">Tile #${id}</span> `;
+
+    if (sameDefinition) {
+      html += `<span style="color:#4caf50">✓ identical to pack tile #${id}</span>`;
+      html += `<div style="color:#888;font-size:11px;margin-top:4px">Safe collision — the pack version renders the same definition. No action needed.</div>`;
+    } else if (suggestedPackId && suggestedPackId !== id) {
+      html += `<span style="color:#ff9800">⚠ differs from pack tile #${id}</span>`;
+      html += `<div style="color:#aaa;font-size:11px;margin-top:4px">Your map's tile #${id} definition matches pack tile <strong style="color:#fff">#${suggestedPackId}</strong>. The pack tile #${id} will render instead.</div>`;
+      html += `<div style="margin-top:8px">`;
+      html += `<button data-old="${id}" data-new="${suggestedPackId}" class="swap-btn"
+        style="padding:4px 10px;background:#cc7700;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px">
+        Swap hex references: #${id} → #${suggestedPackId}
+      </button>`;
+      html += ` <span class="swap-status-${id}" style="font-size:11px;color:#888"></span>`;
+      html += `</div>`;
+    } else {
+      html += `<span style="color:#f44336">✗ conflicts with pack tile #${id}</span>`;
+      html += `<div style="color:#aaa;font-size:11px;margin-top:4px">Your map's definition differs and no matching pack tile was found. The pack tile #${id} will render; your map definition is ignored.</div>`;
+    }
+
+    row.innerHTML = html;
+    modal.appendChild(row);
+  }
+
+  // ── Swap button logic ──────────────────────────────────────────────────────
+  modal.querySelectorAll('.swap-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const oldId = btn.dataset.old;
+      const newId = btn.dataset.new;
+      if (pendingSwaps[oldId]) {
+        // Toggle off
+        delete pendingSwaps[oldId];
+        btn.style.background = '#cc7700';
+        btn.textContent = `Swap hex references: #${oldId} → #${newId}`;
+        modal.querySelector(`.swap-status-${oldId}`).textContent = '';
+      } else {
+        pendingSwaps[oldId] = newId;
+        btn.style.background = '#337733';
+        btn.textContent = `✓ Will swap: #${oldId} → #${newId}`;
+        modal.querySelector(`.swap-status-${oldId}`).textContent = '(pending — apply to confirm)';
+      }
+    });
+  });
+
+  // ── Footer buttons ──────────────────────────────────────────────────────────
+  const footer = document.createElement('div');
+  footer.style.cssText = 'margin-top:16px;display:flex;gap:10px;justify-content:flex-end';
+
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = 'Apply & Continue';
+  applyBtn.style.cssText = 'padding:6px 16px;background:#2a6a2a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px';
+  applyBtn.addEventListener('click', () => {
+    overlay.remove();
+    onApply(pendingSwaps);
+  });
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.textContent = 'Continue without swapping';
+  dismissBtn.style.cssText = 'padding:6px 16px;background:#444;color:#ddd;border:none;border-radius:4px;cursor:pointer;font-size:13px';
+  dismissBtn.addEventListener('click', () => {
+    overlay.remove();
+    onApply({});
+  });
+
+  footer.appendChild(dismissBtn);
+  footer.appendChild(applyBtn);
+  modal.appendChild(footer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 document.getElementById('importMapFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -1155,38 +1272,71 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
   reader.onload = (ev) => {
     try {
       const result = importRubyMap(ev.target.result);
-      state.hexes = result.hexes;
-      state.meta.rows = result.rows;
-      state.meta.cols = result.cols;
-      state.meta.orientation = result.orientation;
-      state.meta.staggerParity      = result.staggerParity;
-      state.meta.coordParity        = result.coordParity;
-      state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
-      state.meta.maxRowPerCol        = result.maxRowPerCol;
-      // Tile manifest — overwrite only if the file had a TILES block
-      if (Object.keys(result.manifest).length > 0) {
-        state.manifest = result.manifest;
-        if (!state.customTiles) state.customTiles = {};
-        Object.assign(state.customTiles, result.customTiles);
-        // Register game-specific tiles (X-series etc.) immediately so they render in
-        // the manifest view.  customTiles format is { id: { count, color, code } }
-        // where `code` is the DSL string.  _processEntry now accepts `code` as an
-        // alias for `dsl` so we can pass customTiles directly.
-        if (Object.keys(result.customTiles).length > 0) {
-          TileRegistry.setEmbeddedTiles(result.customTiles);
+
+      // ── Apply parsed result to state (optionally after swapping tile refs) ─
+      const applyResult = (swaps) => {
+        // Apply any user-approved hex tile swaps (old embedded id → pack id).
+        if (Object.keys(swaps).length > 0) {
+          for (const hex of Object.values(result.hexes)) {
+            if (hex.tile !== undefined && hex.tile !== null) {
+              const tileStr = String(hex.tile);
+              if (swaps[tileStr]) {
+                const newId = swaps[tileStr];
+                hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
+              }
+            }
+          }
+          // Remove swapped-out embedded tiles so they don't pollute customTiles.
+          for (const oldId of Object.keys(swaps)) {
+            delete result.customTiles[oldId];
+          }
         }
+
+        state.hexes = result.hexes;
+        state.meta.rows = result.rows;
+        state.meta.cols = result.cols;
+        state.meta.orientation = result.orientation;
+        state.meta.staggerParity      = result.staggerParity;
+        state.meta.coordParity        = result.coordParity;
+        state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+        state.meta.maxRowPerCol        = result.maxRowPerCol;
+        // Tile manifest — overwrite only if the file had a TILES block
+        if (Object.keys(result.manifest).length > 0) {
+          state.manifest = result.manifest;
+          if (!state.customTiles) state.customTiles = {};
+          Object.assign(state.customTiles, result.customTiles);
+          // Register game-specific tiles (X-series etc.) immediately so they render in
+          // the manifest view.  customTiles format is { id: { count, color, code } }
+          // where `code` is the DSL string.  _processEntry now accepts `code` as an
+          // alias for `dsl` so we can pass customTiles directly.
+          if (Object.keys(result.customTiles).length > 0) {
+            TileRegistry.setEmbeddedTiles(result.customTiles);
+          }
+        }
+        // Sync orientation select and dimension inputs in the toolbar/config panel
+        syncOrientationSelect();
+        syncDimInputs();
+        // Reset pan so map is visible
+        panX = 0; panY = 0; zoom = 1;
+        render();
+        autosave();
+        const staticCount = Object.values(result.hexes).filter(h => h.static).length;
+        const tileCount   = Object.keys(result.manifest).length;
+        const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
+        updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
+      };
+
+      // ── Collision detection ────────────────────────────────────────────────
+      const collisions = Object.keys(result.customTiles).length > 0
+        ? TileRegistry.detectEmbeddedCollisions(result.customTiles)
+        : [];
+
+      if (collisions.length > 0) {
+        _showTileCollisionDialog(collisions, applyResult);
+      } else {
+        applyResult({});
       }
-      // Sync orientation select and dimension inputs in the toolbar/config panel
-      syncOrientationSelect();
-      syncDimInputs();
-      // Reset pan so map is visible
-      panX = 0; panY = 0; zoom = 1;
-      render();
-      autosave();
-      const staticCount = Object.values(result.hexes).filter(h => h.static).length;
-      const tileCount   = Object.keys(result.manifest).length;
-      const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
-      updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
+
     } catch (err) {
       console.error('[importRubyMap] error:', err);
       alert('Import failed: ' + err.message);
