@@ -576,7 +576,8 @@ function renderPrivatesSection() {
     const sym      = `P${idx + 1}`;
     const name     = escHtml(p.name || 'Unnamed');
     const isConc   = (p.companyType || 'private') === 'concession';
-    const hasGameRbAbilities = !p.abilities?.length && p.ability;
+    const hasGameRbAbilities = !p.abilities?.length && p.ability &&
+      /train|pullman|lorry/i.test(p.ability);
     item.innerHTML = `
       <span class="pc-rail-dot" style="background:${dotColor};"></span>
       <div class="pc-rail-text">

@@ -1061,8 +1061,9 @@ function _rbParseCompany(hashStr) {
 
   const desc = _rbStr(hashStr, 'desc') || '';
   let buyerType = 'any';
-  if (/^MAJOR\/MINOR[,\s]/i.test(desc))   buyerType = 'major_minor';
-  else if (/^MAJOR[,\s]/i.test(desc))     buyerType = 'major_only';
+  if (/^CANNOT\s+BE\s+ACQUIRED/i.test(desc)) buyerType = 'no_acquire';
+  else if (/^MAJOR\/MINOR[,\s]/i.test(desc)) buyerType = 'major_minor';
+  else if (/^MAJOR[,\s]/i.test(desc))        buyerType = 'major_only';
   const priv = {
     id: _cpRandId('prv'),
     sym, name,
