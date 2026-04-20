@@ -240,7 +240,7 @@ function parseDslHex(code, bg, locationName) {
     cityRevenues: [0, 0],
     phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0 },
     activePhases: { yellow: true, green: true, brown: true, gray: true },
-    name: locationName || '',
+    cityName: locationName || '',
     label: '',
     terrain: '',
     terrainCost: 0,
@@ -514,13 +514,7 @@ function parseTilesBlock(content) {
 
   const manifest    = {};
   const customTiles = {};
-
-  // Simple form: 'id' => integer
-  const simpleRe = /'([^']+)'\s*=>\s*(\d+)/g;
   let m;
-  while ((m = simpleRe.exec(body)) !== null) {
-    manifest[m[1]] = parseInt(m[2]);
-  }
 
   // Complex form: 'id' => { 'count' => N, 'color' => 'X', 'code' => '...' }
   // [^}]* is safe here because the inner hash values contain no braces.
@@ -528,7 +522,6 @@ function parseTilesBlock(content) {
   while ((m = complexRe.exec(body)) !== null) {
     const id    = m[1];
     const inner = m[2];
-    // Skip entries already captured by simpleRe (won't match — they have no {)
     const cntM   = inner.match(/'count'\s*=>\s*(\d+)/);
     const colM   = inner.match(/'color'\s*=>\s*'([^']+)'/);
     const codeM  = inner.match(/'code'\s*=>\s*'([^']*)'/);
@@ -541,6 +534,15 @@ function parseTilesBlock(content) {
         code:  codeM ? codeM[1] : '',
       };
     }
+  }
+
+  // Simple form: 'id' => integer
+  // Strip complex-entry inner hashes first so we never match 'count' => N
+  // that lives inside a complex entry's inner hash.
+  const simpleBody = body.replace(/'[^']+'\s*=>\s*\{[^}]+\}/g, '');
+  const simpleRe   = /'([^']+)'\s*=>\s*(\d+)/g;
+  while ((m = simpleRe.exec(simpleBody)) !== null) {
+    if (!manifest[m[1]]) manifest[m[1]] = parseInt(m[2]);
   }
 
   const tileCount = Object.keys(manifest).length;
@@ -919,7 +921,7 @@ function importRubyMap(content) {
           label: '',
           upgradesTo: [], overrideUpgrades: false,
           riverEdges: [], killed: false,
-          cityName: '',
+          cityName: name || '',
           borders: parsed.borders || [],
           icons:   parsed.icons   || [],
         };
@@ -1094,12 +1096,13 @@ function _rbParseCorp(hashStr) {
   const type        = _rbStr(hashStr, 'type')         || 'minor';
   const color       = _rbStr(hashStr, 'color')        || '#ffffff';
   const textColor   = _rbStr(hashStr, 'text_color')   || '#000000';
-  const coordinates = _rbStr(hashStr, 'coordinates')  || '';
-  const city        = _rbNum(hashStr, 'city')         || 0;
-  const floatPct    = _rbNum(hashStr, 'float_percent');
-  const logo        = _rbStr(hashStr, 'logo')         || '';
-  const tokens      = _rbTokens(hashStr);
-  const abilities   = _rbAbilities(hashStr);
+  const coordinates     = _rbStr(hashStr, 'coordinates')          || '';
+  const destCoordinates = _rbStr(hashStr, 'destination_coordinates'); // null if absent
+  const city            = _rbNum(hashStr, 'city')                  || 0;
+  const floatPct        = _rbNum(hashStr, 'float_percent');
+  const logo            = _rbStr(hashStr, 'logo')                  || '';
+  const tokens          = _rbTokens(hashStr);
+  const abilities       = _rbAbilities(hashStr);
 
   const descAb = abilities.find(a => a.type === 'description' && a.description);
   let associatedMajor = null;
@@ -1108,9 +1111,14 @@ function _rbParseCorp(hashStr) {
     if (m) associatedMajor = m[1];
   }
 
-  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens };
-  if (floatPct !== null) co.floatPctOverride = floatPct;
-  if (associatedMajor)   co.associatedMajor  = associatedMajor;
+  // Drop display-only abilities already consumed or derivable from other fields
+  const CORP_ABILITY_DISCARD = new Set(['base', 'description']);
+  const storedAbilities = abilities.filter(a => !CORP_ABILITY_DISCARD.has(a.type));
+
+  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens, abilities: storedAbilities };
+  if (destCoordinates)   co.destinationCoordinates = destCoordinates;
+  if (floatPct !== null) co.floatPctOverride        = floatPct;
+  if (associatedMajor)   co.associatedMajor         = associatedMajor;
   return { co, type };
 }
 
@@ -1148,6 +1156,185 @@ document.getElementById('importMapBtn').addEventListener('click', () => {
   document.getElementById('importMapFile').click();
 });
 
+// ── Tile collision dialog ─────────────────────────────────────────────────────
+// Shows a modal when embedded tiles from a map.rb conflict with built-in pack
+// tiles.  Three actions are available per collision:
+//
+//   Swap         — remap hex refs to a pack tile with matching DSL (discards
+//                  the embedded definition; only available when suggestedPackId
+//                  is a *different* pack tile, i.e. orange rows).
+//   Build as custom — remap hex refs to a new 9000+ custom tile ID and keep
+//                  the embedded DSL alive under that ID (available for all
+//                  non-green rows; pre-allocates the ID so the user sees it).
+//   Neither      — pack tile wins silently (embedded def is ignored).
+//
+// Swap and Build-as-custom are mutually exclusive per collision row.
+//
+// onApply(swaps, buildAsCustom) is called after the user confirms.
+//   swaps         = { [oldId]: packId }     — discard embedded, use pack tile
+//   buildAsCustom = { [oldId]: newCustomId } — keep embedded under new ID
+function _showTileCollisionDialog(collisions, onApply) {
+  // Pre-allocate custom IDs for every non-green collision so the user sees
+  // the actual ID they'll get before confirming.
+  let nextCustNum = parseInt(TileRegistry.nextCustomId(), 10);
+  const prealloc = {}; // oldId → pre-allocated custom ID string
+  for (const { id, sameDefinition } of collisions) {
+    if (!sameDefinition) prealloc[id] = String(nextCustNum++);
+  }
+
+  // ── Build overlay ──────────────────────────────────────────────────────────
+  const overlay = document.createElement('div');
+  overlay.style.cssText = [
+    'position:fixed;inset:0;z-index:9999',
+    'background:rgba(0,0,0,0.72)',
+    'display:flex;align-items:center;justify-content:center',
+  ].join(';');
+
+  const modal = document.createElement('div');
+  modal.style.cssText = [
+    'background:#1e1e1e;color:#ddd;font-family:monospace;font-size:13px',
+    'border:1px solid #555;border-radius:6px',
+    'padding:20px 24px;max-width:580px;width:90%',
+    'max-height:80vh;overflow-y:auto',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.7)',
+  ].join(';');
+
+  modal.innerHTML = `
+    <div style="font-size:15px;font-weight:bold;color:#f0c040;margin-bottom:14px">
+      ⚠ Tile import collision${collisions.length > 1 ? 's' : ''}
+    </div>
+    <div style="color:#aaa;margin-bottom:16px;font-size:12px">
+      These tiles in your map conflict with built-in pack tiles.<br>
+      Choose an action for each — or do nothing and the pack version will render.
+    </div>
+  `;
+
+  // pending[id] = { type: 'swap'|'custom', newId }  or absent = no action
+  const pending = {};
+
+  for (const col of collisions) {
+    const { id, sameDefinition, suggestedPackId } = col;
+    const custId = prealloc[id]; // undefined when sameDefinition
+
+    const borderColor = sameDefinition ? '#4caf50'
+      : (suggestedPackId && suggestedPackId !== id) ? '#ff9800' : '#f44336';
+
+    const row = document.createElement('div');
+    row.style.cssText = `margin-bottom:14px;padding:10px 12px;background:#2a2a2a;border-radius:4px;border-left:3px solid ${borderColor}`;
+
+    // ── Header line ──
+    let headerHtml = `<div style="margin-bottom:6px"><span style="color:#fff;font-weight:bold">Tile #${id}</span> `;
+    if (sameDefinition) {
+      headerHtml += `<span style="color:#4caf50">✓ identical to pack tile #${id}</span>`;
+    } else if (suggestedPackId && suggestedPackId !== id) {
+      headerHtml += `<span style="color:#ff9800">⚠ your DSL matches pack tile #${suggestedPackId} (not #${id})</span>`;
+    } else {
+      headerHtml += `<span style="color:#f44336">✗ differs from pack tile #${id}, no pack match found</span>`;
+    }
+    headerHtml += '</div>';
+
+    // ── Description line ──
+    let descHtml = '<div style="color:#888;font-size:11px;margin-bottom:8px">';
+    if (sameDefinition) {
+      descHtml += 'Safe collision — pack tile renders identically. No action needed.';
+    } else if (suggestedPackId && suggestedPackId !== id) {
+      descHtml += `Your map's definition is the same as pack tile <strong style="color:#ccc">#${suggestedPackId}</strong>. Pack tile #${id} will render instead unless you act.`;
+    } else {
+      descHtml += `Pack tile #${id} wins by default; your map's definition is silently ignored.`;
+    }
+    descHtml += '</div>';
+
+    // ── Action buttons (not shown for green / safe collisions) ──
+    let btnHtml = '';
+    if (!sameDefinition) {
+      btnHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      if (suggestedPackId && suggestedPackId !== id) {
+        btnHtml += `<button data-id="${id}" data-action="swap" data-new="${suggestedPackId}"
+          class="col-action-btn"
+          style="padding:4px 10px;background:#555;color:#ccc;border:none;border-radius:3px;cursor:pointer;font-size:12px">
+          Swap → pack #${suggestedPackId}
+        </button>`;
+      }
+      btnHtml += `<button data-id="${id}" data-action="custom" data-new="${custId}"
+        class="col-action-btn"
+        style="padding:4px 10px;background:#555;color:#ccc;border:none;border-radius:3px;cursor:pointer;font-size:12px">
+        Build as custom #${custId}
+      </button>`;
+      btnHtml += `<span class="col-status-${id}" style="font-size:11px;color:#888;align-self:center"></span>`;
+      btnHtml += '</div>';
+    }
+
+    row.innerHTML = headerHtml + descHtml + btnHtml;
+    modal.appendChild(row);
+  }
+
+  // ── Button toggle logic — Swap and Build-as-custom are mutually exclusive ──
+  const BTN_IDLE    = '#555';
+  const BTN_ACTIVE  = '#337733';
+
+  modal.querySelectorAll('.col-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id     = btn.dataset.id;
+      const action = btn.dataset.action; // 'swap' | 'custom'
+      const newId  = btn.dataset.new;
+      const status = modal.querySelector(`.col-status-${id}`);
+
+      // Sibling buttons for this collision row
+      const siblings = modal.querySelectorAll(`.col-action-btn[data-id="${id}"]`);
+
+      if (pending[id] && pending[id].type === action) {
+        // Toggle off — deactivate this button
+        delete pending[id];
+        siblings.forEach(b => { b.style.background = BTN_IDLE; b.style.color = '#ccc'; });
+        if (status) status.textContent = '';
+      } else {
+        // Activate this button, deactivate all others for this row
+        pending[id] = { type: action, newId };
+        siblings.forEach(b => {
+          b.style.background = b === btn ? BTN_ACTIVE : BTN_IDLE;
+          b.style.color = b === btn ? '#fff' : '#ccc';
+        });
+        if (status) {
+          status.textContent = action === 'swap'
+            ? `→ hexes will reference pack #${newId}`
+            : `→ hexes will reference custom #${newId}`;
+        }
+      }
+    });
+  });
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  const footer = document.createElement('div');
+  footer.style.cssText = 'margin-top:18px;display:flex;gap:10px;justify-content:flex-end';
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.textContent = 'Continue (pack wins)';
+  dismissBtn.style.cssText = 'padding:6px 16px;background:#444;color:#ddd;border:none;border-radius:4px;cursor:pointer;font-size:13px';
+  dismissBtn.addEventListener('click', () => {
+    overlay.remove();
+    onApply({}, {});
+  });
+
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = 'Apply & Continue';
+  applyBtn.style.cssText = 'padding:6px 16px;background:#2a6a2a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px';
+  applyBtn.addEventListener('click', () => {
+    const swaps = {}, buildAsCustom = {};
+    for (const [id, { type, newId }] of Object.entries(pending)) {
+      if (type === 'swap')   swaps[id]         = newId;
+      if (type === 'custom') buildAsCustom[id] = newId;
+    }
+    overlay.remove();
+    onApply(swaps, buildAsCustom);
+  });
+
+  footer.appendChild(dismissBtn);
+  footer.appendChild(applyBtn);
+  modal.appendChild(footer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 document.getElementById('importMapFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -1155,38 +1342,78 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
   reader.onload = (ev) => {
     try {
       const result = importRubyMap(ev.target.result);
-      state.hexes = result.hexes;
-      state.meta.rows = result.rows;
-      state.meta.cols = result.cols;
-      state.meta.orientation = result.orientation;
-      state.meta.staggerParity      = result.staggerParity;
-      state.meta.coordParity        = result.coordParity;
-      state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
-      state.meta.maxRowPerCol        = result.maxRowPerCol;
-      // Tile manifest — overwrite only if the file had a TILES block
-      if (Object.keys(result.manifest).length > 0) {
-        state.manifest = result.manifest;
-        if (!state.customTiles) state.customTiles = {};
-        Object.assign(state.customTiles, result.customTiles);
-        // Register game-specific tiles (X-series etc.) immediately so they render in
-        // the manifest view.  customTiles format is { id: { count, color, code } }
-        // where `code` is the DSL string.  _processEntry now accepts `code` as an
-        // alias for `dsl` so we can pass customTiles directly.
-        if (Object.keys(result.customTiles).length > 0) {
-          TileRegistry.setEmbeddedTiles(result.customTiles);
+
+      // ── Apply parsed result to state ───────────────────────────────────────
+      // swaps         = { oldId: packId }     — use pack tile, discard embedded
+      // buildAsCustom = { oldId: newCustomId } — keep embedded under new ID
+      const applyResult = (swaps, buildAsCustom) => {
+        // Helper: remap hex.tile from one ID to another.
+        const remapHexTile = (oldId, newId) => {
+          for (const hex of Object.values(result.hexes)) {
+            if (hex.tile !== undefined && hex.tile !== null && String(hex.tile) === oldId) {
+              hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
+            }
+          }
+        };
+
+        // Build-as-custom: move embedded definition to new ID, remap hex refs.
+        for (const [oldId, newId] of Object.entries(buildAsCustom || {})) {
+          remapHexTile(oldId, newId);
+          result.customTiles[newId] = result.customTiles[oldId];
+          delete result.customTiles[oldId];
         }
+
+        // Swap to pack tile: remap hex refs, discard embedded definition.
+        for (const [oldId, newId] of Object.entries(swaps || {})) {
+          remapHexTile(oldId, newId);
+          delete result.customTiles[oldId];
+        }
+
+        state.hexes = result.hexes;
+        state.meta.rows = result.rows;
+        state.meta.cols = result.cols;
+        state.meta.orientation = result.orientation;
+        state.meta.staggerParity      = result.staggerParity;
+        state.meta.coordParity        = result.coordParity;
+        state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+        state.meta.maxRowPerCol        = result.maxRowPerCol;
+        // Tile manifest — overwrite only if the file had a TILES block
+        if (Object.keys(result.manifest).length > 0) {
+          state.manifest = result.manifest;
+          if (!state.customTiles) state.customTiles = {};
+          Object.assign(state.customTiles, result.customTiles);
+          // Register game-specific tiles (X-series etc.) immediately so they render in
+          // the manifest view.  customTiles format is { id: { count, color, code } }
+          // where `code` is the DSL string.  _processEntry now accepts `code` as an
+          // alias for `dsl` so we can pass customTiles directly.
+          if (Object.keys(result.customTiles).length > 0) {
+            TileRegistry.setEmbeddedTiles(result.customTiles);
+          }
+        }
+        // Sync orientation select and dimension inputs in the toolbar/config panel
+        syncOrientationSelect();
+        syncDimInputs();
+        // Reset pan so map is visible
+        panX = 0; panY = 0; zoom = 1;
+        render();
+        autosave();
+        const staticCount = Object.values(result.hexes).filter(h => h.static).length;
+        const tileCount   = Object.keys(result.manifest).length;
+        const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
+        updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
+      };
+
+      // ── Collision detection ────────────────────────────────────────────────
+      const collisions = Object.keys(result.customTiles).length > 0
+        ? TileRegistry.detectEmbeddedCollisions(result.customTiles)
+        : [];
+
+      if (collisions.length > 0) {
+        _showTileCollisionDialog(collisions, applyResult);
+      } else {
+        applyResult({}, {});
       }
-      // Sync orientation select and dimension inputs in the toolbar/config panel
-      syncOrientationSelect();
-      syncDimInputs();
-      // Reset pan so map is visible
-      panX = 0; panY = 0; zoom = 1;
-      render();
-      autosave();
-      const staticCount = Object.values(result.hexes).filter(h => h.static).length;
-      const tileCount   = Object.keys(result.manifest).length;
-      const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
-      updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
+
     } catch (err) {
       console.error('[importRubyMap] error:', err);
       alert('Import failed: ' + err.message);
