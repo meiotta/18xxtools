@@ -514,13 +514,7 @@ function parseTilesBlock(content) {
 
   const manifest    = {};
   const customTiles = {};
-
-  // Simple form: 'id' => integer
-  const simpleRe = /'([^']+)'\s*=>\s*(\d+)/g;
   let m;
-  while ((m = simpleRe.exec(body)) !== null) {
-    manifest[m[1]] = parseInt(m[2]);
-  }
 
   // Complex form: 'id' => { 'count' => N, 'color' => 'X', 'code' => '...' }
   // [^}]* is safe here because the inner hash values contain no braces.
@@ -528,7 +522,6 @@ function parseTilesBlock(content) {
   while ((m = complexRe.exec(body)) !== null) {
     const id    = m[1];
     const inner = m[2];
-    // Skip entries already captured by simpleRe (won't match — they have no {)
     const cntM   = inner.match(/'count'\s*=>\s*(\d+)/);
     const colM   = inner.match(/'color'\s*=>\s*'([^']+)'/);
     const codeM  = inner.match(/'code'\s*=>\s*'([^']*)'/);
@@ -541,6 +534,15 @@ function parseTilesBlock(content) {
         code:  codeM ? codeM[1] : '',
       };
     }
+  }
+
+  // Simple form: 'id' => integer
+  // Strip complex-entry inner hashes first so we never match 'count' => N
+  // that lives inside a complex entry's inner hash.
+  const simpleBody = body.replace(/'[^']+'\s*=>\s*\{[^}]+\}/g, '');
+  const simpleRe   = /'([^']+)'\s*=>\s*(\d+)/g;
+  while ((m = simpleRe.exec(simpleBody)) !== null) {
+    if (!manifest[m[1]]) manifest[m[1]] = parseInt(m[2]);
   }
 
   const tileCount = Object.keys(manifest).length;

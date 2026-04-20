@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Map Import Test Harness</title>
+  <style>
+    body { font-family: monospace; font-size: 12px; background: #111; color: #ccc; padding: 16px; }
+    h1 { color: #fff; font-size: 16px; margin: 0 0 8px 0; }
+    .subtitle { color: #888; margin-bottom: 16px; font-size: 11px; }
+    .global-summary { margin: 12px 0; padding: 10px 14px; background: #1a1a1a; border-radius: 4px; font-size: 13px; line-height: 1.8; }
+    .pass  { color: #4caf50; }
+    .fail  { color: #f44336; }
+    .warn  { color: #ff9800; }
+    .na    { color: #888; }
+    #progress { color: #aaa; margin: 8px 0; font-size: 12px; }
+    .game-block { margin: 6px 0; border: 1px solid #2a2a2a; border-radius: 4px; }
+    .game-block > summary {
+      cursor: pointer; padding: 7px 10px; background: #181818;
+      border-radius: 4px; list-style: none; display: flex; align-items: center; gap: 10px;
+      font-size: 12px;
+    }
+    .game-block > summary:hover { background: #222; }
+    .game-block > summary::marker { display: none; }
+    .game-name { color: #ddd; font-weight: bold; min-width: 130px; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 11px; min-width: 60px; text-align: center; }
+    .badge-pass { background: #1a3a1a; color: #4caf50; border: 1px solid #2a5a2a; }
+    .badge-fail { background: #3a1a1a; color: #f44336; border: 1px solid #5a2a2a; }
+    .badge-warn { background: #3a2a0a; color: #ff9800; border: 1px solid #5a3a0a; }
+    .badge-na   { background: #222;    color: #666;    border: 1px solid #333; }
+    .detail-body { padding: 10px 14px; border-top: 1px solid #222; }
+    .test-section { margin: 8px 0; }
+    .test-label { color: #aaa; margin-bottom: 4px; font-size: 11px; }
+    .test-line  { margin: 2px 0 2px 10px; font-size: 11px; }
+    .detail-list { margin: 4px 0 4px 10px; padding: 0; list-style: none; max-height: 200px; overflow-y: auto; }
+    .detail-list li { margin: 1px 0; font-size: 11px; color: #bbb; }
+    .detail-list li::before { content: '• '; color: #555; }
+    .separator { border: none; border-top: 1px solid #222; margin: 8px 0; }
+    details.game-block[open] > summary { border-radius: 4px 4px 0 0; }
+  </style>
+</head>
+<body>
+<h1>Map Import Test Harness</h1>
+<p class="subtitle">
+  Tests <b style="color:#fff">A</b> (import health) &nbsp;|&nbsp;
+  <b style="color:#fff">C</b> (manifest tile renderability) &nbsp;|&nbsp;
+  <b style="color:#fff">D</b> (dangling track exits) &nbsp;— against 12 priority 18xx games
+</p>
+<div id="progress">Loading scripts…</div>
+<div id="global-summary"></div>
+<div id="output"></div>
+
+<!-- Scripts (no palette.js, no canvas-input.js) -->
+<script src="js/tile-geometry.js"></script>
+<script src="js/tile-packs.js"></script>
+<script src="js/tile-registry.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/state.js"></script>
+<script src="js/hex-geometry.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/import-ruby.js"></script>
+<script src="test-game-data.js"></script>
+
+<!-- DOM stubs required by import-ruby.js event listeners -->
+<div style="display:none">
+  <button id="importMapBtn"></button>
+  <input type="file" id="importMapFile">
+  <button id="importEntitiesBtn"></button>
+  <input type="file" id="importEntitiesFile">
+  <div id="fileMenu"></div>
+</div>
+
+<script>
+'use strict';
+
+// ── Global stubs ──────────────────────────────────────────────────────────────
+window.selectedHex       = null;
+window.selectedHexes     = new Set();
+window.dragOverHex       = null;
+window.panX = 0; window.panY = 0; window.zoom = 1;
+window.activeTool        = null;
+window.activeTile        = null;
+window.activeLabel       = '';
+window.activeTerrainType = null;
+window.autosave          = () => {};
+window.render            = () => {};
+window.syncOrientationSelect = () => {};
+window.syncDimInputs     = () => {};
+window.buildPalette      = () => {};
+window.updateStatus      = () => {};
+window.renderCompaniesTable = () => {};
+
+// ── TileRegistry bootstrap ────────────────────────────────────────────────────
+if (typeof TileRegistry !== 'undefined') {
+  TileRegistry.rebuildRegistry();
+}
+
+// ── getNeighborHex (copied from canvas-input.js) ──────────────────────────────
+// Edge convention: 0=bottom,1=lower-left,2=upper-left,3=top,4=upper-right,5=lower-right
+function getNeighborHex(row, col, edge) {
+  const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;
+  const isEven = (col + sp) % 2 === 0;
+  let nr, nc;
+  switch (edge) {
+    case 0: nr = row + 1; nc = col;     break;
+    case 1: nr = row + (isEven ? 1 : 0); nc = col - 1; break;
+    case 2: nr = row + (isEven ? 0 : -1); nc = col - 1; break;
+    case 3: nr = row - 1; nc = col;     break;
+    case 4: nr = row + (isEven ? 0 : -1); nc = col + 1; break;
+    case 5: nr = row + (isEven ? 1 : 0); nc = col + 1; break;
+    default: return null;
+  }
+  if (nr < 0 || nc < 0) return null;
+  return { row: nr, col: nc };
+}
+
+// ── Grid lookup helper ────────────────────────────────────────────────────────
+// Returns Map: hexKey → {row, col} for fast reverse lookup
+function buildGridLookup(hexes, rows, cols) {
+  const lookup = {};
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const key = hexId(r, c);
+      if (hexes[key] !== undefined) lookup[key] = { row: r, col: c };
+    }
+  }
+  return lookup;
+}
+
+// ── NaN check: walk hex fields recursively ────────────────────────────────────
+function findNaNFields(hex) {
+  const bad = [];
+  function walk(obj, path) {
+    if (obj === null || obj === undefined) return;
+    if (Array.isArray(obj)) {
+      obj.forEach((v, i) => walk(v, `${path}[${i}]`));
+    } else if (typeof obj === 'object') {
+      for (const k of Object.keys(obj)) walk(obj[k], `${path}.${k}`);
+    } else if (typeof obj === 'number' && isNaN(obj)) {
+      bad.push(path);
+    }
+  }
+  walk(hex, 'hex');
+  return bad;
+}
+
+// ── Game list ─────────────────────────────────────────────────────────────────
+const GAMES = [
+  '1830', '1846', '18Chesapeake', '1889', '1822', '1861',
+  '1867', '1882', '18India', '1824', '1860', '18CZ'
+];
+
+// ── Run all tests ─────────────────────────────────────────────────────────────
+document.getElementById('progress').textContent = 'Running tests…';
+
+setTimeout(() => {
+  const allResults = [];
+
+  for (const gameLabel of GAMES) {
+    const rb = GAME_MAP_RB[gameLabel];
+    if (!rb) {
+      allResults.push({ gameLabel, error: 'Missing from GAME_MAP_RB', testA: null, testC: null, testD: null });
+      continue;
+    }
+
+    // Reset state before each game
+    state.hexes = {};
+    state.meta = {
+      title: '', baseGame: gameLabel, rows: 8, cols: 12,
+      orientation: 'flat', staggerParity: 0, coordParity: 0,
+      pointyStaggerParity: 0, maxRowPerCol: null,
+      bank: 12000, playersMin: 2, playersMax: 6
+    };
+    state.activePhases = {};
+
+    // ── Test A ────────────────────────────────────────────────────────────────
+    const testA = {
+      pass: false,
+      threw: false,
+      throwMsg: '',
+      rows: 0, cols: 0,
+      liveCount: 0,
+      nanFields: [],    // [{hexKey, fields[]}]
+      svgNaN: [],       // [{hexKey, sample}]
+      cityNameCount: 0,
+      notes: [],
+    };
+
+    let result = null;
+    try {
+      result = importRubyMap(rb);
+    } catch (e) {
+      testA.threw = true;
+      testA.throwMsg = String(e.message || e);
+    }
+
+    let testC = { pass: false, na: false, manifestSize: 0, renderableCount: 0, unrenderable: [], hexTileIds: [] };
+    let testD = { pass: false, dangling: [], liveChecked: 0 };
+
+    if (!testA.threw && result) {
+      // Apply to state
+      state.hexes = result.hexes;
+      state.meta.rows        = result.rows;
+      state.meta.cols        = result.cols;
+      state.meta.orientation = result.orientation;
+      state.meta.staggerParity       = result.staggerParity      || 0;
+      state.meta.coordParity         = result.coordParity        || 0;
+      state.meta.pointyStaggerParity = result.pointyStaggerParity|| 0;
+      state.meta.maxRowPerCol        = result.maxRowPerCol       || null;
+
+      testA.rows = result.rows;
+      testA.cols = result.cols;
+
+      const hexes    = result.hexes;
+      const liveHexes = Object.entries(hexes).filter(([, h]) => !h.killed);
+      testA.liveCount = liveHexes.length;
+
+      // NaN in hex fields
+      for (const [key, hex] of liveHexes) {
+        const bad = findNaNFields(hex);
+        if (bad.length) testA.nanFields.push({ key, fields: bad });
+      }
+
+      // SVG NaN check — suppress console.error during this block
+      const origErr = console.error;
+      console.error = () => {};
+      try {
+        const gridLookup = buildGridLookup(hexes, result.rows, result.cols);
+        for (const [key, hex] of liveHexes) {
+          const pos = gridLookup[key];
+          if (!pos) continue;
+          let svg = '';
+          try { svg = buildHexSvg(pos.row, pos.col, hex); } catch (e2) { svg = ''; }
+          if (/NaN|undefined|Infinity/.test(svg)) {
+            // Grab a sample snippet around the first occurrence
+            const m = svg.match(/([\s\S]{0,30}(?:NaN|undefined|Infinity)[\s\S]{0,30})/);
+            testA.svgNaN.push({ key, sample: m ? m[1].trim() : '?' });
+          }
+        }
+      } finally {
+        console.error = origErr;
+      }
+
+      // cityName count
+      testA.cityNameCount = liveHexes.filter(([, h]) => h.cityName && h.cityName !== '').length;
+
+      // A passes if no throw, no NaN-svg, no NaN-fields, rows>0, cols>0, live>0
+      testA.pass = (
+        !testA.threw &&
+        testA.rows > 0 &&
+        testA.cols > 0 &&
+        testA.liveCount > 0 &&
+        testA.nanFields.length === 0 &&
+        testA.svgNaN.length === 0
+      );
+
+      // ── Test C ──────────────────────────────────────────────────────────────
+      const manifest = result.manifest || {};
+      const manifestIds = Object.keys(manifest);
+      testC.manifestSize = manifestIds.length;
+
+      if (testC.manifestSize === 0) {
+        testC.na = true;
+        testC.pass = true; // N/A counts as not-failing
+      } else {
+        const unrenderable = [];
+        let renderableCount = 0;
+        for (const id of manifestIds) {
+          const td = TileRegistry.getTileDef(id);
+          if (td !== null) {
+            renderableCount++;
+          } else {
+            unrenderable.push(id);
+          }
+        }
+        testC.renderableCount = renderableCount;
+        testC.unrenderable    = unrenderable;
+        testC.pass            = unrenderable.length === 0;
+
+        // Hex-placed tile IDs (placed via editor — usually 0 for imported maps)
+        const hexTileSet = new Set();
+        for (const [, hex] of liveHexes) {
+          if (hex.tile && String(hex.tile) !== '0') {
+            hexTileSet.add(String(hex.tile));
+          }
+        }
+        testC.hexTileIds = [...hexTileSet];
+      }
+
+      // ── Test D ──────────────────────────────────────────────────────────────
+      const gridLookupD = buildGridLookup(hexes, result.rows, result.cols);
+      const dangling = [];
+
+      for (const [key, hex] of liveHexes) {
+        const pos = gridLookupD[key];
+        if (!pos) continue;
+        const exits = hex.exits || [];
+        testD.liveChecked++;
+
+        for (const edge of exits) {
+          const nb = getNeighborHex(pos.row, pos.col, edge);
+          // nb === null → off-grid (row<0 or col<0) → valid border exit, skip
+          if (nb === null) continue;
+
+          const nbKey = hexId(nb.row, nb.col);
+
+          // Check: neighbor out of bounds on the far side (row >= rows or col >= cols)
+          if (nb.row >= result.rows || nb.col >= result.cols) {
+            dangling.push({ hexKey: key, edge, neighborKey: nbKey, reason: 'out-of-bounds' });
+            continue;
+          }
+
+          const nbHex = hexes[nbKey];
+          // Neighbor missing entirely OR killed
+          if (nbHex === undefined || nbHex === null) {
+            dangling.push({ hexKey: key, edge, neighborKey: nbKey, reason: 'missing' });
+          } else if (nbHex.killed === true) {
+            dangling.push({ hexKey: key, edge, neighborKey: nbKey, reason: 'killed' });
+          }
+        }
+      }
+
+      testD.dangling = dangling;
+      testD.pass     = dangling.length === 0;
+    }
+
+    allResults.push({ gameLabel, testA, testC, testD });
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  document.getElementById('progress').textContent = '';
+
+  // Global summary counts
+  let passA = 0, passC = 0, naC = 0, passD = 0;
+  for (const r of allResults) {
+    if (r.testA?.pass)  passA++;
+    if (r.testC?.pass)  passC++;
+    if (r.testC?.na)    naC++;
+    if (r.testD?.pass)  passD++;
+  }
+  const total = GAMES.length;
+
+  const globalDiv = document.getElementById('global-summary');
+  globalDiv.className = 'global-summary';
+  globalDiv.innerHTML = `
+    <b style="color:#fff">Global summary</b> — ${total} games<br>
+    Test <b>A</b> (import health):&nbsp;
+      <span class="${passA === total ? 'pass' : 'fail'}">${passA}/${total} pass</span><br>
+    Test <b>C</b> (manifest renderability):&nbsp;
+      <span class="${passC === total ? 'pass' : 'fail'}">${passC}/${total} pass</span>
+      ${naC ? `<span class="na">(${naC} N/A — no TILES block)</span>` : ''}<br>
+    Test <b>D</b> (dangling exits):&nbsp;
+      <span class="${passD === total ? 'pass' : 'fail'}">${passD}/${total} pass</span>
+  `;
+
+  const out = document.getElementById('output');
+
+  for (const r of allResults) {
+    const { gameLabel, testA, testC, testD } = r;
+
+    // Compute badge classes
+    const badgeA = testA
+      ? (testA.pass ? 'badge-pass' : 'badge-fail')
+      : 'badge-fail';
+    const badgeC = testC
+      ? (testC.na ? 'badge-na' : (testC.pass ? 'badge-pass' : (testC.unrenderable?.length > 0 ? 'badge-warn' : 'badge-fail')))
+      : 'badge-fail';
+    const badgeD = testD
+      ? (testD.pass ? 'badge-pass' : (testD.dangling?.length > 0 ? 'badge-warn' : 'badge-fail'))
+      : 'badge-fail';
+
+    const labelA = testA
+      ? (testA.threw ? 'THROW' : (testA.pass ? 'PASS' : 'FAIL'))
+      : 'ERR';
+    const labelC = testC
+      ? (testC.na ? 'N/A' : (testC.pass ? 'PASS' : `${testC.unrenderable?.length} bad`))
+      : 'ERR';
+    const labelD = testD
+      ? (testD.pass ? 'PASS' : `${testD.dangling?.length} exits`)
+      : 'ERR';
+
+    const block = document.createElement('details');
+    block.className = 'game-block';
+
+    // Summary row
+    const summ = document.createElement('summary');
+    summ.innerHTML = `
+      <span class="game-name">${escHtml(gameLabel)}</span>
+      <span class="badge ${badgeA}" title="Test A: import health">A: ${labelA}</span>
+      <span class="badge ${badgeC}" title="Test C: manifest renderability">C: ${labelC}</span>
+      <span class="badge ${badgeD}" title="Test D: dangling exits">D: ${labelD}</span>
+    `;
+    block.appendChild(summ);
+
+    // Detail body
+    const body = document.createElement('div');
+    body.className = 'detail-body';
+
+    // ── Test A details ──
+    const secA = document.createElement('div');
+    secA.className = 'test-section';
+    secA.innerHTML = `<div class="test-label">Test A — Import health</div>`;
+
+    if (!testA) {
+      secA.innerHTML += `<div class="test-line fail">Missing from GAME_MAP_RB.</div>`;
+    } else if (testA.threw) {
+      secA.innerHTML += `<div class="test-line fail">THROW: ${escHtml(testA.throwMsg)}</div>`;
+    } else {
+      const dimOk   = testA.rows > 0 && testA.cols > 0;
+      const liveOk  = testA.liveCount > 0;
+      secA.innerHTML += `
+        <div class="test-line ${dimOk ? 'pass' : 'fail'}">
+          Dimensions: ${testA.rows} rows × ${testA.cols} cols ${dimOk ? '✓' : '✗ (zero dimension)'}
+        </div>
+        <div class="test-line ${liveOk ? 'pass' : 'fail'}">
+          Live hexes: ${testA.liveCount} ${liveOk ? '✓' : '✗ (no live hexes)'}
+        </div>
+        <div class="test-line ${testA.nanFields.length === 0 ? 'pass' : 'fail'}">
+          NaN in hex fields: ${testA.nanFields.length === 0 ? 'none ✓' : testA.nanFields.length + ' hex(es) affected ✗'}
+        </div>
+      `;
+      if (testA.nanFields.length > 0) {
+        const ul = document.createElement('ul');
+        ul.className = 'detail-list';
+        for (const { key, fields } of testA.nanFields.slice(0, 20)) {
+          const li = document.createElement('li');
+          li.textContent = `${key}: ${fields.slice(0, 5).join(', ')}${fields.length > 5 ? '…' : ''}`;
+          ul.appendChild(li);
+        }
+        if (testA.nanFields.length > 20) {
+          const li = document.createElement('li');
+          li.style.color = '#888';
+          li.textContent = `…and ${testA.nanFields.length - 20} more`;
+          ul.appendChild(li);
+        }
+        secA.appendChild(ul);
+      }
+      secA.innerHTML += `
+        <div class="test-line ${testA.svgNaN.length === 0 ? 'pass' : 'fail'}">
+          SVG NaN/undefined/Infinity: ${testA.svgNaN.length === 0 ? 'none ✓' : testA.svgNaN.length + ' hex(es) ✗'}
+        </div>
+      `;
+      if (testA.svgNaN.length > 0) {
+        const ul = document.createElement('ul');
+        ul.className = 'detail-list';
+        for (const { key, sample } of testA.svgNaN.slice(0, 10)) {
+          const li = document.createElement('li');
+          li.textContent = `${key}: …${sample}…`;
+          ul.appendChild(li);
+        }
+        if (testA.svgNaN.length > 10) {
+          const li = document.createElement('li');
+          li.style.color = '#888';
+          li.textContent = `…and ${testA.svgNaN.length - 10} more`;
+          ul.appendChild(li);
+        }
+        secA.appendChild(ul);
+      }
+      secA.innerHTML += `
+        <div class="test-line na">
+          cityName count: ${testA.cityNameCount} (informational — not a fail criterion)
+        </div>
+      `;
+    }
+    body.appendChild(secA);
+
+    body.innerHTML += '<hr class="separator">';
+
+    // ── Test C details ──
+    const secC = document.createElement('div');
+    secC.className = 'test-section';
+    secC.innerHTML = `<div class="test-label">Test C — Manifest tile renderability</div>`;
+
+    if (!testC) {
+      secC.innerHTML += `<div class="test-line fail">Could not run (import failed).</div>`;
+    } else if (testC.na) {
+      secC.innerHTML += `<div class="test-line na">No TILES block in this game file — N/A.</div>`;
+    } else {
+      secC.innerHTML += `
+        <div class="test-line">
+          Manifest tiles: ${testC.manifestSize}
+          &nbsp;| Renderable: <span class="${testC.renderableCount === testC.manifestSize ? 'pass' : 'warn'}">${testC.renderableCount}</span>
+          &nbsp;| Unrenderable: <span class="${testC.unrenderable.length === 0 ? 'pass' : 'fail'}">${testC.unrenderable.length}</span>
+        </div>
+      `;
+      if (testC.unrenderable.length > 0) {
+        const ul = document.createElement('ul');
+        ul.className = 'detail-list';
+        for (const id of testC.unrenderable) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="fail">Tile #${escHtml(id)}</span> — no tileDef`;
+          ul.appendChild(li);
+        }
+        secC.appendChild(ul);
+      }
+      if (testC.hexTileIds.length > 0) {
+        secC.innerHTML += `<div class="test-line na">Editor-placed tile IDs in hexes: ${escHtml(testC.hexTileIds.join(', '))}</div>`;
+      }
+    }
+    body.appendChild(secC);
+
+    body.innerHTML += '<hr class="separator">';
+
+    // ── Test D details ──
+    const secD = document.createElement('div');
+    secD.className = 'test-section';
+    secD.innerHTML = `<div class="test-label">Test D — Track exits pointing at killed/missing hexes</div>`;
+
+    if (!testD) {
+      secD.innerHTML += `<div class="test-line fail">Could not run (import failed).</div>`;
+    } else {
+      secD.innerHTML += `
+        <div class="test-line ${testD.pass ? 'pass' : 'warn'}">
+          Live hexes checked: ${testD.liveChecked}
+          &nbsp;| Dangling exits: <span class="${testD.dangling.length === 0 ? 'pass' : 'warn'}">${testD.dangling.length}</span>
+          ${testD.pass ? ' ✓' : ''}
+        </div>
+      `;
+      if (testD.dangling.length > 0) {
+        const ul = document.createElement('ul');
+        ul.className = 'detail-list';
+        const showMax = 30;
+        for (const { hexKey, edge, neighborKey, reason } of testD.dangling.slice(0, showMax)) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="warn">${escHtml(hexKey)}</span> edge ${edge} → ${escHtml(neighborKey)} <span class="na">(${reason})</span>`;
+          ul.appendChild(li);
+        }
+        if (testD.dangling.length > showMax) {
+          const li = document.createElement('li');
+          li.style.color = '#888';
+          li.textContent = `…and ${testD.dangling.length - showMax} more`;
+          ul.appendChild(li);
+        }
+        secD.appendChild(ul);
+      }
+    }
+    body.appendChild(secD);
+
+    block.appendChild(body);
+    out.appendChild(block);
+  }
+
+}, 0);
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
