@@ -2473,6 +2473,16 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   flex-shrink: 0;
 }
 
+/* ── Validation warning badge (corps + privates rail) ──────────────────────── */
+.co-warn-badge {
+  font-size: 11px;
+  color: #f5a623;
+  margin-left: 4px;
+  flex-shrink: 0;
+  cursor: help;
+  line-height: 1;
+}
+
 /* ── Associated major field hint (company editor) ──────────────────────────── */
 .cp-co-assoc-major {
   width: 80px;

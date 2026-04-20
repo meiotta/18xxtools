@@ -576,6 +576,7 @@ function renderPrivatesSection() {
     const sym      = `P${idx + 1}`;
     const name     = escHtml(p.name || 'Unnamed');
     const isConc   = (p.companyType || 'private') === 'concession';
+    const hasGameRbAbilities = !p.abilities?.length && p.ability;
     item.innerHTML = `
       <span class="pc-rail-dot" style="background:${dotColor};"></span>
       <div class="pc-rail-text">
@@ -583,6 +584,7 @@ function renderPrivatesSection() {
         ${isConc ? `<span class="pc-rail-type-badge pc-rail-conc-badge">C</span>` : ''}
         <span class="pc-rail-name">${name}</span>
         ${isConc && p.linkedMajor ? `<span class="pc-rail-linked-major">${escHtml(p.linkedMajor)}</span>` : ''}
+        ${hasGameRbAbilities ? `<span class="co-warn-badge" title="Abilities may be defined in game.rb — not imported">⚠</span>` : ''}
       </div>`;
     item.addEventListener('click', () => {
       _selectedPrivateIdx = idx;
@@ -1273,6 +1275,40 @@ function _wireShareEditor(el, getShares, setShares, rerender) {
   });
 }
 
+// ── Minor home-hex validator ──────────────────────────────────────────────────
+// Returns { [coId]: ['warning text', ...] } for every minor with a problem.
+function validateMinors() {
+  const result = {};
+  (state.corpPacks || []).forEach(pack => {
+    if (pack.type !== 'minor') return;
+    (pack.companies || []).forEach(co => {
+      const w = [];
+      if (!co.coordinates) {
+        w.push('No home hex defined');
+      } else {
+        const hex = (state.hexes || {})[co.coordinates];
+        if (!hex) {
+          w.push('Home ' + co.coordinates + ' not on map');
+        } else {
+          const cities = (hex.nodes || []).filter(n => n.type === 'city');
+          if (!cities.length) {
+            w.push('Home ' + co.coordinates + ' has no city');
+          } else {
+            const ci = parseInt(co.city) || 0;
+            if (ci >= cities.length) {
+              w.push('Home ' + co.coordinates + ': no city at index ' + ci);
+            } else if ((cities[ci].slots || 1) < 1) {
+              w.push('Home ' + co.coordinates + ': no free token slot');
+            }
+          }
+        }
+      }
+      if (w.length) result[co.id] = w;
+    });
+  });
+  return result;
+}
+
 // ── Main render entry point ───────────────────────────────────────────────────
 function renderCorpsSection() {
   const wrap = document.getElementById('corpCorpsSection');
@@ -1285,6 +1321,8 @@ function renderCorpsSection() {
     _selectedCompanyId = null;
   }
 
+  const savedRailScroll = wrap.querySelector('.cp-rail')?.scrollTop || 0;
+  const minorWarnings   = validateMinors();
   wrap.innerHTML = '';
 
   // ── Left rail ─────────────────────────────────────────────────────────────
@@ -1327,11 +1365,15 @@ function renderCorpsSection() {
         const assocBadge = (pack.type === 'minor' && co.associatedMajor)
           ? `<span class="cp-rail-assoc-badge" title="Associated: ${escHtml(co.associatedMajor)}">${escHtml(co.associatedMajor)}</span>`
           : '';
+        const coWarns = minorWarnings[co.id];
+        const warnBadge = coWarns
+          ? `<span class="co-warn-badge" title="${escHtml(coWarns.join('\n'))}">⚠</span>`
+          : '';
         item.innerHTML = `
           <span class="cp-rail-dot" style="background:${dotColor};"></span>
           <span class="cp-rail-sym">${escHtml(co.sym || '?')}</span>
           <span class="cp-rail-name">${escHtml(co.name || 'Unnamed')}</span>
-          ${assocBadge}`;
+          ${assocBadge}${warnBadge}`;
         item.addEventListener('click', () => {
           _selectedPackIdx   = pi;
           _selectedCompanyId = co.id;
@@ -1358,6 +1400,7 @@ function renderCorpsSection() {
   });
 
   wrap.appendChild(rail);
+  rail.scrollTop = savedRailScroll;
 
   // ── Right detail panel ────────────────────────────────────────────────────
   const detail = document.createElement('div');
