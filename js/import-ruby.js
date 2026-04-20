@@ -1144,6 +1144,197 @@ function importEntitiesRb(content) {
   return { privates, packs };
 }
 
+// ─── IMPORT GAME.RB ──────────────────────────────────────────────────────────
+// Parses TRAINS and PHASES constants from a tobymao game.rb file.
+// Returns { trains, phases } ready to merge into state.trains / state.phases.
+//
+// Source reference: lib/engine/game/g_1830/game.rb (TRAINS + PHASES)
+//                   lib/engine/game/g_1822/game.rb (complex distance arrays,
+//                                                   train_limit hashes, %i tiles)
+
+function _rbDistField(hashStr) {
+  // Check array-form FIRST: distance: [ ... ]
+  // This must come before the scalar check so that a base train with an array
+  // distance (e.g. 1822 L-train) doesn't accidentally pick up a scalar
+  // distance: N from inside its own variants: [...] sub-hash.
+  const di = hashStr.indexOf('distance:');
+  if (di !== -1) {
+    let peek = di + 9;
+    while (peek < hashStr.length && /\s/.test(hashStr[peek])) peek++;
+    if (hashStr[peek] === '[') {
+      let depth = 0, ei = peek;
+      while (ei < hashStr.length) {
+        if (hashStr[ei] === '[') depth++;
+        else if (hashStr[ei] === ']') { depth--; if (depth === 0) break; }
+        ei++;
+      }
+      const flat = hashStr.slice(peek + 1, ei).replace(/\n/g, ' ');
+      let cityPay = 0, townPay = 0;
+      const re = /'nodes'\s*=>\s*\[([^\]]*)\][^}]*?'pay'\s*=>\s*(\d+)/g;
+      let m;
+      while ((m = re.exec(flat)) !== null) {
+        if (m[1].includes('city'))       cityPay = parseInt(m[2], 10);
+        else if (m[1].includes('town'))  townPay = parseInt(m[2], 10);
+      }
+      if (townPay > 0) return { distType: 'nm', n: Math.max(cityPay, 1), m: townPay };
+      return { distType: 'n', n: Math.max(cityPay, 1) };
+    }
+  }
+  // Scalar distance: N (≥ 99 means unlimited — covers both distance:99 and distance:999)
+  const n = _rbNum(hashStr, 'distance');
+  if (n !== null) {
+    if (n >= 99) return { distType: 'u', isExpress: false, multiplier: 1 };
+    return { distType: 'n', n };
+  }
+  return { distType: 'n', n: 2 };
+}
+
+function _rbTrainEvents(hashStr) {
+  const idx = hashStr.indexOf('events:');
+  if (idx === -1) return [];
+  let bi = hashStr.indexOf('[', idx + 7);
+  if (bi === -1) return [];
+  let depth = 0, ei = bi;
+  while (ei < hashStr.length) {
+    if (hashStr[ei] === '[') depth++;
+    else if (hashStr[ei] === ']') { depth--; if (depth === 0) break; }
+    ei++;
+  }
+  const sub = hashStr.slice(bi + 1, ei);
+  const events = [];
+  const re = /'type'\s*=>\s*'([^']+)'/g;
+  let m;
+  while ((m = re.exec(sub)) !== null) events.push({ type: m[1] });
+  return events;
+}
+
+function _rbParseTrain(hashStr) {
+  const label  = _rbStr(hashStr, 'name')  || '';
+  const cost   = _rbNum(hashStr, 'price') || 0;
+  const count  = _rbNum(hashStr, 'num')   || 0;
+
+  // Restrict distance-sensitive fields to the portion of the hash before any
+  // variants: key so that a base train (e.g. 1822 '7' with an E-variant) does
+  // not accidentally inherit the variant's distance:99 / multiplier:2.
+  const topLevel    = hashStr.split(/\bvariants:/)[0];
+  const rustsOnName = _rbStr(topLevel, 'rusts_on');
+  const mult        = _rbNum(topLevel, 'multiplier');
+  const events      = _rbTrainEvents(hashStr);
+  const id          = 't_' + Math.random().toString(36).substr(2, 6);
+  const distFields  = _rbDistField(topLevel);
+
+  // multiplier trains (e.g. 1822 E-train: distance:99, multiplier:2) → unlimited express
+  if (mult !== null && mult > 1) {
+    distFields.distType   = 'u';
+    distFields.isExpress  = true;
+    distFields.multiplier = mult;
+  }
+  const tr = Object.assign(
+    { id, label, cost, count, rusts: !!rustsOnName, rustsOn: rustsOnName || '', phase: '' },
+    distFields
+  );
+  if (events.length) tr.events = events;
+  return tr;
+}
+
+function _rbParsePhase(hashStr) {
+  const name = _rbStr(hashStr, 'name') || '';
+
+  // on: can be absent, empty string, a quoted name, or %w[...] array
+  const onStr = _rbStr(hashStr, 'on');
+  let onTrain = onStr !== null ? onStr : '';
+  if (!onTrain) {
+    const arr = _rbStrArr(hashStr, 'on');
+    if (arr.length) onTrain = arr[0];
+  }
+
+  // train_limit: integer or { minor: N, major: N } — take major (or the integer)
+  let limit = _rbNum(hashStr, 'train_limit');
+  if (limit === null) {
+    const m = hashStr.match(/\btrain_limit:\s*\{[^}]*\bmajor:\s*(\d+)/);
+    limit = m ? parseInt(m[1], 10) : 4;
+  }
+
+  // tiles: last recognized color in [:yellow,:green,...] or %i[...] or %w[...]
+  // tobymao uses 'gray'; editor state uses 'grey' — normalise on import.
+  const COLOR_ORDER = ['yellow', 'green', 'brown', 'gray', 'grey'];
+  let tiles = 'yellow';
+  const tm = hashStr.match(/\btiles:\s*(?:%[iw]\[([^\]]+)\]|\[([^\]]+)\])/);
+  if (tm) {
+    const raw = (tm[1] || tm[2] || '').replace(/[:'"]/g, ' ');
+    const cols = raw.trim().split(/\s+/).filter(Boolean);
+    for (let i = cols.length - 1; i >= 0; i--) {
+      if (COLOR_ORDER.includes(cols[i])) { tiles = cols[i] === 'gray' ? 'grey' : cols[i]; break; }
+    }
+  }
+
+  const ors    = _rbNum(hashStr, 'operating_rounds') || 2;
+  const status = _rbStrArr(hashStr, 'status');
+  const PHASE_COLORS = { yellow: '#d4a017', green: '#3a843a', brown: '#8b5e3c', grey: '#777777' };
+
+  const ph = { name, onTrain, limit, tiles, ors, color: PHASE_COLORS[tiles] || '#d4a017' };
+  if (status.length) ph.status = status;
+  return ph;
+}
+
+function importGameRb(content) {
+  const src = content
+    .replace(/'\s*\\\s*\n\s*'/g, '')
+    .replace(/#[^\n]*/g, '');
+
+  const trainHashes = _rbSplitHashes(_rbExtractArray(src, 'TRAINS'));
+  const trains = [];
+
+  trainHashes.forEach(hashStr => {
+    const tr = _rbParseTrain(hashStr);
+    if (tr.label) trains.push(tr);
+
+    // Expand variants as sibling trains (e.g. 1822 L-train → 2-variant)
+    const vi = hashStr.indexOf('variants:');
+    if (vi === -1) return;
+    let bi = hashStr.indexOf('[', vi + 9);
+    if (bi === -1) return;
+    let depth = 0, ei = bi;
+    while (ei < hashStr.length) {
+      if (hashStr[ei] === '[') depth++;
+      else if (hashStr[ei] === ']') { depth--; if (depth === 0) break; }
+      ei++;
+    }
+    _rbSplitHashes(hashStr.slice(bi + 1, ei)).forEach(vh => {
+      const vtr = _rbParseTrain(vh);
+      if (vtr.label) trains.push(vtr);
+    });
+  });
+
+  const phases = _rbSplitHashes(_rbExtractArray(src, 'PHASES'))
+    .map(_rbParsePhase)
+    .filter(p => p.name);
+
+  // ── Cross-reference resolution ────────────────────────────────────────────
+  // Step 1: train.phase ← phase.name where phase.onTrain (still a name) === train.label
+  trains.forEach(tr => {
+    const ph = phases.find(p => p.onTrain === tr.label);
+    if (ph) tr.phase = ph.name;
+  });
+
+  // Step 2: train.rustsOn: name string → target train's id
+  trains.forEach(tr => {
+    if (!tr.rustsOn) return;
+    const target = trains.find(t => t.label === tr.rustsOn);
+    if (target) tr.rustsOn = target.id;
+    else { tr.rusts = false; tr.rustsOn = ''; }
+  });
+
+  // Step 3: phase.onTrain: name string → train id (must run after Step 1)
+  phases.forEach(ph => {
+    if (!ph.onTrain) return;
+    const target = trains.find(t => t.label === ph.onTrain);
+    ph.onTrain = target ? target.id : '';
+  });
+
+  return { trains, phases };
+}
+
 // ── Wire up the Import Map button ─────────────────────────────────────────────
 
 document.getElementById('importMapBtn').addEventListener('click', () => {
@@ -1460,6 +1651,50 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
   };
   reader.readAsText(file);
 });
+
+// ── Wire up Import Game (.rb) ─────────────────────────────────────────────────
+// Source read: g_1830/game.rb + g_1822/game.rb for TRAINS/PHASES shape.
+// Listener registered before the generic stub block so stopImmediatePropagation
+// can suppress the "Not yet implemented" stub handler below.
+(function () {
+  const btn   = document.getElementById('importGameBtn');
+  const input = document.getElementById('importGameFile');
+  if (!btn || !input) return;
+
+  // Remove stub styling added in the HTML
+  btn.classList.remove('file-menu-stub');
+  const stubTag = btn.querySelector('.stub-tag');
+  if (stubTag) stubTag.remove();
+
+  btn.addEventListener('click', (e) => {
+    e.stopImmediatePropagation();
+    document.getElementById('fileMenu').style.display = 'none';
+    input.click();
+  });
+
+  input.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const { trains, phases } = importGameRb(ev.target.result);
+        state.trains = trains;
+        state.phases = phases;
+        if (typeof renderTrainsTable === 'function') renderTrainsTable();
+        if (typeof renderPhasesTable === 'function') renderPhasesTable();
+        autosave();
+        const evCount = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
+        updateStatus(`Imported ${trains.length} trains, ${phases.length} phases${evCount ? ', ' + evCount + ' events' : ''} from ${file.name}`);
+      } catch (err) {
+        console.error('[importGameRb] error:', err);
+        alert('Game import failed: ' + err.message);
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+}());
 
 // ── Stub handlers for not-yet-implemented import/export types ─────────────────
 
