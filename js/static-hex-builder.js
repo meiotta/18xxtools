@@ -220,17 +220,35 @@ function _loadFromModel(h) {
     _nodeEdges[nodeId] = [];
   });
 
-  // Build connections from DSL paths
+  // Build connections from DSL paths.
+  // Edge-to-edge paths are grouped by endpoint pair first because parseDslHex
+  // expands lanes:N into N separate path objects (each with aLane/bLane).
+  // We collapse those back into a single segment with a lanes count.
+  //
+  // Key:  Math.min(ea,eb) + '-' + Math.max(ea,eb)
+  // Value: { ea, eb, lanes } where lanes = count of paths with those endpoints
+  //        OR the explicit p.lanes value for new-builder-format paths.
+  const eeGroups = {};
+
   savedPaths.forEach(p => {
     const aEdge = p.a?.type === 'edge', aNode = p.a?.type === 'node';
     const bEdge = p.b?.type === 'edge', bNode = p.b?.type === 'node';
 
     if (aEdge && bEdge) {
-      // Edge-to-edge bypass
+      // Group by endpoint pair — handles both formats:
+      //   parseDslHex: N paths with aLane/bLane, each counted +1
+      //   New builder:  1 path with explicit p.lanes = N
       const ea = p.a.n, eb = p.b.n;
-      if (!_segments.some(s => (s.ea===ea&&s.eb===eb)||(s.ea===eb&&s.eb===ea))) {
-        _segments.push({ id: _nextId(), ea, eb });
+      const key = Math.min(ea, eb) + '-' + Math.max(ea, eb);
+      const grp = eeGroups[key];
+      if (!grp) {
+        eeGroups[key] = { ea, eb, lanes: p.lanes || 1 };
+      } else if (p.lanes && p.lanes > grp.lanes) {
+        grp.lanes = p.lanes;          // explicit lanes supersedes count
+      } else if (!p.lanes) {
+        grp.lanes++;                  // parseDslHex expansion: each copy = +1 lane
       }
+
     } else if (aEdge && bNode) {
       const nodeId = nodeIdByIndex[p.b.n];
       if (nodeId !== undefined) {
@@ -253,6 +271,11 @@ function _loadFromModel(h) {
         }
       }
     }
+  });
+
+  // Create one segment per endpoint group, carrying the lane count.
+  Object.values(eeGroups).forEach(({ ea, eb, lanes }) => {
+    _segments.push({ id: _nextId(), ea, eb, lanes: lanes > 1 ? lanes : 1 });
   });
 
   // Fallback: if h had no paths[] (old format), try blankPaths for segments
@@ -296,9 +319,11 @@ function _toDslHex() {
     }
   });
 
-  // Blank edge-to-edge segments become paths too
+  // Blank edge-to-edge segments become paths too (carry lane count when > 1)
   _segments.forEach(seg => {
-    paths.push({ a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } });
+    const p = { a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } };
+    if ((seg.lanes || 1) > 1) p.lanes = seg.lanes;
+    paths.push(p);
   });
 
   // Compute exits: union of all edge endpoints
@@ -389,7 +414,9 @@ function _buildFinalModel() {
       paths.push({ a: { type: 'node', n: niA }, b: { type: 'node', n: niB } });
   });
   _segments.forEach(seg => {
-    paths.push({ a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } });
+    const sp = { a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } };
+    if ((seg.lanes || 1) > 1) sp.lanes = seg.lanes;
+    paths.push(sp);
   });
 
   const p0 = _nodes[0];
@@ -851,6 +878,28 @@ function _renderCanvas() {
              pointer-events="none">${e}</text>`;
   }
 
+  // ── Lane-count badges for multi-lane segments ─────────────────────────────
+  // Shown at segment midpoint; click cycles lanes 1→2→3→4→1.
+  // Only visible when activeTool is NOT erase (erase shows no badge, just delete).
+  if (_activeTool !== 'erase') {
+    for (const seg of _segments) {
+      const lanes = seg.lanes || 1;
+      // Always draw a subtle indicator at the midpoint, highlight multi-lane ones
+      const [ax, ay] = EMP[seg.ea];
+      const [bx, by] = EMP[seg.eb];
+      const mx2 = (ax + bx) / 2, my2 = (ay + by) / 2;
+      const fill   = lanes > 1 ? '#4a7aff' : '#2a3a5a';
+      const stroke = lanes > 1 ? '#8ab0ff' : '#3a5a8a';
+      const label  = lanes > 1 ? `×${lanes}` : '×1';
+      s += `<circle cx="${mx2.toFixed(1)}" cy="${my2.toFixed(1)}" r="10"
+               fill="${fill}" stroke="${stroke}" stroke-width="1.5"
+               data-seg-id="${seg.id}" style="cursor:pointer;" title="Click to change lane count"/>`;
+      s += `<text x="${mx2.toFixed(1)}" y="${(my2 + 4).toFixed(1)}"
+               text-anchor="middle" font-size="10" font-weight="bold" fill="white"
+               pointer-events="none">${label}</text>`;
+    }
+  }
+
   s += `</g>`; // close rotate group
   svg.innerHTML = s;
 }
@@ -1169,6 +1218,25 @@ function _onCanvasClick(e) {
     _renderCanvas();
     _updateDslPreview();
     return;
+  }
+
+  // ── Lane badge click — cycle lanes on a segment ───────────────────────────
+  // Checked before edge/snap hits so a small badge on the segment midpoint
+  // takes priority over placing new track.
+  {
+    const p2 = _unrotate(mx, my);
+    for (const seg of _segments) {
+      const [ax, ay] = EMP[seg.ea];
+      const [bx, by] = EMP[seg.eb];
+      const smx = (ax + bx) / 2, smy = (ay + by) / 2;
+      if (Math.hypot(p2.x - smx, p2.y - smy) <= 12) {
+        // Cycle lanes 1→2→3→4→1
+        seg.lanes = ((seg.lanes || 1) % 4) + 1;
+        _renderCanvas();
+        _updateDslPreview();
+        return;
+      }
+    }
   }
 
   // ── Track tool — node-first click model ───────────────────────────────────
@@ -1565,16 +1633,45 @@ window.staticHexCode = function staticHexCode(hex) {
 
   // ── Path directives ───────────────────────────────────────────────────────
   if (savedPaths.length > 0) {
-    // New path: read paths[] directly — handles edge-to-node, node-to-node
-    // (Wien city↔city, Swansea city↔town), and edge-to-edge bypass.
+    // Edge-to-edge paths need lane-count collapsing.
+    // parseDslHex expands lanes:N into N paths with aLane/bLane — re-group them.
+    // New builder format stores a single path with p.lanes = N — use directly.
+    // Group key: min(ea,eb)-max(ea,eb) to handle both orderings.
+    const eeGroups = new Map();
+    const nonEe    = [];
+
     savedPaths.forEach(p => {
+      const aE = p.a?.type === 'edge', bE = p.b?.type === 'edge';
+      if (aE && bE) {
+        const ea = p.a.n, eb = p.b.n;
+        const key = Math.min(ea, eb) + '-' + Math.max(ea, eb);
+        const grp = eeGroups.get(key);
+        if (!grp) {
+          eeGroups.set(key, { ea, eb, lanes: p.lanes || 1 });
+        } else if (p.lanes && p.lanes > grp.lanes) {
+          grp.lanes = p.lanes;    // explicit attribute supersedes count
+        } else if (!p.lanes) {
+          grp.lanes++;            // parseDslHex expansion: another copy = +1 lane
+        }
+      } else {
+        nonEe.push(p);
+      }
+    });
+
+    // Emit edge-to-edge paths (with lanes when > 1)
+    for (const { ea, eb, lanes } of eeGroups.values()) {
+      const lanesAttr = lanes > 1 ? `,lanes:${lanes}` : '';
+      parts.push(`path=a:${(ea + rot) % 6},b:${(eb + rot) % 6}${lanesAttr}`);
+    }
+
+    // Emit all non-edge-to-edge paths (edge-to-node, node-to-node, node-to-edge)
+    nonEe.forEach(p => {
       const termAttr = p.terminal ? `,terminal:${p.terminal}` : '';
       const aE = p.a?.type === 'edge', bE = p.b?.type === 'edge';
       const aN = p.a?.type === 'node', bN = p.b?.type === 'node';
       if      (aE && bN) parts.push(`path=a:${(p.a.n+rot)%6},b:_${p.b.n}${termAttr}`);
       else if (aN && bE) parts.push(`path=a:_${p.a.n},b:${(p.b.n+rot)%6}${termAttr}`);
       else if (aN && bN) parts.push(`path=a:_${p.a.n},b:_${p.b.n}`);
-      else if (aE && bE) parts.push(`path=a:${(p.a.n+rot)%6},b:${(p.b.n+rot)%6}`);
     });
 
   } else {
