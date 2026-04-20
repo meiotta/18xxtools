@@ -1096,12 +1096,13 @@ function _rbParseCorp(hashStr) {
   const type        = _rbStr(hashStr, 'type')         || 'minor';
   const color       = _rbStr(hashStr, 'color')        || '#ffffff';
   const textColor   = _rbStr(hashStr, 'text_color')   || '#000000';
-  const coordinates = _rbStr(hashStr, 'coordinates')  || '';
-  const city        = _rbNum(hashStr, 'city')         || 0;
-  const floatPct    = _rbNum(hashStr, 'float_percent');
-  const logo        = _rbStr(hashStr, 'logo')         || '';
-  const tokens      = _rbTokens(hashStr);
-  const abilities   = _rbAbilities(hashStr);
+  const coordinates     = _rbStr(hashStr, 'coordinates')          || '';
+  const destCoordinates = _rbStr(hashStr, 'destination_coordinates'); // null if absent
+  const city            = _rbNum(hashStr, 'city')                  || 0;
+  const floatPct        = _rbNum(hashStr, 'float_percent');
+  const logo            = _rbStr(hashStr, 'logo')                  || '';
+  const tokens          = _rbTokens(hashStr);
+  const abilities       = _rbAbilities(hashStr);
 
   const descAb = abilities.find(a => a.type === 'description' && a.description);
   let associatedMajor = null;
@@ -1110,9 +1111,14 @@ function _rbParseCorp(hashStr) {
     if (m) associatedMajor = m[1];
   }
 
-  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens };
-  if (floatPct !== null) co.floatPctOverride = floatPct;
-  if (associatedMajor)   co.associatedMajor  = associatedMajor;
+  // Drop display-only abilities already consumed or derivable from other fields
+  const CORP_ABILITY_DISCARD = new Set(['base', 'description']);
+  const storedAbilities = abilities.filter(a => !CORP_ABILITY_DISCARD.has(a.type));
+
+  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens, abilities: storedAbilities };
+  if (destCoordinates)   co.destinationCoordinates = destCoordinates;
+  if (floatPct !== null) co.floatPctOverride        = floatPct;
+  if (associatedMajor)   co.associatedMajor         = associatedMajor;
   return { co, type };
 }
 
