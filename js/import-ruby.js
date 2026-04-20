@@ -1060,13 +1060,16 @@ function _rbParseCompany(hashStr) {
   const isConc  = !!exchAb;
 
   const desc = _rbStr(hashStr, 'desc') || '';
+  let buyerType = 'any';
+  if (/^MAJOR\/MINOR[,\s]/i.test(desc))   buyerType = 'major_minor';
+  else if (/^MAJOR[,\s]/i.test(desc))     buyerType = 'major_only';
   const priv = {
     id: _cpRandId('prv'),
     sym, name,
     cost: value, revenue,
     color, textColor,
     companyType: isConc ? 'concession' : 'private',
-    closesOn: '', buyerType: 'any',
+    closesOn: '', buyerType,
     ability: desc,
     abilities: isConc
       ? abilities.filter(a => a.type !== 'exchange' && a.type !== 'blocks_hexes_consent' && a.type !== 'blocks_hexes')
