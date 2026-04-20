@@ -2323,19 +2323,30 @@ function buildHexSvg(r, c, hex) {
       g += buildTerrainSvg(hex);
     }
 
-    // City name (placed tile or DSL city/oo)
-    if (hex?.cityName && hasCityFeature) {
+    // City name — only when a tile is actually placed (hex.tile is truthy).
+    // Unplaced / static hexes get their name via the locName path below, which
+    // uses tobymao location_name.rb positioning.  Guarding on hex.tile prevents
+    // double-rendering now that hex.cityName is the single source of truth for
+    // both placed and unplaced hexes.
+    if (hex?.cityName && hex?.tile && hasCityFeature) {
       g += `<text x="0" y="${(-sz*0.5).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="9" font-weight="bold" fill="#111" stroke="rgba(255,255,255,0.85)" stroke-width="2.5" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${escSvg(hex.cityName)}</text>`;
     }
 
     // Location name (unplaced hexes with city/town content).
-    // Pure pass-through path hexes (e.g. red border lanes, N23-style edge connectors)
-    // have hex.name set from LOCATION_NAMES but should NOT show a label — in tobymao
-    // the location name only renders for hexes that have an actual city or town stop.
-    const locName = !hex ? '' :
-      (hex.city  && !hex.tile) ? (hex.city.name  || '') :
-      (hex.town  && !hex.tile) ? (hex.town.name  || '') :
-      (!hex.tile && hex.nodes && hex.nodes.length > 0) ? (hex.featureName || hex.name || '') : '';
+    // Single source of truth: hex.cityName (set on import from LOCATION_NAMES,
+    // writable from the hex panel, round-trips through export).
+    // Guard rules:
+    //   DSL hexes with nodes   — show only when a city or town node is present
+    //                            (suppresses pass-through / pure-track hexes).
+    //   Blank upgradeable hexes (no nodes) — always show cityName if set; a blank
+    //                            hex that carries a city name is always a city hex.
+    //   Legacy hex.city/town   — fall back to the name stored in those objects.
+    const locName = !hex || !!hex.tile ? '' :
+      (!hex.nodes || hex.nodes.length === 0)
+        ? (hex.cityName || hex.city?.name || hex.town?.name || '')
+        : hex.nodes.some(n => n.type === 'city' || n.type === 'town')
+          ? (hex.cityName || hex.city?.name || hex.town?.name || '')
+          : '';
     if (locName) {
       // ── tobymao location_name.rb preferred_render_locations ─────────────────
       // CRITICAL: hex.feature is a derived summary field (set to 'city' ONLY for

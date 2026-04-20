@@ -228,7 +228,7 @@ function exportRubyMap() {
         (buckets[color][code] || []);
       buckets[color][code].push(coord);
 
-      if (hex.name) nameMap[coord] = hex.name;
+      if (hex.cityName) nameMap[coord] = hex.cityName;
     }
   }
 

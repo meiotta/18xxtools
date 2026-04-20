@@ -240,7 +240,7 @@ function parseDslHex(code, bg, locationName) {
     cityRevenues: [0, 0],
     phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0 },
     activePhases: { yellow: true, green: true, brown: true, gray: true },
-    name: locationName || '',
+    cityName: locationName || '',
     label: '',
     terrain: '',
     terrainCost: 0,
@@ -919,7 +919,7 @@ function importRubyMap(content) {
           label: '',
           upgradesTo: [], overrideUpgrades: false,
           riverEdges: [], killed: false,
-          cityName: '',
+          cityName: name || '',
           borders: parsed.borders || [],
           icons:   parsed.icons   || [],
         };
