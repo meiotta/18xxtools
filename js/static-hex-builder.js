@@ -134,10 +134,15 @@ let _bg             = 'white';
 let _segments       = [];   // [{id, ea, eb}]  blank edge-to-edge paths
 let _nodes          = [];   // [{id, type, slots, locStr, revenue, phaseRevenue:{y,g,br,gr}, terminal, phaseMode}]
 let _nodeEdges      = {};   // {nodeId: [edge,...]}  edges connected to each node
+let _nodePaths      = [];   // [{id, nodeAId, nodeBId}]  node-to-node connections (e.g. Swansea city↔town)
 let _label          = '';
+let _terrain        = '';   // terrain type string (e.g. 'hill', 'water', 'mountain')
+let _terrainCost    = 0;    // upgrade cost
+let _borders        = [];   // [{edge, type, cost}]
 let _selectedNodeId = null;
 let _pendingEdge    = null;   // edge index waiting for a second endpoint
-let _activeTool     = 'city'; // 'town'|'city'|'offboard'|'erase' — determines node type on snap drop
+let _pendingNode    = null;   // node id waiting for a second endpoint (track tool)
+let _activeTool     = 'city'; // 'town'|'city'|'offboard'|'track'|'erase'
 let _uid            = 1;
 let _mousePos       = { x: 0, y: 0 };
 let _highlightSnap  = null;  // locStr of currently highlighted snap pos
@@ -153,10 +158,15 @@ function _reset(hexId) {
   _segments = [];
   _nodes = [];
   _nodeEdges = {};
+  _nodePaths = [];
   _label = '';
+  _terrain = '';
+  _terrainCost = 0;
+  _borders = [];
   _uid = 1;
   _selectedNodeId = null;
   _pendingEdge = null;
+  _pendingNode = null;
   _activeTool = 'city';
   _mousePos = { x: 0, y: 0 };
   _highlightSnap = null;
@@ -174,57 +184,92 @@ function _reset(hexId) {
   }
 }
 
-// Re-hydrate internal state from a saved model (best-effort)
+// Re-hydrate internal state from a saved model.
+// DSL is the source of truth: read h.nodes[] + h.paths[] directly.
+// Never infer structure from h.feature — that summary is lossy (e.g. Wien's
+// 3 independent cities collapse to feature:'city',slots:3 but nodes[] is intact).
 function _loadFromModel(h) {
-  // Restore nodes from feature + exits + exitPairs
-  const feature  = h.feature || 'none';
-  const exitPairs = h.exitPairs || [];
+  _terrain     = h.terrain     || '';
+  _terrainCost = h.terrainCost || 0;
+  _borders     = h.borders ? h.borders.map(b => ({ ...b })) : [];
 
-  // If the saved model has nodes[], use their locStr directly (round-trip fidelity).
-  // Otherwise fall back to feature-based reconstruction with locStr:'center'.
   const savedNodes = h.nodes || [];
+  const savedPaths = h.paths || [];
 
-  if (feature === 'town' || feature === 'dualTown') {
-    const revs = feature === 'dualTown' ? (h.townRevenues || [10, 10]) : [h.townRevenue || 10];
-    const exits = h.exits || [];
-    const pairs = exitPairs.length ? exitPairs : [exits];
-    revs.forEach((rev, i) => {
-      const nodeId = _nextId();
-      const edges  = pairs[i] || [];
-      const locStr = savedNodes[i]?.locStr || 'center';
-      _nodes.push({ id: nodeId, type: 'town', slots: 1, locStr, revenue: rev, phaseRevenue: { yellow: 20, green: 30, brown: 40, gray: 60 }, terminal: false, phaseMode: false });
-      _nodeEdges[nodeId] = edges;
-    });
-  } else if (feature === 'city' || feature === 'oo' || feature === 'm') {
-    const revs  = h.cityRevenues || [];
-    const slots = feature === 'city' ? [h.slots || 1] : (h.ooSlots || [1, 1]);
-    const count = feature === 'm' ? 3 : (feature === 'oo' ? 2 : 1);
-    const pairs = exitPairs.length ? exitPairs : [];
-    for (let i = 0; i < count; i++) {
-      const nodeId = _nextId();
-      const edges  = pairs[i] || [];
-      const rev    = revs[i] || 20;
-      const locStr = savedNodes[i]?.locStr || 'center';
-      _nodes.push({ id: nodeId, type: 'city', slots: slots[i] || 1, locStr, revenue: rev, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: h.terminal || false, phaseMode: !!(h.phaseRevenue && Object.keys(h.phaseRevenue).length && h.activePhases?.yellow) });
-      _nodeEdges[nodeId] = edges;
-    }
-  } else if (feature === 'offboard') {
+  // Build builder nodes from DSL nodes
+  // nodeIdByIndex[i] = internal builder ID for DSL node index i
+  const nodeIdByIndex = {};
+  savedNodes.forEach((sn, i) => {
     const nodeId = _nextId();
-    const locStr = savedNodes[0]?.locStr || 'center';
-    _nodes.push({ id: nodeId, type: 'offboard', slots: 1, locStr, revenue: 0, phaseRevenue: { ...(h.phaseRevenue || { yellow: 20, green: 30, brown: 40, gray: 60 }) }, terminal: true, phaseMode: true });
-    _nodeEdges[nodeId] = h.exits || [];
-  }
-
-  // Restore blank segments
-  (h.blankPaths || []).forEach(([ea, eb]) => {
-    _segments.push({ id: _nextId(), ea, eb });
+    nodeIdByIndex[i] = nodeId;
+    // Detect phase revenue: flat===null means explicit phase revenue was used in DSL
+    const hasPhaseRev = sn.flat === null || sn.flat === undefined
+      ? Object.values(sn.phaseRevenue || {}).some(v => v > 0)
+      : false;
+    const nodeType = sn.type === 'junction' ? 'city' : sn.type; // junctions render as cities in builder
+    _nodes.push({
+      id:           nodeId,
+      type:         nodeType,
+      slots:        sn.slots || 1,
+      locStr:       sn.locStr || 'center',
+      revenue:      sn.flat ?? (sn.phaseRevenue?.yellow ?? 0),
+      phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0, ...(sn.phaseRevenue || {}) },
+      terminal:     !!(sn.terminal),
+      phaseMode:    hasPhaseRev,
+    });
+    _nodeEdges[nodeId] = [];
   });
+
+  // Build connections from DSL paths
+  savedPaths.forEach(p => {
+    const aEdge = p.a?.type === 'edge', aNode = p.a?.type === 'node';
+    const bEdge = p.b?.type === 'edge', bNode = p.b?.type === 'node';
+
+    if (aEdge && bEdge) {
+      // Edge-to-edge bypass
+      const ea = p.a.n, eb = p.b.n;
+      if (!_segments.some(s => (s.ea===ea&&s.eb===eb)||(s.ea===eb&&s.eb===ea))) {
+        _segments.push({ id: _nextId(), ea, eb });
+      }
+    } else if (aEdge && bNode) {
+      const nodeId = nodeIdByIndex[p.b.n];
+      if (nodeId !== undefined) {
+        const edges = _nodeEdges[nodeId];
+        if (!edges.includes(p.a.n)) edges.push(p.a.n);
+      }
+    } else if (aNode && bEdge) {
+      const nodeId = nodeIdByIndex[p.a.n];
+      if (nodeId !== undefined) {
+        const edges = _nodeEdges[nodeId];
+        if (!edges.includes(p.b.n)) edges.push(p.b.n);
+      }
+    } else if (aNode && bNode) {
+      // Node-to-node path (e.g. Swansea city↔town)
+      const nodeAId = nodeIdByIndex[p.a.n];
+      const nodeBId = nodeIdByIndex[p.b.n];
+      if (nodeAId !== undefined && nodeBId !== undefined) {
+        if (!_nodePaths.some(np => (np.nodeAId===nodeAId&&np.nodeBId===nodeBId)||(np.nodeAId===nodeBId&&np.nodeBId===nodeAId))) {
+          _nodePaths.push({ id: _nextId(), nodeAId, nodeBId });
+        }
+      }
+    }
+  });
+
+  // Fallback: if h had no paths[] (old format), try blankPaths for segments
+  if (savedPaths.length === 0) {
+    (h.blankPaths || []).forEach(([ea, eb]) => {
+      if (!_segments.some(s => (s.ea===ea&&s.eb===eb)||(s.ea===eb&&s.eb===ea))) {
+        _segments.push({ id: _nextId(), ea, eb });
+      }
+    });
+  }
 }
 
 // ── DSL hex conversion (for hexToSvgInner + save) ─────────────────────────────
 
 function _toDslHex() {
-  // Build nodes[] and paths[] that hexToSvgInner understands
+  // Build nodes[] and paths[] that hexToSvgInner understands.
+  // Path endpoint convention: { type:'edge'|'node', n:int }
   const nodes = _nodes.map(n => ({
     type:   n.type === 'offboard' ? 'city' : n.type,
     slots:  n.slots  || 1,
@@ -234,15 +279,21 @@ function _toDslHex() {
   const paths = [];
 
   // Edge-to-node paths
-  // Path endpoint convention (matches import-ruby.js parseEndpt and renderer):
-  //   edge endpoint → { type: 'edge', n: edgeNumber }
-  //   node endpoint → { type: 'node', n: nodeIndex }
-  // Both use .n — do NOT use .e for edges here.
   _nodes.forEach((node, ni) => {
     const edges = _nodeEdges[node.id] || [];
     edges.forEach(edge => {
-      paths.push({ a: { type: 'edge', n: edge }, b: { type: 'node', n: ni }, terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
+      paths.push({ a: { type: 'edge', n: edge }, b: { type: 'node', n: ni },
+                   terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
     });
+  });
+
+  // Node-to-node paths (e.g. Swansea city↔town, Wien city↔city)
+  _nodePaths.forEach(np => {
+    const niA = _nodes.findIndex(n => n.id === np.nodeAId);
+    const niB = _nodes.findIndex(n => n.id === np.nodeBId);
+    if (niA >= 0 && niB >= 0) {
+      paths.push({ a: { type: 'node', n: niA }, b: { type: 'node', n: niB } });
+    }
   });
 
   // Blank edge-to-edge segments become paths too
@@ -301,19 +352,41 @@ function _buildFinalModel() {
   // bypass-segment edges when both exist on the same hex.
   const exitPairs = _nodes.map(n => _nodeEdges[n.id] || []);
 
-  // nodes[] + paths[] — required by hexToSvgInner for rendering.
-  // hex.feature is only a derived summary; the renderer iterates nodes[]/paths[].
-  const nodes = _nodes.map(n => ({
-    type:   n.type === 'offboard' ? 'city' : n.type,
-    slots:  n.slots  || 1,
-    locStr: n.locStr || 'center',
-  }));
+  // nodes[] — rich format; type is renderer-safe ('city' for offboard).
+  // originalType carries 'offboard' so staticHexCode can emit the right directive.
+  // Revenue uses the same field names as parseDslHex: flat (non-phase) / phaseRevenue.
+  const nodes = _nodes.map(n => {
+    const isPhase = n.phaseMode || n.type === 'offboard';
+    return {
+      type:         n.type === 'offboard' ? 'city' : n.type,
+      originalType: n.type,
+      slots:        n.slots  || 1,
+      locStr:       n.locStr || 'center',
+      flat:         isPhase ? null : (n.revenue || 0),
+      phaseRevenue: isPhase
+                      ? { yellow: 0, green: 0, brown: 0, gray: 0, ...(n.phaseRevenue || {}) }
+                      : null,
+      terminal:     n.terminal || false,
+      phaseMode:    isPhase,
+    };
+  });
+
+  // paths[] — edge-to-node, node-to-node (Wien, Swansea), and edge-to-edge bypass
   const paths = [];
   _nodes.forEach((node, ni) => {
     (_nodeEdges[node.id] || []).forEach(edge => {
-      paths.push({ a: { type: 'edge', n: edge }, b: { type: 'node', n: ni },
-                   terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined });
+      paths.push({
+        a:        { type: 'edge', n: edge },
+        b:        { type: 'node', n: ni },
+        terminal: (node.terminal && node.type === 'offboard') ? 1 : undefined,
+      });
     });
+  });
+  _nodePaths.forEach(np => {
+    const niA = _nodes.findIndex(n => n.id === np.nodeAId);
+    const niB = _nodes.findIndex(n => n.id === np.nodeBId);
+    if (niA >= 0 && niB >= 0)
+      paths.push({ a: { type: 'node', n: niA }, b: { type: 'node', n: niB } });
   });
   _segments.forEach(seg => {
     paths.push({ a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } });
@@ -359,6 +432,9 @@ function _buildFinalModel() {
     activePhases,
     label:          _label,
     name:           '',
+    terrain:        _terrain      || undefined,
+    terrainCost:    _terrainCost  || undefined,
+    borders:        _borders.length ? _borders.map(b => ({ ...b })) : undefined,
   };
 }
 
@@ -419,6 +495,15 @@ function _bgHexColor() {
   return BG_OPTS.find(o => o.v === _bg)?.hex || '#EAE0C8';
 }
 
+function _bordersHtml() {
+  if (!_borders.length) return '<div class="hb-hint">No borders</div>';
+  return _borders.map((b, i) => `
+    <div class="hb-border-row">
+      <span>Edge ${b.edge} — ${b.type || 'impassable'}${b.cost ? ', cost ' + b.cost : ''}</span>
+      <button class="hb-btn-xs hb-btn-danger" data-remove-border="${i}" title="Remove">✕</button>
+    </div>`).join('');
+}
+
 function _panelHtml() {
   const hexLabel = _hexId ? `[${_hexId}]` : '';
   return `
@@ -452,6 +537,38 @@ function _panelHtml() {
           <input type="text" id="hbLabelInput" class="hb-text-input" value="${_esc(_label)}"
                  placeholder="e.g. P, OO, NY" autocomplete="off" maxlength="8">
         </div>
+        <div class="hb-section">
+          <div class="hb-section-label">Upgrade Cost &amp; Terrain</div>
+          <div class="hb-field-row">
+            <div class="hb-field" style="width:72px;">
+              <div class="hb-field-label">Cost</div>
+              <input type="number" id="hbTerrainCost" class="hb-num-input" min="0" step="10"
+                     value="${_terrainCost || 0}" placeholder="0">
+            </div>
+            <div class="hb-field" style="flex:1;">
+              <div class="hb-field-label">Terrain</div>
+              <select id="hbTerrain" class="hb-select">
+                ${['', 'hill', 'mountain', 'water', 'desert', 'swamp', 'river'].map(t =>
+                  `<option value="${t}"${_terrain === t ? ' selected' : ''}>${t || '(none)'}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="hb-section">
+          <div class="hb-section-label">Borders</div>
+          <div id="hbBorderList">${_bordersHtml()}</div>
+          <div class="hb-border-add-row">
+            <select id="hbBorderEdge" class="hb-select-sm">
+              ${[0,1,2,3,4,5].map(e => `<option value="${e}">Edge ${e}</option>`).join('')}
+            </select>
+            <select id="hbBorderType" class="hb-select-sm">
+              <option value="impassable">Impassable</option>
+              <option value="price">Price</option>
+            </select>
+            <button class="hb-btn-secondary hb-btn-xs" id="hbAddBorder">+ Add</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -473,24 +590,27 @@ function _panelHtml() {
 }
 
 function _toolbarHtml() {
-  // Node type — determines what gets created when you drag an edge to an empty snap.
-  // No Track tool: edge→edge clicks create bypasses automatically.
-  // No "selected node then edge" model: click edge then click node/snap to connect.
+  // Node type — determines what gets created when you click an empty snap.
+  // Track tool — connect nodes to each other or to edges via click-then-click.
   const showOff = (_bg === 'red');
   const tools = [
-    { id: 'town',     label: 'Town',     icon: '&#9670;', title: 'Place towns (click edge then snap, or click snap directly)' },
-    { id: 'city',     label: 'City',     icon: '&#9675;', title: 'Place cities (click edge then snap, or click snap directly)' },
+    { id: 'town',     label: 'Town',  icon: '&#9670;',  title: 'Place towns — click snap, or click edge then snap' },
+    { id: 'city',     label: 'City',  icon: '&#9675;',  title: 'Place cities — click snap, or click edge then snap' },
     ...(showOff ? [{ id: 'offboard', label: 'Offboard', icon: '&#10022;', title: 'Place offboard revenue hex' }] : []),
-    { id: 'erase',    label: 'Erase',    icon: '&#10006;', title: 'Erase nodes and connections' },
+    { id: 'track',    label: 'Track', icon: '&#9135;',  title: 'Connect nodes to each other or to edges — click node, then click another node or edge' },
+    { id: 'erase',    label: 'Erase', icon: '&#10006;', title: 'Erase nodes and connections' },
   ];
+  const hint = _activeTool === 'track'
+    ? 'Click a node (circle), then click another node or an edge to connect'
+    : 'Click an edge, then: another edge (bypass), a node (connect), or empty space (place &amp; connect)';
   return `<div class="hb-section">
-    <div class="hb-section-label">Node Type</div>
+    <div class="hb-section-label">Tool</div>
     <div class="hb-toolbar" id="hbToolbar">
       ${tools.map(t => `
         <button class="hb-tool-btn${_activeTool === t.id ? ' active' : ''}"
           data-tool="${t.id}" title="${t.title}">${t.icon} ${t.label}</button>`).join('')}
     </div>
-    <div class="hb-hint">Click an edge, then: another edge (bypass), a node (connect), or empty space (place &amp; connect)</div>
+    <div class="hb-hint" id="hbToolHint">${hint}</div>
   </div>`;
 }
 
@@ -647,11 +767,53 @@ function _renderCanvas() {
     }
   }
 
+  // ── Node hit circles (Track tool) ─────────────────────────────────────────
+  // Drawn OVER the hex content so they're clickable. Shown whenever Track tool
+  // is active or a node-pending state is in progress.
+  const showNodeHits = (_activeTool === 'track' || _pendingNode !== null);
+  if (showNodeHits) {
+    for (const node of _nodes) {
+      const snap = SNAP_POSITIONS.find(sp => sp.locStr === node.locStr);
+      if (!snap) continue;
+      const isPendingSrc = (_pendingNode === node.id);
+      const fill   = isPendingSrc ? 'rgba(255,215,0,0.45)' : 'rgba(80,200,255,0.25)';
+      const stroke = isPendingSrc ? '#ffd700' : '#5bc8ff';
+      s += `<circle cx="${snap.x.toFixed(1)}" cy="${snap.y.toFixed(1)}" r="18"
+               fill="${fill}" stroke="${stroke}" stroke-width="${isPendingSrc ? 2.5 : 1.5}"
+               data-node-id="${node.id}" style="cursor:pointer;"/>`;
+    }
+  }
+
+  // ── Node-to-node path lines (visual only — topology rendered by hexToSvgInner) ─
+  // When there are nodePaths between nodes at distinct positions, draw a dashed line.
+  for (const np of _nodePaths) {
+    const nA = _nodes.find(n => n.id === np.nodeAId);
+    const nB = _nodes.find(n => n.id === np.nodeBId);
+    if (!nA || !nB || nA.locStr === nB.locStr) continue;
+    const sA = SNAP_POSITIONS.find(sp => sp.locStr === nA.locStr);
+    const sB = SNAP_POSITIONS.find(sp => sp.locStr === nB.locStr);
+    if (!sA || !sB) continue;
+    s += `<line x1="${sA.x.toFixed(1)}" y1="${sA.y.toFixed(1)}"
+               x2="${sB.x.toFixed(1)}" y2="${sB.y.toFixed(1)}"
+               stroke="#5bc8ff" stroke-width="3" stroke-dasharray="6,4"
+               opacity="0.7" pointer-events="none"/>`;
+  }
+
   // ── Pending edge glow ──────────────────────────────────────────────────────
   if (_pendingEdge !== null) {
     const [px, py] = EMP[_pendingEdge];
     s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${EDGE_R + 6}"
              fill="#ffd700" opacity="0.35" pointer-events="none"/>`;
+  }
+
+  // ── Pending node glow ─────────────────────────────────────────────────────
+  if (_pendingNode !== null) {
+    const pn = _nodes.find(n => n.id === _pendingNode);
+    const pSnap = pn && SNAP_POSITIONS.find(sp => sp.locStr === pn.locStr);
+    if (pSnap) {
+      s += `<circle cx="${pSnap.x.toFixed(1)}" cy="${pSnap.y.toFixed(1)}" r="26"
+               fill="#ffd700" opacity="0.20" pointer-events="none"/>`;
+    }
   }
 
   // ── Edge circles (always visible) ─────────────────────────────────────────
@@ -770,6 +932,46 @@ function _bindPanel() {
     _updateDslPreview();
   });
 
+  // Terrain cost
+  const costInput = document.getElementById('hbTerrainCost');
+  if (costInput) costInput.addEventListener('input', e => {
+    _terrainCost = parseInt(e.target.value) || 0;
+    _updateDslPreview();
+  });
+
+  // Terrain type
+  const terrainSel = document.getElementById('hbTerrain');
+  if (terrainSel) terrainSel.addEventListener('change', e => {
+    _terrain = e.target.value;
+    _updateDslPreview();
+  });
+
+  // Borders list (delegation — remove buttons + future additions)
+  const borderList = document.getElementById('hbBorderList');
+  if (borderList) borderList.addEventListener('click', e => {
+    const btn = e.target.closest('[data-remove-border]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.removeBorder, 10);
+    _borders.splice(idx, 1);
+    borderList.innerHTML = _bordersHtml();
+    _updateDslPreview();
+  });
+
+  // Add border button
+  const addBorderBtn = document.getElementById('hbAddBorder');
+  if (addBorderBtn) addBorderBtn.addEventListener('click', () => {
+    const edgeSel  = document.getElementById('hbBorderEdge');
+    const typeSel  = document.getElementById('hbBorderType');
+    const edge = parseInt(edgeSel?.value ?? 0, 10);
+    const type = typeSel?.value || 'impassable';
+    if (!_borders.some(b => b.edge === edge)) {
+      _borders.push({ edge, type });
+      const bl = document.getElementById('hbBorderList');
+      if (bl) bl.innerHTML = _bordersHtml();
+      _updateDslPreview();
+    }
+  });
+
   // Node config events (delegated to hbNodeConfig)
   _bindNodeConfig();
 
@@ -786,6 +988,12 @@ function _refreshToolbar() {
   toolbar.querySelectorAll('[data-tool]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tool === _activeTool);
   });
+  const hint = document.getElementById('hbToolHint');
+  if (hint) {
+    hint.textContent = _activeTool === 'track'
+      ? 'Click a node (glowing circle), then click another node or edge to connect'
+      : 'Click an edge, then: another edge (bypass), a node (connect), or empty space (place & connect)';
+  }
 }
 
 function _bindNodeConfig() {
@@ -922,6 +1130,18 @@ function _onCanvasMouseMove(e) {
 //
 // Erase: click edge → remove all connections through it; click node → remove node.
 
+// Returns the node whose snap position is within NODE_HIT_R of (mx, my), else null.
+const NODE_HIT_R = 22;
+function _nodeAtPoint(mx, my) {
+  const p = _unrotate(mx, my);
+  for (const node of _nodes) {
+    const snap = SNAP_POSITIONS.find(sp => sp.locStr === node.locStr);
+    if (!snap) continue;
+    if (Math.hypot(p.x - snap.x, p.y - snap.y) <= NODE_HIT_R) return node;
+  }
+  return null;
+}
+
 function _onCanvasClick(e) {
   const rect = e.currentTarget.getBoundingClientRect();
   const mx = e.clientX - rect.left;
@@ -939,6 +1159,61 @@ function _onCanvasClick(e) {
     }
     _renderCanvas();
     _updateDslPreview();
+    return;
+  }
+
+  // ── Track tool — node-first click model ───────────────────────────────────
+  // Click a node → pending; then click another node (nodePath) or edge (stub).
+  if (_activeTool === 'track' || _pendingNode !== null) {
+    const clickedNode = _nodeAtPoint(mx, my);
+    const clickedEdge = _edgeAtPoint(mx, my);
+
+    if (_pendingNode === null) {
+      // First click: must hit a node
+      if (clickedNode) {
+        _pendingNode = clickedNode.id;
+        _pendingEdge = null;
+        _renderCanvas();
+      }
+      return;
+    }
+
+    // Second click with a pending node
+    if (clickedNode && clickedNode.id === _pendingNode) {
+      // Same node — cancel
+      _pendingNode = null;
+      _renderCanvas();
+      return;
+    }
+    if (clickedNode) {
+      // Node → Node: toggle nodePath
+      const niA = _pendingNode, niB = clickedNode.id;
+      const xi = _nodePaths.findIndex(np =>
+        (np.nodeAId === niA && np.nodeBId === niB) ||
+        (np.nodeAId === niB && np.nodeBId === niA)
+      );
+      if (xi >= 0) _nodePaths.splice(xi, 1);
+      else _nodePaths.push({ id: _nextId(), nodeAId: niA, nodeBId: niB });
+      _pendingNode = null;
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
+    if (clickedEdge !== null) {
+      // Node → Edge: toggle stub from edge into pending node
+      const edges = _nodeEdges[_pendingNode] || [];
+      const idx = edges.indexOf(clickedEdge);
+      if (idx >= 0) edges.splice(idx, 1);
+      else edges.push(clickedEdge);
+      _nodeEdges[_pendingNode] = edges;
+      _pendingNode = null;
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
+    // Missed everything — cancel
+    _pendingNode = null;
+    _renderCanvas();
     return;
   }
 
@@ -1103,7 +1378,10 @@ function _placeNode(locStr) {
 function _removeNode(nodeId) {
   _nodes = _nodes.filter(n => n.id !== nodeId);
   delete _nodeEdges[nodeId];
+  // Remove any node-to-node paths involving this node
+  _nodePaths = _nodePaths.filter(np => np.nodeAId !== nodeId && np.nodeBId !== nodeId);
   if (_selectedNodeId === nodeId) _selectedNodeId = null;
+  if (_pendingNode === nodeId) _pendingNode = null;
   _refreshNodeConfig();
   _renderCanvas();
   _updateDslPreview();
@@ -1133,6 +1411,23 @@ function _handleErase(mx, my) {
       return;
     }
   }
+
+  // Check for node-to-node path midpoint click (dashed lines between nodes)
+  for (const np of _nodePaths) {
+    const nA = _nodes.find(n => n.id === np.nodeAId);
+    const nB = _nodes.find(n => n.id === np.nodeBId);
+    if (!nA || !nB || nA.locStr === nB.locStr) continue;
+    const sA = SNAP_POSITIONS.find(sp => sp.locStr === nA.locStr);
+    const sB = SNAP_POSITIONS.find(sp => sp.locStr === nB.locStr);
+    if (!sA || !sB) continue;
+    const mx2 = (sA.x + sB.x) / 2, my2 = (sA.y + sB.y) / 2;
+    if (Math.hypot(p.x - mx2, p.y - my2) <= 18) {
+      _nodePaths = _nodePaths.filter(n => n.id !== np.id);
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1147,131 +1442,180 @@ function _handleErase(mx, my) {
 
 // ── Public: staticHexCode ─────────────────────────────────────────────────────
 // Generates tobymao map.rb DSL from a saved static hex model.
-// KEPT EXACTLY AS-IS from the original file — do not modify.
+//
+// Source of truth: hex.nodes[] + hex.paths[].
+//   nodes[i] — { type, originalType, slots, locStr, flat, phaseRevenue, terminal, phaseMode }
+//   paths[]  — [{ a:{type,n}, b:{type,n}, terminal? }]  — edge-to-node, node-to-node, edge-to-edge
+//
+// Legacy fallback for older saves that lack revenue in nodes[] or paths[] entirely.
 
 window.staticHexCode = function staticHexCode(hex) {
   if (!hex || !hex.static) return '';
-  const parts  = [];
-  const exits  = hex.exits || [];
-  const rot    = hex.rotation || 0;
-  // Phase revenue is node-driven (hex.activePhases set when any node has phaseMode).
-  // Color does not gate phase revenue — a gray map hex can have phase revenue too.
-  const isPhase = !!(hex.activePhases && Object.values(hex.activePhases).some(Boolean));
-  // noExits: true when no node has any connected edges (bypass-only or isolated node).
-  // Check exitPairs if available; fall back to full exits array for imported hexes.
-  const nodeExitCount = (hex.exitPairs || []).reduce((n, arr) => n + (arr||[]).length, 0);
-  const noExits = hex.exitPairs ? nodeExitCount === 0 : exits.length === 0;
+  const parts = [];
+  const rot   = hex.rotation || 0;
 
-  function phaseRevStr() {
-    const pr = hex.phaseRevenue || {};
-    const active = PHASES.filter(p => hex.activePhases?.[p]);
-    return active.length ? active.map(p=>`${p}_${pr[p]||0}`).join('|') : '0';
+  const savedNodes = hex.nodes || [];
+  const savedPaths = hex.paths || [];
+
+  // ── Revenue string helper ─────────────────────────────────────────────────
+  // Used for new-format nodes that carry flat / phaseRevenue.
+  function nodeRevStr(node) {
+    const isPhase = node.phaseMode ||
+      (node.phaseRevenue !== null && node.phaseRevenue !== undefined &&
+       Object.values(node.phaseRevenue || {}).some(v => v > 0));
+    if (isPhase && node.phaseRevenue) {
+      const pr   = node.phaseRevenue;
+      const bits = PHASES.filter(p => (pr[p] || 0) > 0).map(p => `${p}_${pr[p]}`);
+      return bits.length ? bits.join('|') : '0';
+    }
+    return String(node.flat ?? 0);
   }
 
-  const termSuffix = hex.feature==='offboard'
-    ? `,terminal:${hex.taperStyle||1}`
-    : (hex.terminal?',terminal:1':'');
+  // ── Detect node format ────────────────────────────────────────────────────
+  // parseDslHex and new builder saves include 'flat' (possibly null) or a
+  // non-undefined 'phaseRevenue' object.  Old builder saves (pre-rewrite) only
+  // have { type, slots, locStr } — no revenue fields at all.
+  const nodesHaveRevenue = savedNodes.length > 0 && savedNodes.some(n =>
+    n.flat !== undefined ||
+    (n.phaseRevenue !== null && n.phaseRevenue !== undefined)
+  );
 
   // ── Node directives ───────────────────────────────────────────────────────
-  // hex.nodes[i].locStr holds the snap position ('center', '0'–'5', '0.5'–'5.5').
-  // Emit loc:X whenever a node is not at center.
-  const savedNodes = hex.nodes || [];
-  function locAttr(i) {
-    const ls = savedNodes[i]?.locStr;
-    return (ls && ls !== 'center') ? `,loc:${ls}` : '';
-  }
+  if (nodesHaveRevenue) {
+    // New path: every node carries its own revenue — works for any topology
+    // (single city, OO, Wien's 3×independent cities, offboard, etc.)
+    savedNodes.forEach(node => {
+      const locAttr  = (node.locStr && node.locStr !== 'center') ? `,loc:${node.locStr}` : '';
+      const slotAttr = (node.slots  || 1) > 1 ? `,slots:${node.slots}` : '';
+      const termAttr = node.terminal ? ',terminal:1' : '';
+      const rev      = nodeRevStr(node);
+      // originalType ('offboard'|'city'|'town') is written by new _buildFinalModel.
+      // Older parseDslHex saves don't set it, but they never had type='offboard' in
+      // nodes[] (offboard was stored as type:'city' with hex.feature='offboard').
+      const origType = node.originalType || node.type;
 
-  switch (hex.feature) {
-    case 'town': {
-      // Phase revenue for towns is unusual but valid in custom games
-      const hasPhase = Object.keys(hex.phaseRevenue||{}).length && hex.activePhases?.yellow;
-      parts.push(`town=revenue:${noExits?0:(hasPhase?phaseRevStr():(hex.townRevenue??10))}${locAttr(0)}`);
-      break;
+      if      (origType === 'offboard') parts.push(`offboard=revenue:${rev}${termAttr}${locAttr}`);
+      else if (origType === 'city')     parts.push(`city=revenue:${rev}${slotAttr}${locAttr}`);
+      else if (origType === 'town')     parts.push(`town=revenue:${rev}${locAttr}`);
+    });
+
+  } else {
+    // ── Legacy: old builder saves — nodes[] has no revenue; use feature fields ─
+    const exits    = hex.exits || [];
+    const isPhase  = !!(hex.activePhases && Object.values(hex.activePhases).some(Boolean));
+    const nodeExitCount = (hex.exitPairs || []).reduce((n, arr) => n + (arr||[]).length, 0);
+    const noExits  = hex.exitPairs ? nodeExitCount === 0 : exits.length === 0;
+
+    function phaseRevStr() {
+      const pr     = hex.phaseRevenue || {};
+      const active = PHASES.filter(p => hex.activePhases?.[p]);
+      return active.length ? active.map(p => `${p}_${pr[p]||0}`).join('|') : '0';
     }
-    case 'dualTown': {
-      const [r0,r1] = hex.townRevenues||[10,10];
-      parts.push(`town=revenue:${noExits?0:r0}${locAttr(0)}`);
-      parts.push(`town=revenue:${noExits?0:r1}${locAttr(1)}`);
-      break;
+    function locAttr(i) {
+      const ls = savedNodes[i]?.locStr;
+      return (ls && ls !== 'center') ? `,loc:${ls}` : '';
     }
-    case 'offboard':
-      parts.push(`offboard=revenue:${isPhase?phaseRevStr():'0'}${locAttr(0)}`);
-      break;
-    case 'oo':
-    case 'c': {
-      const revs = hex.cityRevenues || [20,20];
-      const sl   = hex.ooSlots||[1,1];
-      [0,1].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${sl[i]>1?`,slots:${sl[i]}`:''}${locAttr(i)}`));
-      break;
+
+    switch (hex.feature) {
+      case 'town': {
+        const hasPhase = Object.keys(hex.phaseRevenue||{}).length && hex.activePhases?.yellow;
+        parts.push(`town=revenue:${noExits?0:(hasPhase?phaseRevStr():(hex.townRevenue??10))}${locAttr(0)}`);
+        break;
+      }
+      case 'dualTown': {
+        const [r0,r1] = hex.townRevenues||[10,10];
+        parts.push(`town=revenue:${noExits?0:r0}${locAttr(0)}`);
+        parts.push(`town=revenue:${noExits?0:r1}${locAttr(1)}`);
+        break;
+      }
+      case 'offboard':
+        parts.push(`offboard=revenue:${isPhase?phaseRevStr():'0'}${locAttr(0)}`);
+        break;
+      case 'oo':
+      case 'c': {
+        const revs = hex.cityRevenues || [20,20];
+        const sl   = hex.ooSlots||[1,1];
+        [0,1].forEach(i => parts.push(`city=revenue:${noExits?0:revs[i]||0}${sl[i]>1?`,slots:${sl[i]}`:''}${locAttr(i)}`));
+        break;
+      }
+      case 'm': {
+        const revs = hex.cityRevenues || [20,20,20];
+        [0,1,2].forEach(i => parts.push(`city=revenue:${noExits?0:revs[i]||0}${locAttr(i)}`));
+        break;
+      }
+      case 'city': {
+        const slots = hex.slots||1;
+        const rev   = isPhase ? phaseRevStr() : (noExits?0:(hex.cityRevenues?.[0]??20));
+        const sl    = slots>1?`,slots:${slots}`:'';
+        parts.push(`city=revenue:${rev}${sl}${locAttr(0)}`);
+        break;
+      }
+      default: break;
     }
-    case 'm': {
-      const revs = hex.cityRevenues || [20,20,20];
-      [0,1,2].forEach(i=>parts.push(`city=revenue:${noExits?0:revs[i]||0}${locAttr(i)}`));
-      break;
-    }
-    case 'city': {
-      const slots = hex.slots||1;
-      const rev   = isPhase ? phaseRevStr() : (noExits?0:(hex.cityRevenues?.[0]??20));
-      const sl    = slots>1?`,slots:${slots}`:'';
-      parts.push(`city=revenue:${rev}${sl}${locAttr(0)}`);
-      break;
-    }
-    default: break;
   }
 
   // ── Path directives ───────────────────────────────────────────────────────
-  //
-  // Two orthogonal path types — never derive one from the other:
-  //   Node stubs  → use exitPairs[i] (per-node edge lists), emit as path=a:X,b:_i
-  //   Bypass paths → use blankPaths ([[ea,eb],...]),       emit as path=a:X,b:Y
-  //
-  // exitPairs[i] is authoritative for which edges stub into node i.
-  // For imported hexes that lack exitPairs, fall back to exits÷nodes heuristic.
-  // blankPaths are ALWAYS emitted after node stubs for every feature type.
-  //
-  const ep   = hex.exitPairs || [];
-  const byp  = hex.blankPaths || [];
-  const emitBypass = () => byp.forEach(([a,b]) => parts.push(`path=a:${(a+rot)%6},b:${(b+rot)%6}`));
-
-  // Helper: get per-node exits, falling back to heuristic split of exits[] when
-  // exitPairs is absent (e.g. hexes imported from Ruby DSL before exitPairs was added).
-  function nodeExits(i, total) {
-    if (ep.length > i) return ep[i] || [];
-    // Fallback: split exits evenly across nodes
-    const chunk = Math.ceil(exits.length / total);
-    return exits.slice(i * chunk, (i + 1) * chunk);
-  }
-
-  if (!hex.feature || hex.feature === 'none') {
-    // Pure bypass hex — no nodes at all
-    emitBypass();
-
-  } else if (hex.feature === 'oo' || hex.feature === 'c') {
-    nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
-    nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
-    emitBypass();
-
-  } else if (hex.feature === 'm') {
-    [0,1,2].forEach(i => nodeExits(i,3).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_${i}${termSuffix}`)));
-    emitBypass();
-
-  } else if (hex.feature === 'dualTown') {
-    nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
-    nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
-    emitBypass();
+  if (savedPaths.length > 0) {
+    // New path: read paths[] directly — handles edge-to-node, node-to-node
+    // (Wien city↔city, Swansea city↔town), and edge-to-edge bypass.
+    savedPaths.forEach(p => {
+      const termAttr = p.terminal ? `,terminal:${p.terminal}` : '';
+      const aE = p.a?.type === 'edge', bE = p.b?.type === 'edge';
+      const aN = p.a?.type === 'node', bN = p.b?.type === 'node';
+      if      (aE && bN) parts.push(`path=a:${(p.a.n+rot)%6},b:_${p.b.n}${termAttr}`);
+      else if (aN && bE) parts.push(`path=a:_${p.a.n},b:${(p.b.n+rot)%6}${termAttr}`);
+      else if (aN && bN) parts.push(`path=a:_${p.a.n},b:_${p.b.n}`);
+      else if (aE && bE) parts.push(`path=a:${(p.a.n+rot)%6},b:${(p.b.n+rot)%6}`);
+    });
 
   } else {
-    // city (single), town, offboard
-    nodeExits(0,1).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
-    emitBypass();
+    // ── Legacy: very old saves with no paths[] — use exitPairs + blankPaths ──
+    const exits  = hex.exits || [];
+    const ep     = hex.exitPairs || [];
+    const byp    = hex.blankPaths || [];
+    const termSuffix = hex.feature === 'offboard'
+      ? `,terminal:${hex.taperStyle||1}`
+      : (hex.terminal ? ',terminal:1' : '');
+    const emitBypass = () => byp.forEach(([a,b]) => parts.push(`path=a:${(a+rot)%6},b:${(b+rot)%6}`));
+    function nodeExits(i, total) {
+      if (ep.length > i) return ep[i] || [];
+      const chunk = Math.ceil(exits.length / total);
+      return exits.slice(i * chunk, (i + 1) * chunk);
+    }
+
+    if (!hex.feature || hex.feature === 'none') {
+      emitBypass();
+    } else if (hex.feature === 'oo' || hex.feature === 'c') {
+      nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+      nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
+      emitBypass();
+    } else if (hex.feature === 'm') {
+      [0,1,2].forEach(i => nodeExits(i,3).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_${i}${termSuffix}`)));
+      emitBypass();
+    } else if (hex.feature === 'dualTown') {
+      nodeExits(0,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+      nodeExits(1,2).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_1${termSuffix}`));
+      emitBypass();
+    } else {
+      nodeExits(0,1).forEach(e => parts.push(`path=a:${(e+rot)%6},b:_0${termSuffix}`));
+      emitBypass();
+    }
+  }
+
+  // ── Upgrade / terrain ─────────────────────────────────────────────────────
+  if (hex.terrain || hex.terrainCost) {
+    const upgParts = [];
+    if (hex.terrainCost) upgParts.push(`cost:${hex.terrainCost}`);
+    if (hex.terrain)     upgParts.push(`terrain:${hex.terrain}`);
+    parts.push(`upgrade=${upgParts.join(',')}`);
   }
 
   if (hex.label) parts.push(`label=${hex.label}`);
 
-  (hex.borders||[]).forEach(b=>{
-    let d=`border=edge:${b.edge}`;
-    if(b.type)d+=`,type:${b.type}`;
-    if(b.cost)d+=`,cost:${b.cost}`;
+  (hex.borders || []).forEach(b => {
+    let d = `border=edge:${b.edge}`;
+    if (b.type) d += `,type:${b.type}`;
+    if (b.cost) d += `,cost:${b.cost}`;
     parts.push(d);
   });
 
