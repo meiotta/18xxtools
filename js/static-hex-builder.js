@@ -819,9 +819,18 @@ function _renderCanvas() {
   // ── Edge circles (always visible) ─────────────────────────────────────────
   // Color key: yellow = pending start, green = has a connection, dark = unconnected
   // When a node is selected, its connected edges glow brighter green.
+  // Circles are pushed outward from center by EDGE_R so they sit just outside the
+  // hex polygon — freeing the actual edge midpoint (track endpoint) from occlusion.
+  // Hit-testing in _edgeAtPoint still checks around EMP[e] with a generous radius.
   const selEdges = _selectedNodeId ? (_nodeEdges[_selectedNodeId] || []) : [];
   for (let e = 0; e < 6; e++) {
     const [ex, ey] = EMP[e];
+    // Outward direction from center
+    const ddx = ex - CCX, ddy = ey - CCY;
+    const ddist = Math.hypot(ddx, ddy) || 1;
+    const cx = ex + ddx / ddist * EDGE_R;   // circle center, just outside hex boundary
+    const cy = ey + ddy / ddist * EDGE_R;
+
     const connectedToNode = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e));
     const connectedSeg    = _segments.some(seg => seg.ea === e || seg.eb === e);
     const isSelEdge  = selEdges.includes(e);
@@ -834,10 +843,10 @@ function _renderCanvas() {
     const stroke = isPending ? '#ffd700' : isSelEdge ? '#7ddf60' : '#111';
     const sw     = isPending ? 2.5 : isSelEdge ? 2 : 1.5;
 
-    s += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="${EDGE_R}"
+    s += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${EDGE_R}"
              fill="${fill}" stroke="${stroke}" stroke-width="${sw}"
              data-edge="${e}" style="cursor:pointer;"/>`;
-    s += `<text x="${ex.toFixed(1)}" y="${(ey + 4).toFixed(1)}"
+    s += `<text x="${cx.toFixed(1)}" y="${(cy + 4).toFixed(1)}"
              text-anchor="middle" font-size="11" font-weight="bold" fill="white"
              pointer-events="none">${e}</text>`;
   }
