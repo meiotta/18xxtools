@@ -1150,14 +1150,30 @@ document.getElementById('importMapBtn').addEventListener('click', () => {
 
 // ── Tile collision dialog ─────────────────────────────────────────────────────
 // Shows a modal when embedded tiles from a map.rb conflict with built-in pack
-// tiles.  For each collision the user can see whether it is safe (identical DSL)
-// or whether a pack tile with the same DSL exists under a different ID.
-// "Swap" replaces all hex tile references with the suggested pack tile ID so the
-// embedded definition is no longer needed.
+// tiles.  Three actions are available per collision:
 //
-// onApply(swaps) is called after the user dismisses.
-// swaps = { [oldId]: newId } — empty when user chose not to swap anything.
+//   Swap         — remap hex refs to a pack tile with matching DSL (discards
+//                  the embedded definition; only available when suggestedPackId
+//                  is a *different* pack tile, i.e. orange rows).
+//   Build as custom — remap hex refs to a new 9000+ custom tile ID and keep
+//                  the embedded DSL alive under that ID (available for all
+//                  non-green rows; pre-allocates the ID so the user sees it).
+//   Neither      — pack tile wins silently (embedded def is ignored).
+//
+// Swap and Build-as-custom are mutually exclusive per collision row.
+//
+// onApply(swaps, buildAsCustom) is called after the user confirms.
+//   swaps         = { [oldId]: packId }     — discard embedded, use pack tile
+//   buildAsCustom = { [oldId]: newCustomId } — keep embedded under new ID
 function _showTileCollisionDialog(collisions, onApply) {
+  // Pre-allocate custom IDs for every non-green collision so the user sees
+  // the actual ID they'll get before confirming.
+  let nextCustNum = parseInt(TileRegistry.nextCustomId(), 10);
+  const prealloc = {}; // oldId → pre-allocated custom ID string
+  for (const { id, sameDefinition } of collisions) {
+    if (!sameDefinition) prealloc[id] = String(nextCustNum++);
+  }
+
   // ── Build overlay ──────────────────────────────────────────────────────────
   const overlay = document.createElement('div');
   overlay.style.cssText = [
@@ -1170,7 +1186,7 @@ function _showTileCollisionDialog(collisions, onApply) {
   modal.style.cssText = [
     'background:#1e1e1e;color:#ddd;font-family:monospace;font-size:13px',
     'border:1px solid #555;border-radius:6px',
-    'padding:20px 24px;max-width:560px;width:90%',
+    'padding:20px 24px;max-width:580px;width:90%',
     'max-height:80vh;overflow-y:auto',
     'box-shadow:0 8px 32px rgba(0,0,0,0.7)',
   ].join(';');
@@ -1180,82 +1196,128 @@ function _showTileCollisionDialog(collisions, onApply) {
       ⚠ Tile import collision${collisions.length > 1 ? 's' : ''}
     </div>
     <div style="color:#aaa;margin-bottom:16px;font-size:12px">
-      The following tiles in your map are already defined in the built-in tile packs.<br>
-      The <strong style="color:#ddd">pack version always takes precedence</strong> unless you swap.
+      These tiles in your map conflict with built-in pack tiles.<br>
+      Choose an action for each — or do nothing and the pack version will render.
     </div>
   `;
 
-  // Track pending swaps (old id → suggested pack id)
-  const pendingSwaps = {};
+  // pending[id] = { type: 'swap'|'custom', newId }  or absent = no action
+  const pending = {};
 
   for (const col of collisions) {
     const { id, sameDefinition, suggestedPackId } = col;
+    const custId = prealloc[id]; // undefined when sameDefinition
+
+    const borderColor = sameDefinition ? '#4caf50'
+      : (suggestedPackId && suggestedPackId !== id) ? '#ff9800' : '#f44336';
+
     const row = document.createElement('div');
-    row.style.cssText = 'margin-bottom:14px;padding:10px;background:#2a2a2a;border-radius:4px;border-left:3px solid ' +
-      (sameDefinition ? '#4caf50' : suggestedPackId && suggestedPackId !== id ? '#ff9800' : '#f44336');
+    row.style.cssText = `margin-bottom:14px;padding:10px 12px;background:#2a2a2a;border-radius:4px;border-left:3px solid ${borderColor}`;
 
-    let html = `<span style="color:#fff;font-weight:bold">Tile #${id}</span> `;
-
+    // ── Header line ──
+    let headerHtml = `<div style="margin-bottom:6px"><span style="color:#fff;font-weight:bold">Tile #${id}</span> `;
     if (sameDefinition) {
-      html += `<span style="color:#4caf50">✓ identical to pack tile #${id}</span>`;
-      html += `<div style="color:#888;font-size:11px;margin-top:4px">Safe collision — the pack version renders the same definition. No action needed.</div>`;
+      headerHtml += `<span style="color:#4caf50">✓ identical to pack tile #${id}</span>`;
     } else if (suggestedPackId && suggestedPackId !== id) {
-      html += `<span style="color:#ff9800">⚠ differs from pack tile #${id}</span>`;
-      html += `<div style="color:#aaa;font-size:11px;margin-top:4px">Your map's tile #${id} definition matches pack tile <strong style="color:#fff">#${suggestedPackId}</strong>. The pack tile #${id} will render instead.</div>`;
-      html += `<div style="margin-top:8px">`;
-      html += `<button data-old="${id}" data-new="${suggestedPackId}" class="swap-btn"
-        style="padding:4px 10px;background:#cc7700;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:12px">
-        Swap hex references: #${id} → #${suggestedPackId}
-      </button>`;
-      html += ` <span class="swap-status-${id}" style="font-size:11px;color:#888"></span>`;
-      html += `</div>`;
+      headerHtml += `<span style="color:#ff9800">⚠ your DSL matches pack tile #${suggestedPackId} (not #${id})</span>`;
     } else {
-      html += `<span style="color:#f44336">✗ conflicts with pack tile #${id}</span>`;
-      html += `<div style="color:#aaa;font-size:11px;margin-top:4px">Your map's definition differs and no matching pack tile was found. The pack tile #${id} will render; your map definition is ignored.</div>`;
+      headerHtml += `<span style="color:#f44336">✗ differs from pack tile #${id}, no pack match found</span>`;
+    }
+    headerHtml += '</div>';
+
+    // ── Description line ──
+    let descHtml = '<div style="color:#888;font-size:11px;margin-bottom:8px">';
+    if (sameDefinition) {
+      descHtml += 'Safe collision — pack tile renders identically. No action needed.';
+    } else if (suggestedPackId && suggestedPackId !== id) {
+      descHtml += `Your map's definition is the same as pack tile <strong style="color:#ccc">#${suggestedPackId}</strong>. Pack tile #${id} will render instead unless you act.`;
+    } else {
+      descHtml += `Pack tile #${id} wins by default; your map's definition is silently ignored.`;
+    }
+    descHtml += '</div>';
+
+    // ── Action buttons (not shown for green / safe collisions) ──
+    let btnHtml = '';
+    if (!sameDefinition) {
+      btnHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      if (suggestedPackId && suggestedPackId !== id) {
+        btnHtml += `<button data-id="${id}" data-action="swap" data-new="${suggestedPackId}"
+          class="col-action-btn"
+          style="padding:4px 10px;background:#555;color:#ccc;border:none;border-radius:3px;cursor:pointer;font-size:12px">
+          Swap → pack #${suggestedPackId}
+        </button>`;
+      }
+      btnHtml += `<button data-id="${id}" data-action="custom" data-new="${custId}"
+        class="col-action-btn"
+        style="padding:4px 10px;background:#555;color:#ccc;border:none;border-radius:3px;cursor:pointer;font-size:12px">
+        Build as custom #${custId}
+      </button>`;
+      btnHtml += `<span class="col-status-${id}" style="font-size:11px;color:#888;align-self:center"></span>`;
+      btnHtml += '</div>';
     }
 
-    row.innerHTML = html;
+    row.innerHTML = headerHtml + descHtml + btnHtml;
     modal.appendChild(row);
   }
 
-  // ── Swap button logic ──────────────────────────────────────────────────────
-  modal.querySelectorAll('.swap-btn').forEach(btn => {
+  // ── Button toggle logic — Swap and Build-as-custom are mutually exclusive ──
+  const BTN_IDLE    = '#555';
+  const BTN_ACTIVE  = '#337733';
+
+  modal.querySelectorAll('.col-action-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const oldId = btn.dataset.old;
-      const newId = btn.dataset.new;
-      if (pendingSwaps[oldId]) {
-        // Toggle off
-        delete pendingSwaps[oldId];
-        btn.style.background = '#cc7700';
-        btn.textContent = `Swap hex references: #${oldId} → #${newId}`;
-        modal.querySelector(`.swap-status-${oldId}`).textContent = '';
+      const id     = btn.dataset.id;
+      const action = btn.dataset.action; // 'swap' | 'custom'
+      const newId  = btn.dataset.new;
+      const status = modal.querySelector(`.col-status-${id}`);
+
+      // Sibling buttons for this collision row
+      const siblings = modal.querySelectorAll(`.col-action-btn[data-id="${id}"]`);
+
+      if (pending[id] && pending[id].type === action) {
+        // Toggle off — deactivate this button
+        delete pending[id];
+        siblings.forEach(b => { b.style.background = BTN_IDLE; b.style.color = '#ccc'; });
+        if (status) status.textContent = '';
       } else {
-        pendingSwaps[oldId] = newId;
-        btn.style.background = '#337733';
-        btn.textContent = `✓ Will swap: #${oldId} → #${newId}`;
-        modal.querySelector(`.swap-status-${oldId}`).textContent = '(pending — apply to confirm)';
+        // Activate this button, deactivate all others for this row
+        pending[id] = { type: action, newId };
+        siblings.forEach(b => {
+          b.style.background = b === btn ? BTN_ACTIVE : BTN_IDLE;
+          b.style.color = b === btn ? '#fff' : '#ccc';
+        });
+        if (status) {
+          status.textContent = action === 'swap'
+            ? `→ hexes will reference pack #${newId}`
+            : `→ hexes will reference custom #${newId}`;
+        }
       }
     });
   });
 
-  // ── Footer buttons ──────────────────────────────────────────────────────────
+  // ── Footer ────────────────────────────────────────────────────────────────
   const footer = document.createElement('div');
-  footer.style.cssText = 'margin-top:16px;display:flex;gap:10px;justify-content:flex-end';
+  footer.style.cssText = 'margin-top:18px;display:flex;gap:10px;justify-content:flex-end';
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.textContent = 'Continue (pack wins)';
+  dismissBtn.style.cssText = 'padding:6px 16px;background:#444;color:#ddd;border:none;border-radius:4px;cursor:pointer;font-size:13px';
+  dismissBtn.addEventListener('click', () => {
+    overlay.remove();
+    onApply({}, {});
+  });
 
   const applyBtn = document.createElement('button');
   applyBtn.textContent = 'Apply & Continue';
   applyBtn.style.cssText = 'padding:6px 16px;background:#2a6a2a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px';
   applyBtn.addEventListener('click', () => {
+    const swaps = {}, buildAsCustom = {};
+    for (const [id, { type, newId }] of Object.entries(pending)) {
+      if (type === 'swap')   swaps[id]         = newId;
+      if (type === 'custom') buildAsCustom[id] = newId;
+    }
     overlay.remove();
-    onApply(pendingSwaps);
-  });
-
-  const dismissBtn = document.createElement('button');
-  dismissBtn.textContent = 'Continue without swapping';
-  dismissBtn.style.cssText = 'padding:6px 16px;background:#444;color:#ddd;border:none;border-radius:4px;cursor:pointer;font-size:13px';
-  dismissBtn.addEventListener('click', () => {
-    overlay.remove();
-    onApply({});
+    onApply(swaps, buildAsCustom);
   });
 
   footer.appendChild(dismissBtn);
@@ -1273,23 +1335,30 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
     try {
       const result = importRubyMap(ev.target.result);
 
-      // ── Apply parsed result to state (optionally after swapping tile refs) ─
-      const applyResult = (swaps) => {
-        // Apply any user-approved hex tile swaps (old embedded id → pack id).
-        if (Object.keys(swaps).length > 0) {
+      // ── Apply parsed result to state ───────────────────────────────────────
+      // swaps         = { oldId: packId }     — use pack tile, discard embedded
+      // buildAsCustom = { oldId: newCustomId } — keep embedded under new ID
+      const applyResult = (swaps, buildAsCustom) => {
+        // Helper: remap hex.tile from one ID to another.
+        const remapHexTile = (oldId, newId) => {
           for (const hex of Object.values(result.hexes)) {
-            if (hex.tile !== undefined && hex.tile !== null) {
-              const tileStr = String(hex.tile);
-              if (swaps[tileStr]) {
-                const newId = swaps[tileStr];
-                hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
-              }
+            if (hex.tile !== undefined && hex.tile !== null && String(hex.tile) === oldId) {
+              hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
             }
           }
-          // Remove swapped-out embedded tiles so they don't pollute customTiles.
-          for (const oldId of Object.keys(swaps)) {
-            delete result.customTiles[oldId];
-          }
+        };
+
+        // Build-as-custom: move embedded definition to new ID, remap hex refs.
+        for (const [oldId, newId] of Object.entries(buildAsCustom || {})) {
+          remapHexTile(oldId, newId);
+          result.customTiles[newId] = result.customTiles[oldId];
+          delete result.customTiles[oldId];
+        }
+
+        // Swap to pack tile: remap hex refs, discard embedded definition.
+        for (const [oldId, newId] of Object.entries(swaps || {})) {
+          remapHexTile(oldId, newId);
+          delete result.customTiles[oldId];
         }
 
         state.hexes = result.hexes;
@@ -1334,7 +1403,7 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
       if (collisions.length > 0) {
         _showTileCollisionDialog(collisions, applyResult);
       } else {
-        applyResult({});
+        applyResult({}, {});
       }
 
     } catch (err) {
