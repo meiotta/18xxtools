@@ -239,3 +239,85 @@ A designer opens this tool, fills in the map, companies, trains, phases, and auc
 | Apr 2026 | Share structure editor, token slot editor, charter band, color chip picker |
 | Apr 2026 | **Concessions** — type toggle, linked major, blocks hexes, min bid adjust |
 | Apr 2026 | **Associated minors** — `associatedMajor` field, rail badge, datalist autocomplete |
+| Apr 2026 | Entities audit — 112 games, 31 ability types catalogued |
+
+---
+
+## Phase 4.5 — entities.rb import completeness
+_Based on entities audit 2026-04-19. See ENTITIES_AUDIT.md for full data._
+
+> **Scoring basis:** (frequency × missing_severity), where missing_severity=2 = zero fields past type, 1 = key fields dropped. Implementation within `_rbAbilities` in `js/import-ruby.js` (lines 1026–1048) unless noted.
+
+### Priority 1 — `tile_lay` field extraction (232 occurrences, 59 games)
+The most common ability. `_rbAbilities` stores only `type`, `owner_type`, `hexes`. Missing: `count`, `when`, `free`, `tiles`, `closed_when_used_up`, `reachable`.
+
+**Fix:** In `_rbAbilities`, after extracting `owner_type` and `hexes`, also extract:
+- `count` via `_rbNum(h, 'count')`
+- `when` via `_rbStr(h, 'when')`
+- `free` via boolean: `/\bfree:\s*true/.test(h)`
+- `tiles` via `_rbStrArr(h, 'tiles')`
+- `closed_when_used_up` via boolean: `/\bclosed_when_used_up:\s*true/.test(h)`
+- `reachable` via boolean (default true, explicitly false in some files)
+
+Impact: imported `tile_lay` abilities will populate correctly in the ABILITY_DEFS editor.
+
+### Priority 2 — `shares` ability field extraction (124 occurrences, 43 games)
+The `shares:` field (e.g. `shares: 'EPP_0'` or `shares: %w[...]`) is never read by `_rbAbilities`. The ABILITY_DEFS UI has a `shares` tags field that remains blank after import.
+
+**Fix:** In `_rbAbilities`, add extraction of `shares` using `_rbStrArr(h, 'shares')` with fallback for single-string form `_rbStr(h, 'shares')`.
+
+Impact: privates that grant initial shares (1817, 1846, 1856, 18EU etc.) will show the correct share identifiers.
+
+### Priority 3 — `close` ability field extraction (108 occurrences, 38 games)
+The `when:` and `corporation:` fields are not extracted. A `close` ability after import shows empty defaults in the ABILITY_DEFS `when` select.
+
+**Fix:** In `_rbAbilities`, add `when` via `_rbStr(h, 'when')` and `corporation` via `_rbStr(h, 'corporation')`.
+
+Impact: correct close triggers preserved (e.g. `when: 'bought_train'`, `when: 'operated'`).
+
+### Priority 4 — `exchange` from-array pattern (10 games silently broken)
+`_rbStr(h, 'from')` matches only `from: 'string'`. When source uses `from: %w[ipo]` or `from: %i[reserved]`, the `from` value is dropped entirely. Affects `g_1828`, `g_1830`, `g_1836_jr30`, `g_1847_ae`, `g_1850_jr`, `g_1868_wy`, `g_18_mo`, `g_18_neb`, `g_18_nl`, `g_18_oe_uk_fr`.
+
+Also: the `when:` field on exchange abilities is never extracted.
+
+**Fix (a):** Replace `_rbStr(h, 'from')` with a function that also matches `%w[...]` and `%i[...]` array forms. If the result is a single-element array, unwrap to string; if multi-element, store as array (matching `exchange.from` being a tags field in ABILITY_DEFS).
+**Fix (b):** Extract `when` via `_rbStr(h, 'when')` for all ability hashes.
+
+Impact: exchange abilities in 10 games regain their `from` value. The ABILITY_DEFS `when` field populates for all exchange/close/tile_lay abilities.
+
+### Priority 5 — `no_buy` → `buyerType` mapping (175 occurrences, 35 games)
+`no_buy` is stored as a bare `{ type: 'no_buy' }` in `p.abilities[]`. The data model already has `buyerType: 'no_acquire'` for this concept. The current code only sets `buyerType` via a `desc` regex heuristic, which misses companies that use the ability without a matching description.
+
+**Fix:** In `_rbParseCompany`, after calling `_rbAbilities`, check for any ability with `type === 'no_buy'`. If found, set `buyerType = 'no_acquire'` unconditionally and remove the `no_buy` ability from `p.abilities[]` (it is already expressed by `buyerType`). The desc-regex heuristic can remain as a fallback for games that use the old description-only pattern.
+
+Impact: 35 games will have correct `buyerType` without depending on `desc` text matching.
+
+### Priority 6 — `token` price and count (53 occurrences, 27 games)
+`price` and `count` are dropped. After import, token abilities show $0 / 1 use.
+
+**Fix:** In `_rbAbilities`, add `price: _rbNum(h, 'price')` and `count: _rbNum(h, 'count')`.
+
+### Priority 7 — `hex_bonus` amount and `tile_discount` terrain (54 + 44 occurrences)
+Both are single missing fields on otherwise-supported types.
+
+**Fix (`hex_bonus`):** Add `amount: _rbNum(h, 'amount')`.
+**Fix (`tile_discount`):** Add `terrain: _rbStr(h, 'terrain')`.
+
+### Priority 8 — `revenue_change` ability (92 occurrences, 14 games)
+Phase-dependent private revenue changes. Zero fields extracted, no UI def. Affects 14 games including large-company games (1822 family).
+
+**Design note:** `revenue_change` has `revenue:` (new value) and `on_phase:` (trigger phase name). A minimal implementation stores these as raw fields with no UI editor — enough for round-trip export fidelity.
+
+**Fix (import):** In `_rbAbilities`, extract `revenue: _rbNum(h, 'revenue')` and `on_phase: _rbStr(h, 'on_phase')`.
+**Fix (UI):** No new ABILITY_DEF required for Phase 4.5 — show the raw object in the generic fallback renderer. A full UI def is Phase 5+ work.
+
+### Priority 9 — `assign_hexes` and `reservation` UI defs (82 + 78 occurrences, 34 + 11 games)
+Both have `hexes:` extracted already (it is a global extraction), but no ABILITY_DEFS entry and no downstream rendering. They appear as raw objects in the ability list.
+
+**Fix:** Add minimal ABILITY_DEFS entries for `assign_hexes` and `reservation` with a `hexes` tags field and a `suggest()` that describes the hex list. These need a category entry in `ABILITY_CATEGORIES` too.
+
+### Not in scope for Phase 4.5
+The following types are rare (≤10 occurrences), highly game-specific, or require engine logic beyond the importer:
+- `choose_ability`, `sell_company`, `manual_close_company`, `train_buy`, `train_limit`, `additional_token`, `acquire_company`, `borrow_train`, `blocks_partition`, `train_scrapper`, `purchase_train`, `base`, `tile_income`
+
+These will be stored as bare `{ type: '...' }` objects and are acceptable for now. A generic "raw ability" display mode in the UI would surface them without requiring individual defs.
