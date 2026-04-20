@@ -159,6 +159,12 @@ function buildManifestView() {
       .manifest-card.is-unlimited:hover {
         border-color:rgba(255,200,60,.5);
         box-shadow:0 6px 20px rgba(0,0,0,.55),0 0 20px rgba(255,200,60,.2),inset 0 1px 0 rgba(255,255,255,.06); }
+      .manifest-card.is-overridden {
+        border-color:rgba(255,140,0,.45);
+        box-shadow:0 2px 10px rgba(0,0,0,.45),0 0 14px rgba(255,140,0,.15),inset 0 1px 0 rgba(255,255,255,.04); }
+      .manifest-card.is-overridden:hover {
+        border-color:rgba(255,140,0,.7);
+        box-shadow:0 6px 20px rgba(0,0,0,.55),0 0 22px rgba(255,140,0,.28),inset 0 1px 0 rgba(255,255,255,.06); }
       .manifest-card.drag-over { border-color:#88aaff; transform:scale(1.03); }
       .manifest-remove {
         position:absolute; top:5px; right:5px; width:17px; height:17px;
@@ -168,6 +174,12 @@ function buildManifestView() {
         transition:background .1s,transform .1s; }
       .manifest-remove:hover { background:#e03020; transform:scale(1.2); }
       .manifest-card:hover .manifest-remove { display:block; }
+      .manifest-override-badge {
+        position:absolute; top:5px; left:5px; width:17px; height:17px;
+        background:rgba(200,100,0,.85); border:none; border-radius:50%; color:#fff;
+        font-size:10px; line-height:17px; text-align:center;
+        cursor:default; padding:0; z-index:3; pointer-events:all; }
+      .manifest-override-swatch-dim { opacity:0.55; filter:sepia(0.4) brightness(0.75); }
       /* ── Stepper ── */
       /* ── Count display bar (above buttons, no text input) ── */
       .mc-count-bar {
@@ -199,6 +211,17 @@ function buildManifestView() {
     document.head.appendChild(style);
   }
 
+  // Detect which manifest tiles have their embedded definition silently
+  // overridden by a pack tile (non-identical DSL clash).
+  // Keyed by tile id → collision object { id, sameDefinition, suggestedPackId }.
+  const overrideMap = {};
+  if (state.customTiles && Object.keys(state.customTiles).length > 0) {
+    const cols = TileRegistry.detectEmbeddedCollisions(state.customTiles);
+    for (const col of cols) {
+      if (!col.sameDefinition) overrideMap[col.id] = col;
+    }
+  }
+
   const ids = sortedManifestIds();
 
   if (ids.length === 0) {
@@ -208,7 +231,7 @@ function buildManifestView() {
     grid.appendChild(hint);
   } else {
     for (const id of ids) {
-      grid.appendChild(makeManifestCard(id));
+      grid.appendChild(makeManifestCard(id, overrideMap[id] || null));
     }
   }
 
@@ -233,12 +256,32 @@ function buildManifestView() {
 
 // ── Card factory ──────────────────────────────────────────────────────────────
 
-function makeManifestCard(id) {
+// overrideInfo: { id, sameDefinition, suggestedPackId } from detectEmbeddedCollisions,
+// or null when the tile is not overridden.
+function makeManifestCard(id, overrideInfo) {
   const isUnlimited = state.manifest[id] === null;
+  const isOverridden = !!overrideInfo; // non-identical DSL clash with a pack tile
 
   const card = document.createElement('div');
-  card.className = 'manifest-card' + (isUnlimited ? ' is-unlimited' : '');
+  card.className = 'manifest-card'
+    + (isUnlimited  ? ' is-unlimited'  : '')
+    + (isOverridden ? ' is-overridden' : '');
   card.setAttribute('data-tile', id);
+
+  // ── Override badge (top-left, shown when pack tile wins over embedded def) ─
+  if (isOverridden) {
+    const badge = document.createElement('div');
+    badge.className = 'manifest-override-badge';
+    badge.textContent = '⚠';
+    // Tooltip: explain what's happening and what to do.
+    const { suggestedPackId } = overrideInfo;
+    if (suggestedPackId && suggestedPackId !== id) {
+      badge.title = `Your map.rb defines tile #${id}, but the pack tile #${id} renders instead.\nYour definition matches pack tile #${suggestedPackId}.\nRe-import and choose "Swap → pack #${suggestedPackId}" or "Build as custom" to resolve.`;
+    } else {
+      badge.title = `Your map.rb defines tile #${id}, but the pack tile #${id} renders instead (different definition).\nRe-import and choose "Build as custom" to preserve your map's version.`;
+    }
+    card.appendChild(badge);
+  }
 
   // ── Remove button (shown on hover via CSS) ────────────────────────────────
   const removeBtn = document.createElement('button');
@@ -248,8 +291,9 @@ function makeManifestCard(id) {
   removeBtn.addEventListener('click', e => { e.stopPropagation(); removeFromManifest(id); });
   card.appendChild(removeBtn);
 
-  // ── SVG swatch ────────────────────────────────────────────────────────────
+  // ── SVG swatch — dimmed when overridden to signal it's not the map's def ──
   const svgWrap = document.createElement('div');
+  if (isOverridden) svgWrap.className = 'manifest-override-swatch-dim';
   svgWrap.innerHTML = _makeSwatchSvg(id);
   card.appendChild(svgWrap);
 
