@@ -91,13 +91,14 @@ function initMechanicsState() {
     mergerRound:       false,
 
     // ── Bank & Players (base.rb defaults) ──
+    minPlayers:   2,
+    maxPlayers:   6,
     bankCash:     12000,
     currency:     '$%s',
-    startingCash: { 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
-    certLimit:    { 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+    startingCash: {},
+    certLimit:    {},
 
     // ── Corporation Rules ──
-    floatPercent:            60,
     homeTokenTiming:         'operate',   // :par :float :operate :operating_round
     marketShareLimit:        50,
     bankruptcyAllowed:       true,
@@ -112,9 +113,11 @@ function initMechanicsState() {
     sellAfter:        'first',            // :first :operate :any_time :p_any_time :p_any_operate :full_or_turn
 
     // ── OR Rules ──
-    allowRemovingTowns: false,
-    mustBuyTrain:       'route',
-    capitalization:     'full',
+    allowRemovingTowns:  false,
+    mustBuyTrain:        'route',
+    ebuyFromOthers:      'value',  // :value :never :always
+    ebuyDepotCheapest:   true,     // EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST
+    mustIssueBeforeEbuy: false,    // MUST_EMERGENCY_ISSUE_BEFORE_EBUY
     tileLays: {
       default:       [Object.assign({}, DEFAULT_TILE_LAY_SLOT)],
       byType:        { minor: null, major: null },
@@ -143,6 +146,17 @@ function initMechanicsState() {
       nationalCorpSym:  null,
       triggerTrains:    [],
       reservationHexes: [],
+    },
+
+    // ── Game End ──
+    gameEndCheck: {
+      bank:         { enabled: true,  timing: 'full_or' },
+      bankrupt:     { enabled: true,  timing: 'immediate' },
+      stock_market: { enabled: false, timing: 'current_or' },
+      all_closed:   { enabled: false, timing: 'immediate' },
+      final_train:  { enabled: false, timing: 'one_more_full_or_set' },
+      final_round:  { enabled: false, timing: 'one_more_full_or_set' },
+      final_or_set: { enabled: false, timing: 'one_more_full_or_set' },
     },
   };
 }
@@ -315,6 +329,7 @@ function buildFramework() {
     {
       id: 'bank_players', label: 'Bank & Players',
       items: [
+        { id: 'bank_range',    label: 'Player Count',       value: (m.minPlayers || 2) + '–' + (m.maxPlayers || 6) + ' players', status: 'green' },
         { id: 'bank_cash',     label: 'Bank Cash',          value: bankDisplay,                   status: m.bankCash ? 'green' : 'red' },
         { id: 'bank_currency', label: 'Currency',           value: m.currency || '$%s',           status: 'green' },
         { id: 'bank_start',    label: 'Starting Cash',      value: _summariseCashTable(m.startingCash), status: _cashTableFilled(m.startingCash) ? 'green' : 'red' },
@@ -328,7 +343,8 @@ function buildFramework() {
       empty: trains.length === 0 ? { label: 'No trains defined — use Trains & Phases screen', status: 'red' } : null,
       items: trains.filter(t => !t._isSpecial).map(t => {
         const ok = t.name && t.cost !== undefined && t.distance !== undefined;
-        return { id: 'train_' + t.name, label: (t.name || '?') + '-train', value: t.cost !== undefined ? '$' + t.cost : '?', status: ok ? 'green' : (t.name ? 'amber' : 'red'), readonly: true };
+        const dynTag = t.dynamic ? ' · dynamic' : '';
+        return { id: 'train_' + t.name, label: (t.name || '?') + '-train', value: (t.cost !== undefined ? '$' + t.cost : '?') + dynTag, status: ok ? 'green' : (t.name ? 'amber' : 'red') };
       }),
     },
 
@@ -357,7 +373,6 @@ function buildFramework() {
     {
       id: 'corporations', label: 'Corporations',
       items: [
-        { id: 'corp_float',       label: 'Float Percent',       value: (m.floatPercent ?? 60) + '%',     status: 'green' },
         { id: 'corp_home_token',  label: 'Home Token Timing',   value: m.homeTokenTiming || 'operate',   status: 'green' },
         { id: 'corp_mkt_limit',   label: 'Market Share Limit',  value: (m.marketShareLimit ?? 50) + '%', status: 'green' },
         { id: 'corp_bankruptcy',  label: 'Bankruptcy',          value: m.bankruptcyAllowed ? 'allowed' : 'disabled', status: 'green' },
@@ -412,7 +427,7 @@ function buildFramework() {
       items: [
         { id: 'or_tile_lays',   label: 'Tile Lays',          value: describeTileLaySlots((m.tileLays || {}).default || [DEFAULT_TILE_LAY_SLOT]), status: 'green' },
         { id: 'or_train_rules', label: 'Train Requirements', value: m.mustBuyTrain || 'route',    status: 'green' },
-        { id: 'or_capital',     label: 'Capitalization',     value: m.capitalization || 'full',   status: 'green' },
+        { id: 'or_ebuy',        label: 'Emergency Buy',      value: _describeEbuy(m),             status: 'green' },
         { id: 'or_special',     label: 'Special Mechanics',  value: Object.values(m.orSteps || {}).filter(Boolean).length + ' active', status: 'green' },
       ],
     },
@@ -430,8 +445,9 @@ function buildFramework() {
     // ── GAME END CONDITIONS ────────────────────────────────────────────────
     {
       id: 'game_end', label: 'Game End Conditions',
-      items: [],
-      empty: { label: 'Not yet configurable in this tool', status: 'red' },
+      items: [
+        { id: 'game_end_config', label: 'End triggers', value: _describeGameEnd(m.gameEndCheck), status: _gameEndStatus(m.gameEndCheck) },
+      ],
     },
   ];
 }
@@ -444,6 +460,26 @@ function _summariseCashTable(tbl) {
 }
 function _cashTableFilled(tbl) {
   return tbl && Object.values(tbl).some(v => v > 0);
+}
+function _describeEbuy(m) {
+  return { value: 'at face value', never: 'depot only', always: 'any source' }[m.ebuyFromOthers || 'value'] || m.ebuyFromOthers;
+}
+function _describeGameEnd(gec) {
+  if (!gec) return 'not set';
+  const active = Object.entries(gec).filter(([, v]) => v.enabled).map(([k]) => k);
+  return active.length ? active.join(', ') : 'none';
+}
+function _gameEndStatus(gec) {
+  if (!gec) return 'red';
+  return Object.values(gec).some(v => v.enabled) ? 'green' : 'red';
+}
+function _playerRange() {
+  const m = (typeof state !== 'undefined' && state.mechanics) || {};
+  const min = m.minPlayers || 2;
+  const max = m.maxPlayers || 6;
+  const out = [];
+  for (let p = min; p <= max; p++) out.push(p);
+  return out;
 }
 
 function formatInitialRound(val) {
@@ -565,6 +601,44 @@ function renderMechanicsRight() {
       renderMechanicsRight();
     });
   });
+  // Game end check inputs (geckey = "trigger.field")
+  el.querySelectorAll('[data-geckey]').forEach(input => {
+    input.addEventListener('change', e => {
+      const [trigger, field] = e.target.dataset.geckey.split('.');
+      const gec = state.mechanics.gameEndCheck || (state.mechanics.gameEndCheck = {});
+      if (!gec[trigger]) gec[trigger] = { enabled: false, timing: 'full_or' };
+      if (field === 'enabled') gec[trigger].enabled = e.target.checked;
+      else gec[trigger].timing = e.target.value;
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+      renderMechanicsRight();
+    });
+  });
+  // Dynamic train toggle — writes to state.trains
+  el.querySelectorAll('[data-dynamictrain]').forEach(input => {
+    input.addEventListener('change', e => {
+      const name = e.target.dataset.dynamictrain;
+      const train = (state.trains || []).find(t => t.name === name && !t._isSpecial);
+      if (!train) return;
+      train.dynamic = e.target.checked;
+      if (!train.dynamic) { delete train.countByPlayers; }
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+      renderMechanicsRight();
+    });
+  });
+  // countByPlayers cell inputs — writes to state.trains
+  el.querySelectorAll('[data-cpbtrain]').forEach(input => {
+    input.addEventListener('change', e => {
+      const name = e.target.dataset.cpbtrain;
+      const p    = Number(e.target.dataset.cpbplayer);
+      const train = (state.trains || []).find(t => t.name === name && !t._isSpecial);
+      if (!train) return;
+      train.countByPlayers = train.countByPlayers || {};
+      train.countByPlayers[p] = Number(e.target.value);
+      if (typeof autosave === 'function') autosave();
+    });
+  });
   // Bank cash-table inputs (starting cash + cert limit per player count)
   el.querySelectorAll('[data-cashkey]').forEach(input => {
     input.addEventListener('change', e => {
@@ -598,7 +672,7 @@ function renderEditorFor(itemId) {
     return wrap(back, 'Bank & Players', renderBankPlayers(m));
 
   // ── Corporation game-level rules ──
-  if (['corp_float','corp_home_token','corp_mkt_limit','corp_bankruptcy','corp_track'].includes(itemId))
+  if (['corp_home_token','corp_mkt_limit','corp_bankruptcy','corp_track'].includes(itemId))
     return wrap(back, 'Corporation Rules', renderCorpRules(m));
 
   // Corp roster line — show info about CORPORATIONS array
@@ -620,8 +694,10 @@ function renderEditorFor(itemId) {
   // ── OR Rules ──
   if (itemId === 'or_tile_lays')
     return wrap(back, 'Tile Lays', renderTileLays(m));
-  if (itemId === 'or_train_rules' || itemId === 'or_capital')
-    return wrap(back, 'Train Rules & Capitalization', renderTrainRules(m));
+  if (itemId === 'or_train_rules')
+    return wrap(back, 'Train Requirements', renderTrainRules(m));
+  if (itemId === 'or_ebuy')
+    return wrap(back, 'Emergency Buy', renderEmergencyBuy(m));
   if (itemId === 'or_special')
     return wrap(back, 'Special Mechanics', renderSpecialMechanics(m));
 
@@ -629,13 +705,13 @@ function renderEditorFor(itemId) {
   if (itemId === 'events' || itemId.startsWith('event_'))
     return wrap(back, 'Event Triggers', renderEventsSection(m));
 
-  // ── Trains / Phases (Farrah's domain — read-only reference) ──
+  // ── Trains: editable for dynamic bank; special trains read-only ──
   if (itemId.startsWith('train_')) {
-    const t = (state.trains || []).find(t => t.name === itemId.slice(6));
-    return wrap(back, null, renderTrainReadOnly(t));
+    const t = (state.trains || []).find(t => t.name === itemId.slice(6) && !t._isSpecial);
+    return wrap(back, null, renderTrainEditor(t));
   }
   if (itemId.startsWith('strain_')) {
-    const t = (state.trains || []).find(t => t.name === itemId.slice(7));
+    const t = (state.trains || []).find(t => t.name === itemId.slice(7) && t._isSpecial);
     return wrap(back, null, renderTrainReadOnly(t));
   }
   if (itemId.startsWith('phase_')) {
@@ -644,8 +720,8 @@ function renderEditorFor(itemId) {
   }
 
   // ── Game End ──
-  if (itemId === 'game_end' || itemId === 'game_end_empty')
-    return wrap(back, 'Game End Conditions', renderInfoPanel('game_end'));
+  if (itemId === 'game_end_config')
+    return wrap(back, 'Game End Conditions', renderGameEndEditor(m));
 
   // ── Empty placeholders ──
   if (itemId.endsWith('_empty'))
@@ -742,21 +818,29 @@ function renderInfoPanel(sectionId) {
 // New section editors
 // ---------------------------------------------------------------------------
 function renderBankPlayers(m) {
-  const sc = m.startingCash || {};
-  const cl = m.certLimit    || {};
-  const players = [2,3,4,5,6];
-  const scRows = players.map(p => `
+  const sc      = m.startingCash || {};
+  const cl      = m.certLimit    || {};
+  const players = _playerRange();
+  const scRows  = players.map(p => `
     <div class="mech-row-pair">
       <span class="mech-row-label">${p}p</span>
       <input type="number" min="0" class="mech-num-sm" data-cashkey="starting:${p}" value="${sc[p] || 0}">
     </div>`).join('');
-  const clRows = players.map(p => `
+  const clRows  = players.map(p => `
     <div class="mech-row-pair">
       <span class="mech-row-label">${p}p</span>
       <input type="number" min="0" class="mech-num-sm" data-cashkey="cert:${p}" value="${cl[p] || 0}">
     </div>`).join('');
   return `
-    <label>Bank Cash
+    <div style="display:flex;gap:12px;">
+      <label style="flex:1;">Min players
+        <input type="number" min="1" max="12" data-mkey="minPlayers" value="${m.minPlayers || 2}">
+      </label>
+      <label style="flex:1;">Max players
+        <input type="number" min="1" max="12" data-mkey="maxPlayers" value="${m.maxPlayers || 6}">
+      </label>
+    </div>
+    <label style="margin-top:8px;">Bank Cash
       <input type="number" min="0" data-mkey="bankCash" value="${m.bankCash || 12000}">
     </label>
     <label>Currency format <span class="mech-hint-inline">%s = amount (e.g. $%s → $120)</span>
@@ -770,9 +854,6 @@ function renderBankPlayers(m) {
 
 function renderCorpRules(m) {
   return `
-    <label>Float Percent
-      <input type="number" min="10" max="100" data-mkey="floatPercent" value="${m.floatPercent ?? 60}">
-    </label>
     <label>Home Token Timing
       <select data-mkey="homeTokenTiming">
         <option value="operate"          ${sel(m.homeTokenTiming,'operate')}>On first operate (default)</option>
@@ -836,6 +917,91 @@ function renderStockRoundRules(m) {
       </select>
     </label>
     ${toggle('Must Sell in Blocks', 'mustSellInBlocks', m.mustSellInBlocks)}`;
+}
+
+function renderEmergencyBuy(m) {
+  return `
+    <p class="mech-hint" style="margin-bottom:12px;">Emergency buy (ebuy) triggers when a corporation must buy a train it cannot fully afford.</p>
+    <label>Buy from others <span class="mech-hint-inline">EBUY_FROM_OTHERS</span>
+      <select data-mkey="ebuyFromOthers">
+        <option value="value"  ${sel(m.ebuyFromOthers,'value')}>At face value (default)</option>
+        <option value="never"  ${sel(m.ebuyFromOthers,'never')}>Never — depot only</option>
+        <option value="always" ${sel(m.ebuyFromOthers,'always')}>Always — any source</option>
+      </select>
+    </label>
+    ${toggle('Depot train must be cheapest available', 'ebuyDepotCheapest', m.ebuyDepotCheapest ?? true)}
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST — default true</p>
+    ${toggle('Must issue shares before ebuy (if possible)', 'mustIssueBeforeEbuy', m.mustIssueBeforeEbuy ?? false)}
+    <p class="mech-hint" style="margin:2px 0 0 0;font-size:10px;">MUST_EMERGENCY_ISSUE_BEFORE_EBUY — default false</p>`;
+}
+
+function renderGameEndEditor(m) {
+  const gec = m.gameEndCheck || {};
+  const triggers = [
+    { key: 'bank',         label: 'Bank runs out',                       defTiming: 'full_or' },
+    { key: 'bankrupt',     label: 'Player goes bankrupt',                defTiming: 'immediate' },
+    { key: 'stock_market', label: 'Token reaches end of market',         defTiming: 'current_or' },
+    { key: 'all_closed',   label: 'All corps and companies close',       defTiming: 'immediate' },
+    { key: 'final_train',  label: 'Final train purchased',               defTiming: 'one_more_full_or_set' },
+    { key: 'final_round',  label: 'Final round triggered (custom step)', defTiming: 'one_more_full_or_set' },
+    { key: 'final_or_set', label: 'Final OR set countdown',              defTiming: 'one_more_full_or_set' },
+  ];
+  const timingOpts = [
+    { value: 'immediate',            label: 'Immediate' },
+    { value: 'current_round',        label: 'End of current round' },
+    { value: 'current_or',           label: 'End of next OR' },
+    { value: 'full_or',              label: 'End of full OR set' },
+    { value: 'one_more_full_or_set', label: '+1 full OR set' },
+  ];
+  const rows = triggers.map(t => {
+    const entry = gec[t.key] || { enabled: false, timing: t.defTiming };
+    const opts = timingOpts.map(o =>
+      `<option value="${o.value}" ${entry.timing === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
+    return `
+      <div style="margin-bottom:${entry.enabled ? '12px' : '4px'};">
+        ${toggleGec(t.label, `${t.key}.enabled`, entry.enabled)}
+        ${entry.enabled ? `<label style="margin-top:4px;font-size:11px;display:block;padding-left:4px;">When to end
+          <select data-geckey="${t.key}.timing">${opts}</select>
+        </label>` : ''}
+      </div>`;
+  }).join('');
+  return `<p class="mech-hint" style="margin-bottom:12px;">Multiple triggers are OR'd — game ends when the first fires.</p>${rows}`;
+}
+
+function renderTrainEditor(train) {
+  if (!train) return '<p class="mech-hint">Train not found.</p>';
+  const isDynamic = train.dynamic === true;
+  const cpb = train.countByPlayers || {};
+  const metaKeys = ['name','distance','cost','num','rusts_on','obsolete_on'];
+  const metaRows = metaKeys.filter(k => train[k] !== undefined).map(k => `
+    <tr>
+      <td style="color:#888;padding:3px 16px 3px 0;font-size:11px;">${k}</td>
+      <td style="color:#ddd;font-size:12px;">${JSON.stringify(train[k])}</td>
+    </tr>`).join('');
+
+  const cells = _playerRange().map(p => `
+    <div class="mech-row-pair">
+      <span class="mech-row-label">${p}p</span>
+      <input type="number" min="0" class="mech-num-sm"
+             data-cpbtrain="${train.name}" data-cpbplayer="${p}"
+             value="${cpb[p] !== undefined ? cpb[p] : (train.num || 0)}">
+    </div>`).join('');
+
+  return `
+    <h4 style="margin:0 0 10px;">${train.name || '?'}-train
+      <span style="font-weight:400;color:#555;font-size:11px;"> — structure owned by Trains &amp; Phases</span>
+    </h4>
+    <table style="border-collapse:collapse;margin-bottom:14px;">${metaRows}</table>
+    <hr style="border:none;border-top:1px solid #2a2a2a;margin-bottom:14px;">
+    ${toggleDynamic('Dynamic bank (count varies by player count)', train.name, isDynamic)}
+    ${isDynamic
+      ? `<p class="mech-hint" style="margin:8px 0 6px;">Count per player count — fallback num: ${train.num ?? '?'}</p>
+         <div class="mech-row-group">${cells}</div>`
+      : `<p class="mech-hint" style="margin-top:6px;color:#555;">Fixed — num: ${train.num ?? '?'} copies. Toggle on to set per player count.</p>`
+    }
+    ${(train.events || []).length
+      ? `<p style="color:#aaa;font-size:12px;margin-top:14px;">Events: ${train.events.map(e => `<strong>${e.type}</strong>`).join(', ')}</p>`
+      : ''}`;
 }
 
 function renderTrainReadOnly(train) {
@@ -951,19 +1117,24 @@ function renderRoundStructure(m) {
     <label>Stock rounds per set
       <input type="number" min="1" max="4" data-mkey="stockRoundsPerSet" value="${m.stockRoundsPerSet || 1}">
     </label>
-    <label><input type="checkbox" data-mkey="mergerRound" ${m.mergerRound ? 'checked' : ''}> Merger round (after OR set)</label>`;
+    ${toggle('Merger round (after OR set)', 'mergerRound', m.mergerRound)}`;
 }
 
 function renderTileLays(m) {
   const tl = m.tileLays || {};
   return `
-    <label><input type="checkbox" data-mkey="allowRemovingTowns" ${m.allowRemovingTowns ? 'checked' : ''}> Allow removing town dits</label>
-    <p class="mech-hint">Default (all entity types):</p>
+    ${toggle('Allow removing town dits', 'allowRemovingTowns', m.allowRemovingTowns)}
+    <p class="mech-hint" style="margin-top:12px;">Default (all entity types):</p>
     ${renderSlotEditor(tl.default || [DEFAULT_TILE_LAY_SLOT], 'tileLays.default')}
-    <p class="mech-hint">Override for major corporations:</p>
+    <p class="mech-hint" style="margin-top:12px;">Override for major corporations:</p>
     ${renderSlotEditorOrNull(tl.byType && tl.byType.major, 'tileLays.byType.major')}
-    <p class="mech-hint">Override for minor corporations:</p>
-    ${renderSlotEditorOrNull(tl.byType && tl.byType.minor, 'tileLays.byType.minor')}`;
+    <p class="mech-hint" style="margin-top:12px;">Override for minor corporations:</p>
+    ${renderSlotEditorOrNull(tl.byType && tl.byType.minor, 'tileLays.byType.minor')}
+    <p class="mech-hint" style="margin-top:10px; color:#5a6a5a;">
+      Color restrictions (e.g. 1822 minors capped at green) are phase-status flags
+      (<code>minors_green_upgrade</code>) + a custom <code>step/tracker.rb</code>
+      <code>potential_tiles</code> override — not expressible as a slot field.
+    </p>`;
 }
 
 function renderSlotEditor(slots, keyPrefix) {
@@ -992,18 +1163,12 @@ function renderSlotEditorOrNull(slots, keyPrefix) {
 
 function renderTrainRules(m) {
   return `
+    <p class="mech-hint" style="margin-bottom:10px;">Capitalization (full / incremental) is set in the Companies panel → Corp Packs.</p>
     <label>Must buy train
       <select data-mkey="mustBuyTrain">
         <option value="route"  ${sel(m.mustBuyTrain,'route')}>If can run a route (default)</option>
         <option value="always" ${sel(m.mustBuyTrain,'always')}>Always (or go bankrupt)</option>
         <option value="never"  ${sel(m.mustBuyTrain,'never')}>Never forced</option>
-      </select>
-    </label>
-    <label>Capitalization
-      <select data-mkey="capitalization">
-        <option value="full"        ${sel(m.capitalization,'full')}>Full (on float)</option>
-        <option value="incremental" ${sel(m.capitalization,'incremental')}>Incremental (per share sold)</option>
-        <option value="none"        ${sel(m.capitalization,'none')}>None</option>
       </select>
     </label>`;
 }
@@ -1128,6 +1293,24 @@ function toggleSlot(label, slotkey, checked) {
     </label>
   </div>`;
 }
+function toggleDynamic(label, trainName, checked) {
+  return `<div class="mech-toggle-row">
+    <span class="mech-toggle-label">${label}</span>
+    <label class="mech-toggle">
+      <input type="checkbox" data-dynamictrain="${trainName}" ${checked ? 'checked' : ''}>
+      <span class="mech-toggle-slider"></span>
+    </label>
+  </div>`;
+}
+function toggleGec(label, geckey, checked) {
+  return `<div class="mech-toggle-row">
+    <span class="mech-toggle-label">${label}</span>
+    <label class="mech-toggle">
+      <input type="checkbox" data-geckey="${geckey}" ${checked ? 'checked' : ''}>
+      <span class="mech-toggle-slider"></span>
+    </label>
+  </div>`;
+}
 
 // ---------------------------------------------------------------------------
 // Input change handler
@@ -1180,6 +1363,7 @@ function onEnableOverride(keyPath) {
   obj[path[path.length - 1]] = [Object.assign({}, DEFAULT_TILE_LAY_SLOT)];
   if (typeof autosave === 'function') autosave();
   renderMechanicsLeft();
+  renderMechanicsRight();
 }
 function onRemoveOverride(keyPath) {
   if (typeof state === 'undefined' || !state.mechanics) return;
@@ -1200,6 +1384,140 @@ function hideMechanicsView() {
   const navBtn = document.querySelector('[data-lsec="mechanics"]');
   if (navBtn) navBtn.classList.remove('active');
   _selectedFrameworkItem = null;
+}
+
+// ---------------------------------------------------------------------------
+// game.rb preview generator
+// ---------------------------------------------------------------------------
+function slotToRuby(s) {
+  const parts = [];
+  if (s.lay === true)              parts.push('lay: true');
+  else if (s.lay === false)        parts.push('lay: false');
+  else if (s.lay)                  parts.push(`lay: :${s.lay}`);
+  if (s.upgrade === true)          parts.push('upgrade: true');
+  else if (s.upgrade === false)    parts.push('upgrade: false');
+  if (s.cost)                      parts.push(`cost: ${s.cost}`);
+  if (s.upgrade_cost)              parts.push(`upgrade_cost: ${s.upgrade_cost}`);
+  if (s.cannot_reuse_same_hex)     parts.push('cannot_reuse_same_hex: true');
+  return `{ ${parts.join(', ')} }`;
+}
+
+function generateGameRb() {
+  if (typeof state === 'undefined' || !state.mechanics)
+    return '# No mechanics state loaded yet.\n# Load or build a game first.';
+  const m = state.mechanics;
+  const lines = [];
+
+  const sec = name => lines.push(`\n# ── ${name} ${'─'.repeat(Math.max(0, 56 - name.length))}`);
+  const def = (name, val) => lines.push(`${name} = ${val}`);
+
+  sec('Bank & Players');
+  if (m.bankCash)
+    def('BANK_CASH', String(m.bankCash).replace(/\B(?=(\d{3})+(?!\d))/g, '_'));
+  if (m.currency && m.currency !== '$%s')
+    def('CURRENCY_FORMAT_STR', `'${m.currency}'`);
+  if (_cashTableFilled(m.startingCash)) {
+    const entries = Object.entries(m.startingCash).filter(([,v]) => v > 0).map(([p,v]) => `${p} => ${v}`).join(', ');
+    def('STARTING_CASH', `{ ${entries} }.freeze`);
+  }
+  if (_cashTableFilled(m.certLimit)) {
+    const entries = Object.entries(m.certLimit).filter(([,v]) => v > 0).map(([p,v]) => `${p} => ${v}`).join(', ');
+    def('CERT_LIMIT', `{ ${entries} }.freeze`);
+  }
+
+  sec('Corporation Rules');
+  lines.push('# Float percent and capitalization → Companies panel (corp packs)');
+  if ((m.homeTokenTiming || 'operate') !== 'operate')
+    def('HOME_TOKEN_TIMING', `:${m.homeTokenTiming}`);
+  if ((m.marketShareLimit ?? 50) !== 50)
+    def('MARKET_SHARE_LIMIT', String(m.marketShareLimit ?? 50));
+  if ((m.trackRestriction || 'semi_restrictive') !== 'semi_restrictive')
+    def('TRACK_RESTRICTION', `:${m.trackRestriction}`);
+  if (!(m.bankruptcyAllowed ?? true))
+    def('BANKRUPTCY_ALLOWED', 'false');
+  if ((m.bankruptcyEndsGameAfter || 'one') !== 'one')
+    def('BANKRUPTCY_ENDS_GAME_AFTER', `:${m.bankruptcyEndsGameAfter}`);
+
+  sec('Stock Round Rules');
+  // base.rb default is :sell_buy_or_buy_sell
+  if ((m.sellBuyOrder || 'sell_buy_or_buy_sell') !== 'sell_buy_or_buy_sell')
+    def('SELL_BUY_ORDER', `:${m.sellBuyOrder}`);
+  if ((m.sellMovement || 'down_share') !== 'down_share')
+    def('SELL_MOVEMENT', `:${m.sellMovement}`);
+  if ((m.poolShareDrop || 'none') !== 'none')
+    def('POOL_SHARE_DROP', `:${m.poolShareDrop}`);
+  if (m.mustSellInBlocks)
+    def('MUST_SELL_IN_BLOCKS', 'true');
+  if ((m.sellAfter || 'first') !== 'first')
+    def('SELL_AFTER', `:${m.sellAfter}`);
+
+  sec('Operating Round Rules');
+  if ((m.mustBuyTrain || 'route') !== 'route')
+    def('MUST_BUY_TRAIN', `:${m.mustBuyTrain}`);
+  if (m.allowRemovingTowns)
+    def('ALLOW_REMOVING_TOWNS', 'true');
+  // Emergency buy
+  if ((m.ebuyFromOthers || 'value') !== 'value')
+    def('EBUY_FROM_OTHERS', `:${m.ebuyFromOthers}`);
+  if (!(m.ebuyDepotCheapest ?? true))
+    def('EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST', 'false');
+  if (m.mustIssueBeforeEbuy)
+    def('MUST_EMERGENCY_ISSUE_BEFORE_EBUY', 'true');
+  const defSlots = (m.tileLays && m.tileLays.default) || [DEFAULT_TILE_LAY_SLOT];
+  def('TILE_LAYS', `[${defSlots.map(slotToRuby).join(', ')}].freeze`);
+  if (m.tileLays && m.tileLays.byType) {
+    if (m.tileLays.byType.major) {
+      lines.push('');
+      def('MAJOR_TILE_LAYS', `[${m.tileLays.byType.major.map(slotToRuby).join(', ')}].freeze`);
+    }
+    if (m.tileLays.byType.minor) {
+      lines.push('');
+      def('MINOR_TILE_LAYS', `[${m.tileLays.byType.minor.map(slotToRuby).join(', ')}].freeze`);
+    }
+  }
+
+  sec('Game Flow');
+  lines.push(`# Initial round: ${formatInitialRound(m.initialRound || 'waterfall_auction')} → Companies panel (Auction tab)`);
+  if ((m.stockRoundsPerSet || 1) !== 1)
+    lines.push(`# ${m.stockRoundsPerSet} stock rounds per set (implement via round order array)`);
+  if (m.mergerRound || (m.merger && m.merger.enabled))
+    lines.push('# Merger round enabled → G<game>::Round::Merger + custom round order');
+
+  const events = m.events || [];
+  if (events.length) {
+    sec('Train Events');
+    lines.push('# Add to TRAINS entry events: array:');
+    events.forEach(ev => lines.push(`#   ${ev.triggerOn}: [{ type: '${ev.eventType}' }]`));
+  }
+
+  const activeSteps = Object.entries(m.orSteps || {}).filter(([,v]) => v).map(([k]) => k);
+  if (activeSteps.length) {
+    sec('Special OR Steps (require custom Ruby)');
+    activeSteps.forEach(k => {
+      const name = k.replace(/([A-Z])/g, m => `_${m}`).replace(/^_/, '');
+      lines.push(`# G<game>::Step::${name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')}`);
+    });
+  }
+
+  sec('Game End');
+  const gec = m.gameEndCheck || {};
+  const gecActive = Object.entries(gec).filter(([, v]) => v.enabled);
+  if (gecActive.length) {
+    const gecPairs = gecActive.map(([k, v]) => `${k}: :${v.timing}`).join(', ');
+    def('GAME_END_CHECK', `{ ${gecPairs} }.freeze`);
+  } else {
+    lines.push('# GAME_END_CHECK not configured');
+  }
+
+  return lines.join('\n').replace(/^\n/, '');
+}
+
+function showRbPreview() {
+  const overlay = document.getElementById('mechRbOverlay');
+  const code    = document.getElementById('mechRbCode');
+  if (!overlay || !code) return;
+  code.textContent = generateGameRb();
+  overlay.style.display = 'flex';
 }
 
 // ---------------------------------------------------------------------------
@@ -1243,6 +1561,31 @@ function wireMechanicsPanel() {
   // setup.js will then restore navContent / toggleButtons correctly for its section.
   document.querySelectorAll('.nav-rail-btn[data-lsec]:not([data-lsec="mechanics"])').forEach(btn => {
     btn.addEventListener('click', hideMechanicsView);
+  });
+
+  // Peek button
+  const peekBtn = document.getElementById('mechPeekBtn');
+  if (peekBtn) peekBtn.addEventListener('click', showRbPreview);
+
+  // Overlay close
+  const overlay = document.getElementById('mechRbOverlay');
+  if (overlay) overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.style.display = 'none';
+  });
+  const closeBtn = document.getElementById('mechRbCloseBtn');
+  if (closeBtn) closeBtn.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'none';
+  });
+
+  // Copy button
+  const copyBtn = document.getElementById('mechRbCopyBtn');
+  if (copyBtn) copyBtn.addEventListener('click', () => {
+    const code = document.getElementById('mechRbCode');
+    if (!code) return;
+    navigator.clipboard.writeText(code.textContent).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+    });
   });
 
   // Delegated event handlers
@@ -1429,7 +1772,6 @@ window._loadTestGame = function(name) {
 
   // 1822-specific mechanics
   if (name === '1822') {
-    state.mechanics.capitalization   = 'incremental';
     state.mechanics.initialRound     = 'waterfall_auction';
     state.mechanics.orSteps.minorAcquisition = true;
     state.mechanics.orSteps.homeToken = true;
@@ -1440,7 +1782,6 @@ window._loadTestGame = function(name) {
 
   // 1830-specific
   if (name === '1830') {
-    state.mechanics.capitalization = 'full';
     state.mechanics.events = [
       { triggerOn: '2', eventType: 'close_companies' },
     ];
