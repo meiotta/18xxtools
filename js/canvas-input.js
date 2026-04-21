@@ -250,7 +250,11 @@ mapSvg.addEventListener('click', (e) => {
   if (e.ctrlKey || e.metaKey) {
     if (selectedHexes.has(id)) {
       selectedHexes.delete(id);
+      // Keep selectedHex pointing at a valid remaining member
+      if (selectedHexes.size > 0) selectedHex = [...selectedHexes][selectedHexes.size - 1];
     } else {
+      // Anchor the current single-selection into the multi-set before expanding
+      if (selectedHex && !selectedHexes.has(selectedHex)) selectedHexes.add(selectedHex);
       selectedHexes.add(id);
       selectedHex = id;
     }

@@ -53,6 +53,29 @@ function _addSectionLabel(menu, text) {
   menu.appendChild(lbl);
 }
 
+// ── Submenu item (hover reveals a flyout submenu) ─────────────────────────────
+// items: [{label, onClick}, ...]
+function _addSubmenuItem(menu, label, items) {
+  const item = document.createElement('div');
+  item.className = 'context-menu-item has-submenu';
+  item.textContent = label;
+
+  const sub = document.createElement('div');
+  sub.className = 'context-menu-submenu';
+
+  for (const { label: slabel, onClick } of items) {
+    const sitem = document.createElement('div');
+    sitem.className = 'context-menu-item';
+    sitem.textContent = slabel;
+    sitem.onclick = (e) => { e.stopPropagation(); removeContextMenu(); onClick(); };
+    sub.appendChild(sitem);
+  }
+
+  item.appendChild(sub);
+  menu.appendChild(item);
+  return item;
+}
+
 // ── Draw a terrain icon onto a 2d canvas context centred at (0,0) ─────────────
 function _drawTerrainIcon(bCtx, key, s) {
   switch (key) {
@@ -367,6 +390,47 @@ function showContextMenu(x, y, hexId) {
 
   addSep();
 
+  // ── Revenue Center quick-set ──────────────────────────────────────────────
+  // Sets the hex as a city/town stub (white base-map style: no tile, city circle
+  // or town bar drawn directly, revenue:0 placeholder).  Mirrors tobymao DSL:
+  //   city=revenue:0          → Single City
+  //   town=revenue:0          → Single Town
+  //   town=revenue:0;town=revenue:0 → Double Town
+  _addSubmenuItem(menu, '🏛 Revenue Center', [
+    { label: '🏙 Single City', onClick: () => {
+        ensureHex(hexId);
+        const h = state.hexes[hexId];
+        h.tile = 0; h.rotation = 0;
+        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
+        h.nodes   = [{ type: 'city', slots: 1, flat: 0 }];
+        h.paths   = []; h.exits = [];
+        h.feature = 'city';
+        render(); autosave();
+    }},
+    { label: '🔴 Single Town', onClick: () => {
+        ensureHex(hexId);
+        const h = state.hexes[hexId];
+        h.tile = 0; h.rotation = 0;
+        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
+        h.nodes   = [{ type: 'town', flat: 0 }];
+        h.paths   = []; h.exits = [];
+        h.feature = 'town';
+        render(); autosave();
+    }},
+    { label: '🔴🔴 Double Town', onClick: () => {
+        ensureHex(hexId);
+        const h = state.hexes[hexId];
+        h.tile = 0; h.rotation = 0;
+        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
+        h.nodes   = [{ type: 'town', flat: 0 }, { type: 'town', flat: 0 }];
+        h.paths   = []; h.exits = [];
+        h.feature = 'dualTown';
+        render(); autosave();
+    }},
+  ]);
+
+  addSep();
+
   // ── Build-A-Hex (single hex only) ─────────────────────────────────────────
   addItem((hex.static ? '🗺 Edit Hex (Advanced)' : '🗺 Build-A-Hex (Advanced)'), () => {
     if (typeof openStaticHexWizard === 'function') openStaticHexWizard(hexId);
@@ -434,26 +498,6 @@ function showMultiContextMenu(x, y, hexIds) {
     hexIds.forEach(id => { ensureHex(id); fn(id); });
     render(); autosave();
   }
-
-  // ── City ──────────────────────────────────────────────────────────────────
-  addItem('🏙 Add City (all)', () => {
-    applyToAll(id => {
-      state.hexes[id].city = { name: '', slots: 1, home: '', revenue: { yellow: 0, green: 0, brown: 0, gray: 0 } };
-      state.hexes[id].town = null;
-      state.hexes[id].oo   = false;
-    });
-  });
-
-  // ── Town ──────────────────────────────────────────────────────────────────
-  addItem('🔴 Add Town (all)', () => {
-    applyToAll(id => {
-      state.hexes[id].town = { name: '' };
-      state.hexes[id].city = null;
-      state.hexes[id].oo   = false;
-    });
-  });
-
-  addSep();
 
   // ── Terrain + Icons quick-grid ────────────────────────────────────────────
   _addSectionLabel(menu, 'Terrain & Icons');
