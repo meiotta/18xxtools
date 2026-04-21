@@ -27,6 +27,8 @@ const RESOURCE_ICONS = [
 function removeContextMenu() {
   const old = document.getElementById('contextMenu');
   if (old) old.remove();
+  // Clean up any detached submenus that were appended directly to body
+  document.querySelectorAll('.ctx-sub-detached').forEach(s => s.remove());
 }
 
 // ── Shared menu-building helpers ─────────────────────────────────────────────
@@ -54,14 +56,19 @@ function _addSectionLabel(menu, text) {
 }
 
 // ── Submenu item (hover reveals a flyout submenu) ─────────────────────────────
+// The submenu is appended to document.body and positioned with JS so it escapes
+// the parent menu's overflow:auto clipping (which clips left:100% children and
+// triggers a spurious scrollbar).
 // items: [{label, onClick}, ...]
 function _addSubmenuItem(menu, label, items) {
   const item = document.createElement('div');
   item.className = 'context-menu-item has-submenu';
   item.textContent = label;
 
+  // Build submenu as a body-level fixed element — escapes overflow clipping
   const sub = document.createElement('div');
-  sub.className = 'context-menu-submenu';
+  sub.className = 'context-menu-submenu ctx-sub-detached';
+  sub.style.cssText = 'display:none;position:fixed;z-index:1002;';
 
   for (const { label: slabel, onClick } of items) {
     const sitem = document.createElement('div');
@@ -70,8 +77,31 @@ function _addSubmenuItem(menu, label, items) {
     sitem.onclick = (e) => { e.stopPropagation(); removeContextMenu(); onClick(); };
     sub.appendChild(sitem);
   }
+  document.body.appendChild(sub);
 
-  item.appendChild(sub);
+  let _hideTimer = null;
+
+  function _showSub() {
+    clearTimeout(_hideTimer);
+    const rect = item.getBoundingClientRect();
+    sub.style.left = rect.right + 'px';
+    sub.style.top  = rect.top  + 'px';
+    sub.style.display = 'block';
+    // Clamp so submenu doesn't overflow viewport
+    const sr = sub.getBoundingClientRect();
+    if (sr.right  > window.innerWidth  - 4) sub.style.left = (rect.left - sr.width) + 'px';
+    if (sr.bottom > window.innerHeight - 4) sub.style.top  = (window.innerHeight - sr.height - 4) + 'px';
+  }
+
+  function _hideSub() {
+    _hideTimer = setTimeout(() => { sub.style.display = 'none'; }, 80);
+  }
+
+  item.addEventListener('mouseenter', _showSub);
+  item.addEventListener('mouseleave', _hideSub);
+  sub.addEventListener('mouseenter', () => clearTimeout(_hideTimer));
+  sub.addEventListener('mouseleave', _hideSub);
+
   menu.appendChild(item);
   return item;
 }
@@ -387,8 +417,6 @@ function showContextMenu(x, y, hexId) {
       render(); autosave();
     }
   );
-
-  addSep();
 
   // ── Revenue Center quick-set ──────────────────────────────────────────────
   // Sets the hex as a city/town stub (white base-map style: no tile, city circle
