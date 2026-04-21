@@ -108,6 +108,7 @@ function hexToDslCode(hex) {
   for (const border of (hex.borders || [])) {
     let s = `border=edge:${border.edge},type:${border.type}`;
     if (border.cost) s += `,cost:${border.cost}`;
+    if (border.color) s += `,color:${border.color}`;
     parts.push(s);
   }
 

@@ -219,3 +219,16 @@ document.getElementById('edgeWaterBtn').addEventListener('click', () => {
   document.getElementById('edgeWaterBtn').style.background = 'rgba(255,215,0,0.15)';
   updateStatus('Tool: Water Crossing — click an edge on the map');
 });
+document.getElementById('edgeProvinceBtn').addEventListener('click', () => {
+  if (activeTool === 'province') {
+    activeTool = null;
+    clearEdgeToolActive();
+    updateStatus('');
+    return;
+  }
+  activeTool = 'province';
+  clearAllToolHighlights();
+  document.getElementById('edgeProvinceBtn').style.outline = '2px solid #ffd700';
+  document.getElementById('edgeProvinceBtn').style.background = 'rgba(255,215,0,0.15)';
+  updateStatus('Tool: Zone Boundary — click an edge on the map (dashed black line)');
+});

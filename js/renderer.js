@@ -204,6 +204,15 @@ function buildBordersSvg(hex) {
         const radDx = bx / len, radDy = by / len;
         svg += `<text x="${(bx-radDx*8*sc).toFixed(2)}" y="${(by-radDy*8*sc).toFixed(2)}" font-family="Lato,Arial,sans-serif" font-size="7" font-weight="bold" fill="${col}" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
       }
+    } else if (border.type === 'province') {
+      // Zone/province boundary: dashed line running along the full edge face.
+      // Uses border.color (default black) — matches tobymao border.rb province type.
+      // Half-edge-length = circumradius/2 = 25 units in 50-unit space.
+      const col      = border.color || 'black';
+      const halfEdge = 25 * sc;
+      const dashLen  = (9 * sc).toFixed(2);
+      const dashGap  = (7 * sc).toFixed(2);
+      svg += `<line x1="${(bx-edgeDx*halfEdge).toFixed(2)}" y1="${(by-edgeDy*halfEdge).toFixed(2)}" x2="${(bx+edgeDx*halfEdge).toFixed(2)}" y2="${(by+edgeDy*halfEdge).toFixed(2)}" stroke="${col}" stroke-width="${(4*sc).toFixed(2)}" stroke-dasharray="${dashLen} ${dashGap}" stroke-linecap="butt"/>`;
     }
   }
   return svg;

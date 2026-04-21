@@ -151,19 +151,22 @@ function _lassoUp(e) {
     const pid = hexId(ph.row, ph.col);
 
     // Edge tools
-    if (activeTool === 'impassable' || activeTool === 'water-crossing') {
+    if (activeTool === 'impassable' || activeTool === 'water-crossing' || activeTool === 'province') {
       selectedHex = pid;
       const edgeNum = findNearestEdge(ph.row, ph.col, startWp.x, startWp.y);
       ensureHex(pid);
       const h = state.hexes[pid];
       if (!h.borders) h.borders = [];
-      const type = activeTool === 'impassable' ? 'impassable' : 'water';
+      const type = activeTool === 'impassable' ? 'impassable'
+                 : activeTool === 'province'   ? 'province'
+                 : 'water';
       const existingIdx = h.borders.findIndex(b => b.edge === edgeNum);
       let removing = existingIdx >= 0 && h.borders[existingIdx].type === type;
       let border = null;
       if (!removing) {
         border = { edge: edgeNum, type };
         if (type === 'water') border.cost = (state.terrainCosts && state.terrainCosts.water) || 40;
+        if (type === 'province') border.color = 'black';
       }
       if (removing) {
         h.borders.splice(existingIdx, 1);
@@ -184,7 +187,8 @@ function _lassoUp(e) {
           if (nExistingIdx >= 0) nh.borders.splice(nExistingIdx, 1);
         } else {
           const nBorder = { edge: mirrorEdge, type };
-          if (border.cost !== undefined) nBorder.cost = border.cost;
+          if (border.cost  !== undefined) nBorder.cost  = border.cost;
+          if (border.color !== undefined) nBorder.color = border.color;
           if (nExistingIdx >= 0) nh.borders[nExistingIdx] = nBorder;
           else nh.borders.push(nBorder);
         }

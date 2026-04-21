@@ -175,15 +175,18 @@ function parseHexCode(code) {
         if (types.includes('water')) result.terrainHasWater = true;
       }
     } else if (part.startsWith('border=')) {
-      const edgeM = part.match(/edge:(\d+)/);
-      const typeM = part.match(/type:(\w+)/);
-      const costM = part.match(/cost:(\d+)/);
+      const edgeM  = part.match(/edge:(\d+)/);
+      const typeM  = part.match(/type:(\w+)/);
+      const costM  = part.match(/cost:(\d+)/);
+      const colorM = part.match(/color:([a-zA-Z#0-9_]+)/);
       if (edgeM) {
-        result.borders.push({
+        const b = {
           edge: parseInt(edgeM[1]),
           type: typeM ? typeM[1] : 'impassable',
           cost: costM ? parseInt(costM[1]) : 0,
-        });
+        };
+        if (colorM) b.color = colorM[1];
+        result.borders.push(b);
       }
     }
   }
@@ -404,15 +407,18 @@ function parseDslHex(code, bg, locationName) {
       const c = (part.match(/cost:(\d+)/) || [])[1];
       if (c) hex.terrainCost = parseInt(c);
     } else if (part.startsWith('border=')) {
-      const edgeM = part.match(/edge:(\d+)/);
-      const typeM = part.match(/type:(\w+)/);
-      const costM = part.match(/cost:(\d+)/);
+      const edgeM  = part.match(/edge:(\d+)/);
+      const typeM  = part.match(/type:(\w+)/);
+      const costM  = part.match(/cost:(\d+)/);
+      const colorM = part.match(/color:([a-zA-Z#0-9_]+)/);
       if (edgeM) {
-        hex.borders.push({
+        const b = {
           edge: parseInt(edgeM[1]),
           type: typeM ? typeM[1] : 'impassable',
           cost: costM ? parseInt(costM[1]) : 0,
-        });
+        };
+        if (colorM) b.color = colorM[1];
+        hex.borders.push(b);
       }
     } else if (part.startsWith('icon=')) {
       const imgM = part.match(/image:([^\s,;]+)/);

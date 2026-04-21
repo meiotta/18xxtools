@@ -689,7 +689,8 @@ function _panelHtml() {
             </select>
             <select id="hbBorderType" class="hb-select-sm">
               <option value="impassable">Impassable</option>
-              <option value="price">Price</option>
+              <option value="water">Water Crossing</option>
+              <option value="province">Zone Boundary</option>
             </select>
             <button class="hb-btn-secondary hb-btn-xs" id="hbAddBorder">+ Add</button>
           </div>
@@ -1214,7 +1215,9 @@ function _bindPanel() {
     const edge = parseInt(edgeSel?.value ?? 0, 10);
     const type = typeSel?.value || 'impassable';
     if (!_borders.some(b => b.edge === edge)) {
-      _borders.push({ edge, type });
+      const nb = { edge, type };
+      if (type === 'province') nb.color = 'black';
+      _borders.push(nb);
       const bl = document.getElementById('hbBorderList');
       if (bl) bl.innerHTML = _bordersHtml();
       _updateDslPreview();
