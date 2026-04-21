@@ -273,6 +273,7 @@ const ABILITY_CATEGORIES = [
   { label: 'Revenue', types: ['hex_bonus', 'train_discount'] },
   { label: 'Trains', types: ['grants_train'] },
   { label: 'Lifecycle', types: ['close'] },
+  { label: 'Assignment', types: ['assign_hexes', 'assign_corporation'] },
   { label: 'Other', types: ['generic'] },
 ];
 
@@ -432,6 +433,44 @@ const ABILITY_DEFS = {
           : 'Closes when the owning corporation purchases its first train.';
       }
       return `Closes when: ${a.when}.`;
+    },
+  },
+  assign_hexes: {
+    label: 'Assign to Hex (Revenue Bonus)',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'hexes', label: 'Eligible hexes', type: 'tags', placeholder: 'e.g. D6, I1' },
+      { key: 'when', label: 'Trigger', type: 'text', placeholder: 'e.g. owning_corp_or_turn, or_start, sold' },
+      { key: 'count', label: 'Uses (total)', type: 'number', default: 1 },
+      { key: 'count_per_or', label: 'Uses per OR', type: 'number' },
+      { key: 'cost', label: 'Cost to assign ($)', type: 'number', default: 0 },
+      { key: 'closed_when_used_up', label: 'Closes when used up', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const hx  = (a.hexes && a.hexes.length) ? a.hexes.join(', ') : '?';
+      const who = a.owner_type === 'player' ? 'player' : 'corporation';
+      const wen = a.when ? ` [${Array.isArray(a.when) ? a.when.join('/') : a.when}]` : '';
+      const uses = a.count_per_or ? ', once per OR' : (a.count ? `, ${a.count} time(s)` : '');
+      const cost = (a.cost && a.cost > 0) ? ` for $${a.cost}` : '';
+      const cl   = a.closed_when_used_up ? ' Closes when used up.' : '';
+      return `The owning ${who} may assign this private to a hex (${hx})${uses}${cost}${wen}.${cl}`;
+    },
+  },
+  assign_corporation: {
+    label: 'Assign to Corporation',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'when', label: 'Trigger', type: 'text', placeholder: 'e.g. sold, or_start' },
+      { key: 'count', label: 'Uses (total)', type: 'number', default: 1 },
+      { key: 'count_per_or', label: 'Uses per OR', type: 'number' },
+      { key: 'closed_when_used_up', label: 'Closes when used up', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const who  = a.owner_type === 'player' ? 'player' : 'corporation';
+      const wen  = a.when ? ` [${Array.isArray(a.when) ? a.when.join('/') : a.when}]` : '';
+      const uses = a.count_per_or ? ', once per OR' : (a.count ? `, ${a.count} time(s)` : '');
+      const cl   = a.closed_when_used_up ? ' Closes when used up.' : '';
+      return `The owning ${who} may lock this private's bonus to a specific corporation${uses}${wen}.${cl}`;
     },
   },
   generic: {

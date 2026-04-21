@@ -1059,7 +1059,16 @@ function _rbAbilities(hashStr) {
     const desc = _rbStr(h, 'description');if (desc)  ab.description = desc;
     const corps = _rbStrArr(h, 'corporations'); if (corps.length) ab.corporations = corps;
     const hexes = _rbStrArr(h, 'hexes');        if (hexes.length) ab.hexes        = hexes;
-    const disc  = _rbNum(h, 'discount');  if (disc !== null) ab.discount = disc;
+    const disc  = _rbNum(h, 'discount');  if (disc !== null) ab.discount     = disc;
+    const count = _rbNum(h, 'count');     if (count !== null) ab.count       = count;
+    const cpo   = _rbNum(h, 'count_per_or'); if (cpo !== null) ab.count_per_or = cpo;
+    const cost  = _rbNum(h, 'cost');      if (cost !== null) ab.cost         = cost;
+    const whenArr = _rbStrArr(h, 'when');
+    if (whenArr.length > 1)      { ab.when = whenArr; }
+    else if (whenArr.length === 1) { ab.when = whenArr[0]; }
+    else { const ws = _rbStr(h, 'when'); if (ws) ab.when = ws; }
+    const cwm = h.match(/\bclosed_when_used_up:\s*(true|false)/);
+    if (cwm) ab.closed_when_used_up = (cwm[1] === 'true');
     return ab;
   });
 }
