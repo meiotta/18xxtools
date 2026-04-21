@@ -686,74 +686,31 @@ canvas { display: block; }
 }
 .hb-hint { color: #888; font-size: 12px; line-height: 1.5; }
 
-/* Tool grid — 2-column card layout */
-.hb-tool-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px;
-  margin-bottom: 8px;
-}
-.hb-tool-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 7px 4px 6px;
-  background: #272727;
-  border: 1.5px solid #424242;
-  border-radius: 7px;
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-  min-width: 0;
-}
-.hb-tool-card:hover { border-color: #777; background: #333; }
-.hb-tool-card.active { border-color: #ffd700; background: #221e08; }
-.hb-tool-emoji {
-  font-size: 18px;
-  line-height: 1;
-  pointer-events: none;
-}
-.hb-tool-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: #aaa;
-  pointer-events: none;
-  text-transform: uppercase;
-}
-.hb-tool-card.active .hb-tool-label { color: #ffd700; }
-.hb-tool-card:hover .hb-tool-label { color: #ddd; }
-
-/* Erase card — danger styling; spans full width */
-.hb-tool-erase {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  gap: 6px;
-  padding: 6px 12px;
-  border-color: #4a2020;
-}
-.hb-tool-erase .hb-tool-emoji { font-size: 14px; }
-.hb-tool-erase .hb-tool-label { color: #a06060; letter-spacing: 0.06em; }
-.hb-tool-erase:hover { border-color: #b06060; background: rgba(140,40,40,0.18); }
-.hb-tool-erase:hover .hb-tool-label { color: #ff8888; }
-.hb-tool-erase.active { border-color: #d06060; background: rgba(140,40,40,0.22); }
-.hb-tool-erase.active .hb-tool-label { color: #ff9090; }
-
-/* Keep legacy .hb-toolbar-sep in case referenced elsewhere */
+/* Toolbar */
+.hb-toolbar { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-bottom: 7px; }
 .hb-toolbar-sep { width: 1px; height: 22px; background: #3e3e3e; margin: 0 2px; flex-shrink: 0; }
-
-/* Gray hex warning banner */
-.hb-gray-warn {
-  margin: 0 16px 8px;
-  padding: 7px 11px;
-  background: rgba(180, 120, 0, 0.14);
-  border: 1px solid #7a5200;
-  border-radius: 5px;
-  color: #d4a030;
-  font-size: 11px;
-  line-height: 1.5;
+.hb-tool-btn {
+  background: #2c2c2c;
+  border: 1.5px solid #464646;
+  color: #bbb;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
 }
+.hb-tool-btn:hover { border-color: #777; color: #fff; background: #383838; }
+.hb-tool-btn.active { border-color: #ffd700; color: #ffd700; background: #252010; }
+
+/* Erase — danger variant so it's never confused with a build tool */
+.hb-tool-btn[data-tool="erase"]         { color: #b06060; border-color: #573030; }
+.hb-tool-btn[data-tool="erase"]:hover   { border-color: #d06060; color: #ff8080; background: rgba(160,50,50,0.18); }
+.hb-tool-btn[data-tool="erase"].active  { border-color: #d06060; color: #ff9090; background: rgba(160,50,50,0.22); }
 
 /* Node config — empty state */
 .hb-node-empty {
@@ -847,82 +804,6 @@ canvas { display: block; }
 }
 .hb-dsl-copy:hover { color: #ccc; border-color: #666; background: #2a2a2a; }
 .hb-dsl-copy.copied { color: #5c9; border-color: #3a7; background: rgba(50,150,80,0.12); }
-
-/* Lane debug panel */
-.hb-debug {
-  margin: 0 0 0 0;
-  border-top: 1px solid #2a2a00;
-  background: #111008;
-}
-.hb-debug summary {
-  padding: 5px 16px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #7a6a20;
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.hb-debug summary::-webkit-details-marker { display: none; }
-.hb-debug summary::before {
-  content: '▶';
-  font-size: 8px;
-  transition: transform 0.15s;
-}
-.hb-debug[open] summary::before { transform: rotate(90deg); }
-.hb-debug-body {
-  padding: 0 16px 10px;
-}
-.hb-debug-section {
-  margin-bottom: 8px;
-}
-.hb-debug-label {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6a5c10;
-  margin-bottom: 3px;
-}
-.hb-debug-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: 'Courier New', monospace;
-  font-size: 10px;
-  color: #b8a840;
-}
-.hb-debug-table th {
-  text-align: left;
-  font-weight: 600;
-  font-size: 9px;
-  color: #7a6a20;
-  border-bottom: 1px solid #2a2800;
-  padding: 2px 6px 2px 0;
-}
-.hb-debug-table td {
-  padding: 2px 6px 2px 0;
-  vertical-align: top;
-}
-.hb-debug-table td.val-null  { color: #444; }
-.hb-debug-table td.val-zero  { color: #606020; }
-.hb-debug-table td.val-pos   { color: #d4c050; }
-.hb-debug-table td.val-pair  { color: #7ac8ff; }
-.hb-debug-table td.val-warn  { color: #f88040; }
-.hb-debug-cursors {
-  font-family: 'Courier New', monospace;
-  font-size: 10px;
-  color: #b8a840;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.hb-debug-cursors span.cur-zero { color: #444; }
-.hb-debug-cursors span.cur-pos  { color: #7ac8ff; }
 
 /* Footer */
 .hb-footer {
