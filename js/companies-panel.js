@@ -1295,10 +1295,12 @@ function validateMinors() {
           if (!cities.length) {
             w.push('Home ' + co.coordinates + ' has no city');
           } else {
-            const ci = parseInt(co.city) || 0;
-            if (ci >= cities.length) {
-              w.push('Home ' + co.coordinates + ': no city at index ' + ci);
-            } else if ((cities[ci].slots || 1) < 1) {
+            // city: is only meaningful for multi-city hexes;
+          // the engine forces city=0 for single-city tiles (tile.rb:378)
+          const ci = parseInt(co.city) || 0;
+          if (cities.length > 1 && ci >= cities.length) {
+              w.push('Home ' + co.coordinates + ': no city at index ' + ci + ' (hex has ' + cities.length + ' cities)');
+            } else if ((cities[Math.min(ci, cities.length - 1)].slots || 1) < 1) {
               w.push('Home ' + co.coordinates + ': no free token slot');
             }
           }
