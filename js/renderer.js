@@ -2040,14 +2040,20 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       if (cost < bestCost) { bestCost = cost; bestLoc = loc; }
     });
 
+    // Phase-revenue: tobymao routes through Part::Revenue → _rrgPickFlat.
+    // _SMALL_ITEM_LOCS_FLAT are blocker corner positions — wrong for revenue.
+    if (cityTowns[0].revenuePhases) {
+      const flat = _rrgPickFlat(_rrgBuildUse(hex));
+      return phaseBubble(toWorld(flat.x / 2, flat.y / 2), cityTowns[0].revenuePhases, sc);
+    }
     const _w0 = toWorld(bestLoc.x / 2, bestLoc.y / 2);
-    return cityTowns[0].revenuePhases
-      ? phaseBubble(_w0, cityTowns[0].revenuePhases, sc)
-      : bubble(_w0, rev);
+    return bubble(_w0, rev);
   }
 
   // ── Inline badge per node ─────────────────────────────────────────────────
   let svg = '';
+  // Phase-revenue is rendered once per tile (tobymao Part::Revenue renders one block).
+  let phaseRevRendered = false;
 
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
@@ -2055,6 +2061,18 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
 
     const rev = _revNodeValue(hex, i);
     if (!rev || rev === 0) continue;
+
+    // Phase-revenue: tobymao City#render_revenue returns early for multi-value revenues;
+    // Part::Revenue places one combined block via _rrgPickFlat(_rrgBuildUse(hex)).
+    // Use same pipeline here so positioning matches tobymao exactly.
+    if (node.revenuePhases) {
+      if (!phaseRevRendered) {
+        phaseRevRendered = true;
+        const flat = _rrgPickFlat(_rrgBuildUse(hex));
+        svg += phaseBubble(toWorld(flat.x / 2, flat.y / 2), node.revenuePhases, sc);
+      }
+      continue;
+    }
 
     // For cities: use computePreferredEdges so that cities without an explicit
     // locStr (like O14's two cities connected via paths) are correctly classified
@@ -2254,9 +2272,7 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       y50 = (barY100 + dispT * Math.sin(raRad)) / 2;
     }
 
-    svg += node.revenuePhases
-      ? phaseBubble(toWorld(x50, y50), node.revenuePhases, sc)
-      : bubble(toWorld(x50, y50), rev);
+    svg += bubble(toWorld(x50, y50), rev);
   }
 
   return svg;

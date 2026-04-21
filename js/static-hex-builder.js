@@ -146,6 +146,8 @@ let _activeTool     = 'city'; // 'town'|'city'|'offboard'|'track'|'erase'
 let _uid            = 1;
 let _mousePos       = { x: 0, y: 0 };
 let _highlightSnap  = null;  // locStr of currently highlighted snap pos
+let _hoveredEdge    = null;  // edge index (0-5) currently under mouse
+let _edgeLane       = {};    // edge → active lane cursor (0-indexed).  "+/-" advances/retreats it.
 let _showManifest   = false;
 let _manifestId     = '';
 let _manifestCount  = 1;
@@ -170,6 +172,7 @@ function _reset(hexId) {
   _activeTool = 'city';
   _mousePos = { x: 0, y: 0 };
   _highlightSnap = null;
+  _edgeLane = {};
   _showManifest = false;
   _manifestId = '';
   _manifestCount = 1;
@@ -240,9 +243,23 @@ function _loadFromModel(h) {
       //   New builder:  1 path with explicit p.lanes = N
       const ea = p.a.n, eb = p.b.n;
       const key = Math.min(ea, eb) + '-' + Math.max(ea, eb);
+
+      // Extract explicit per-endpoint lane indices (1-indexed).
+      // import-ruby.js produces arrays [total,idx]; tile-geometry.js produces strings "N.I".
+      const _extractLane = (laneArr, laneStr) => {
+        if (Array.isArray(laneArr)) return laneArr[1];           // already 0-indexed
+        if (typeof laneStr === 'string') {
+          const [, i] = laneStr.split('.');
+          return i !== undefined ? parseInt(i) : null;           // already 0-indexed
+        }
+        return null;
+      };
+      const laneA = _extractLane(p.aLane, p.a_lane);
+      const laneB = _extractLane(p.bLane, p.b_lane);
+
       const grp = eeGroups[key];
       if (!grp) {
-        eeGroups[key] = { ea, eb, lanes: p.lanes || 1 };
+        eeGroups[key] = { ea, eb, lanes: p.lanes || 1, laneA, laneB };
       } else if (p.lanes && p.lanes > grp.lanes) {
         grp.lanes = p.lanes;          // explicit lanes supersedes count
       } else if (!p.lanes) {
@@ -273,9 +290,16 @@ function _loadFromModel(h) {
     }
   });
 
-  // Create one segment per endpoint group, carrying the lane count.
-  Object.values(eeGroups).forEach(({ ea, eb, lanes }) => {
-    _segments.push({ id: _nextId(), ea, eb, lanes: lanes > 1 ? lanes : 1 });
+  // Create one segment per endpoint group, carrying lane count + per-endpoint lane index.
+  // laneA/laneB are 0-indexed and correspond directly to b_lane:N.I index I.
+  Object.values(eeGroups).forEach(({ ea, eb, lanes, laneA, laneB }) => {
+    _segments.push({ id: _nextId(), ea, eb, lanes: lanes > 1 ? lanes : 1,
+      laneA: laneA != null ? laneA : null, laneB: laneB != null ? laneB : null });
+    // Restore the edge lane cursor positioned PAST the max used lane, so the
+    // next draw through this edge lands on a new lane rather than overwriting.
+    // laneA=0 still advances to 1 (lane 0 is occupied; next slot is 1).
+    if (laneA != null) _edgeLane[ea] = Math.max(_edgeLane[ea] || 0, laneA + 1);
+    if (laneB != null) _edgeLane[eb] = Math.max(_edgeLane[eb] || 0, laneB + 1);
   });
 
   // Fallback: if h had no paths[] (old format), try blankPaths for segments
@@ -322,13 +346,66 @@ function _toDslHex() {
   // Blank edge-to-edge segments — expand lanes for hexToSvgInner.
   // parseDslHex expands lanes:N → N paths each with aLane:[N,i] / bLane:[N,N-1-i].
   // hexToSvgInner requires that expanded form to draw parallel tracks.
+  // For convergent single-lane paths (P9 pattern), assign aLane/bLane offsets so
+  // parallel tracks are drawn at shared endpoint edges.
   // (Note: _buildFinalModel stores the compact `lanes:N` form for saving.)
+
+  // Build per-edge max explicit lane value (0-indexed; total = max + 1)
+  const _rEdgeMax = {};
   _segments.forEach(seg => {
+    if (seg.laneA != null) _rEdgeMax[seg.ea] = Math.max(_rEdgeMax[seg.ea] || 0, seg.laneA);
+    if (seg.laneB != null) _rEdgeMax[seg.eb] = Math.max(_rEdgeMax[seg.eb] || 0, seg.laneB);
+  });
+
+  // Fallback auto-detect for legacy segments without explicit laneA/laneB.
+  // An edge is "explicitly assigned" only when at least one segment at that edge
+  // has a lane index > 0 (above the default).  lane=0 on its own doesn't count —
+  // it would block auto-detection but also fail the explicit emission check
+  // (_rEdgeMax > 0 is false when all lanes are 0), leaving both paths dead.
+  const _rHasExplicit = edge =>
+    _segments.some(s => (s.ea === edge && s.laneA > 0) || (s.eb === edge && s.laneB > 0));
+
+  const _rAutoMap = new Map();
+  _segments.forEach((seg, si) => {
+    if ((seg.lanes || 1) > 1) return;
+    [seg.ea, seg.eb].forEach((edge, ki) => {
+      if (_rHasExplicit(edge)) return;
+      if (!_rAutoMap.has(edge)) _rAutoMap.set(edge, []);
+      _rAutoMap.get(edge).push({ si, isA: ki === 0 });
+    });
+  });
+  const _rAutoA = {}, _rAutoB = {};
+  _rAutoMap.forEach((entries, sharedEdge) => {
+    if (entries.length < 2) return;
+    entries.sort((x, y) => {
+      const ox = x.isA ? _segments[x.si].eb : _segments[x.si].ea;
+      const oy = y.isA ? _segments[y.si].eb : _segments[y.si].ea;
+      const dx = (ox - sharedEdge + 6) % 6;
+      const dy = (oy - sharedEdge + 6) % 6;
+      return dx - dy;
+    });
+    entries.forEach(({ si, isA }, idx) => {
+      if (isA) _rAutoA[si] = [entries.length, idx];
+      else     _rAutoB[si] = [entries.length, idx];
+    });
+  });
+
+  _segments.forEach((seg, si) => {
     const a = { type: 'edge', n: seg.ea };
     const b = { type: 'edge', n: seg.eb };
     const lanes = seg.lanes || 1;
     if (lanes <= 1) {
-      paths.push({ a, b });
+      const p = { a, b };
+      // Explicit lane model: laneA is 0-indexed, total = _rEdgeMax[ea] + 1
+      if (seg.laneA != null && _rEdgeMax[seg.ea] > 0)
+        p.aLane = [_rEdgeMax[seg.ea] + 1, seg.laneA];
+      else if (_rAutoA[si])
+        p.aLane = _rAutoA[si];
+      if (seg.laneB != null && _rEdgeMax[seg.eb] > 0)
+        p.bLane = [_rEdgeMax[seg.eb] + 1, seg.laneB];
+      else if (_rAutoB[si])
+        p.bLane = _rAutoB[si];
+      paths.push(p);
     } else {
       for (let i = 0; i < lanes; i++) {
         paths.push({ a, b, aLane: [lanes, i], bLane: [lanes, lanes - 1 - i] });
@@ -423,9 +500,20 @@ function _buildFinalModel() {
     if (niA >= 0 && niB >= 0)
       paths.push({ a: { type: 'node', n: niA }, b: { type: 'node', n: niB } });
   });
+  // Compute edge max for lane array construction (0-indexed; total = max + 1)
+  const _bmEdgeMax = {};
+  _segments.forEach(seg => {
+    if (seg.laneA != null) _bmEdgeMax[seg.ea] = Math.max(_bmEdgeMax[seg.ea] || 0, seg.laneA);
+    if (seg.laneB != null) _bmEdgeMax[seg.eb] = Math.max(_bmEdgeMax[seg.eb] || 0, seg.laneB);
+  });
   _segments.forEach(seg => {
     const sp = { a: { type: 'edge', n: seg.ea }, b: { type: 'edge', n: seg.eb } };
     if ((seg.lanes || 1) > 1) sp.lanes = seg.lanes;
+    // Write aLane/bLane as [total, idx] so hexToSvgInner can render lane offsets on placed tiles.
+    if (seg.laneA != null && _bmEdgeMax[seg.ea] > 0)
+      sp.aLane = [_bmEdgeMax[seg.ea] + 1, seg.laneA];
+    if (seg.laneB != null && _bmEdgeMax[seg.eb] > 0)
+      sp.bLane = [_bmEdgeMax[seg.eb] + 1, seg.laneB];
     paths.push(sp);
   });
 
@@ -869,22 +957,26 @@ function _renderCanvas() {
   }
 
   // ── Edge circles (always visible) ─────────────────────────────────────────
-  // Color key: yellow = pending start, green = has a connection, dark = unconnected
-  // When a node is selected, its connected edges glow brighter green.
+  // Color key: yellow = pending start, green = has a connection, dark = unconnected.
+  // When a node is selected its connected edges glow brighter green.
   // Circles are pushed outward from center by EDGE_R so they sit just outside the
   // hex polygon — freeing the actual edge midpoint (track endpoint) from occlusion.
-  // Hit-testing in _edgeAtPoint still checks around EMP[e] with a generous radius.
+  //
+  // Lane subscripts: connected edges show a small lane-index indicator.
+  // Lane +/- controls: when Track tool is active, hovering an edge with track shows
+  //   "+" / "−" side-buttons to advance/retreat the per-edge lane cursor.
   const selEdges = _selectedNodeId ? (_nodeEdges[_selectedNodeId] || []) : [];
   for (let e = 0; e < 6; e++) {
     const [ex, ey] = EMP[e];
-    // Outward direction from center
     const ddx = ex - CCX, ddy = ey - CCY;
     const ddist = Math.hypot(ddx, ddy) || 1;
     const cx = ex + ddx / ddist * EDGE_R;   // circle center, just outside hex boundary
     const cy = ey + ddy / ddist * EDGE_R;
 
     const connectedToNode = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e));
-    const connectedSeg    = _segments.some(seg => seg.ea === e || seg.eb === e);
+    const edgeSegs        = _segments.filter(seg => seg.ea === e || seg.eb === e);
+    const connectedSeg    = edgeSegs.length > 0;
+    const hasTrack        = connectedToNode || connectedSeg;
     const isSelEdge  = selEdges.includes(e);
     const isPending  = (_pendingEdge === e);
     const fill   = isPending  ? '#c8a000'
@@ -898,9 +990,76 @@ function _renderCanvas() {
     s += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${EDGE_R}"
              fill="${fill}" stroke="${stroke}" stroke-width="${sw}"
              data-edge="${e}" style="cursor:pointer;"/>`;
-    s += `<text x="${cx.toFixed(1)}" y="${(cy + 4).toFixed(1)}"
-             text-anchor="middle" font-size="11" font-weight="bold" fill="white"
+
+    // Edge number — lifted into the top half when a lane subscript shares the circle
+    const numY = hasTrack ? cy - 0.5 : cy + 4;
+    s += `<text x="${cx.toFixed(1)}" y="${numY.toFixed(1)}"
+             text-anchor="middle" font-size="10" font-weight="bold" fill="white"
              pointer-events="none">${e}</text>`;
+
+    // Lane subscript — when track tool is active and this edge is hovered, show the
+    // cursor value (yellow) so +/- feedback is immediate.  hasTrack covers both node
+    // stubs and bypass segments so the cursor is visible before the first bypass is drawn.
+    // When not hovering, show the bypass segment lane indices instead.
+    if (hasTrack) {
+      const segsHere = _segments.filter(sg => sg.ea === e || sg.eb === e);
+      let label, laneColor;
+      if (_activeTool === 'track' && _hoveredEdge === e) {
+        // Cursor mode: show what lane the next draw will use
+        const cursor = _edgeLane[e] || 0;
+        label = String(cursor);
+        laneColor = cursor > 0 ? '#ffd700' : 'rgba(255,255,255,0.50)';
+      } else {
+        const laneVals = segsHere
+          .map(sg => sg.ea === e ? sg.laneA : sg.laneB)
+          .filter(l => l != null);
+        label = laneVals.length > 0
+          ? [...new Set(laneVals)].sort((a, b) => a - b).join(',')
+          : '0';  // track exists but no explicit lane — default lane 0
+        const hasAdvanced = laneVals.some(l => l > 0);
+        laneColor = hasAdvanced ? '#7ac8ff' : 'rgba(255,255,255,0.40)';
+      }
+      s += `<text x="${cx.toFixed(1)}" y="${(cy + 9.5).toFixed(1)}"
+               text-anchor="middle" font-size="8" fill="${laneColor}"
+               pointer-events="none">${_esc(label)}</text>`;
+    }
+
+    // Lane +/- controls: Track tool active, edge has any track (node stub OR bypass), hovered.
+    // "+" advances the lane cursor (next draw through this edge lands on a new lane).
+    // "−" retreats it (min 0).  Shown for node-stub edges too so the cursor can be set
+    // before the first bypass is drawn through that edge.
+    if (_activeTool === 'track' && _hoveredEdge === e && hasTrack) {
+      const cursor = _edgeLane[e] || 0;   // 0-indexed: next draw on this edge uses lane `cursor`
+      // Perpendicular direction (tangential to hex perimeter)
+      const perpX = -ddy / ddist;
+      const perpY =  ddx / ddist;
+      const pOff  = 21;
+
+      const plusCx  = cx + perpX * pOff;
+      const plusCy  = cy + perpY * pOff;
+      const minusCx = cx - perpX * pOff;
+      const minusCy = cy - perpY * pOff;
+
+      // "+" shown only when cursor < 3 (max lane index = 3; renderer supports ≤4 lanes)
+      if (cursor < 3) {
+        s += `<circle cx="${plusCx.toFixed(1)}" cy="${plusCy.toFixed(1)}" r="9"
+                 fill="#1a3060" stroke="#4a7aff" stroke-width="1.5"
+                 data-edge-plus="${e}" style="cursor:pointer;" title="Next lane: ${cursor} → ${cursor + 1}"/>`;
+        s += `<text x="${plusCx.toFixed(1)}" y="${(plusCy + 4.5).toFixed(1)}"
+                 text-anchor="middle" font-size="13" font-weight="bold" fill="#7ac8ff"
+                 pointer-events="none">+</text>`;
+      }
+
+      // "−" only when cursor > 0
+      if (cursor > 0) {
+        s += `<circle cx="${minusCx.toFixed(1)}" cy="${minusCy.toFixed(1)}" r="9"
+                 fill="#3a1010" stroke="#a06060" stroke-width="1.5"
+                 data-edge-minus="${e}" style="cursor:pointer;" title="Prev lane: ${cursor} → ${cursor - 1}"/>`;
+        s += `<text x="${minusCx.toFixed(1)}" y="${(minusCy + 4.5).toFixed(1)}"
+                 text-anchor="middle" font-size="13" font-weight="bold" fill="#f88"
+                 pointer-events="none">−</text>`;
+      }
+    }
   }
 
   // ── Lane-count badges for multi-lane segments ─────────────────────────────
@@ -1010,6 +1169,7 @@ function _bindPanel() {
     canvas.addEventListener('mousemove', _onCanvasMouseMove);
     canvas.addEventListener('mouseleave', () => {
       _highlightSnap = null;
+      _hoveredEdge   = null;
       _renderCanvas();
     });
   }
@@ -1215,6 +1375,29 @@ function _onCanvasMouseMove(e) {
       _renderCanvas();
     }
   }
+
+  // Track which edge circle (including its +/- side-buttons) is under the cursor.
+  // Used to show lane +/- controls when Track tool is active.
+  if (_activeTool === 'track') {
+    const rp = _unrotate(_mousePos.x, _mousePos.y);
+    let newHovEdge = null;
+    for (let ei = 0; ei < 6; ei++) {
+      const [ex, ey] = EMP[ei];
+      const ddx = ex - CCX, ddy = ey - CCY;
+      const ddist = Math.hypot(ddx, ddy) || 1;
+      const cxe = ex + ddx / ddist * EDGE_R;
+      const cye = ey + ddy / ddist * EDGE_R;
+      // Extend detection radius to cover the +/- side-buttons (offset by pOff=21, radius 9)
+      if (Math.hypot(rp.x - cxe, rp.y - cye) <= EDGE_R + 22) { newHovEdge = ei; break; }
+    }
+    if (newHovEdge !== _hoveredEdge) {
+      _hoveredEdge = newHovEdge;
+      _renderCanvas();
+    }
+  } else if (_hoveredEdge !== null) {
+    _hoveredEdge = null;
+    _renderCanvas();
+  }
 }
 
 // ── Unified canvas interaction ────────────────────────────────────────────────
@@ -1255,12 +1438,39 @@ function _onCanvasClick(e) {
       _nodes.forEach(n => {
         _nodeEdges[n.id] = (_nodeEdges[n.id] || []).filter(e => e !== clickedEdge);
       });
+      // Reset cursor to 0 for any edge that now has no segments — prevents stale
+      // lane values bleeding into the next fresh draw through that edge.
+      if (!_segments.some(s => s.ea === clickedEdge || s.eb === clickedEdge)) {
+        _edgeLane[clickedEdge] = 0;
+      }
     } else {
       _handleErase(mx, my);
     }
     _renderCanvas();
     _updateDslPreview();
     return;
+  }
+
+  // ── Edge lane +/- click ────────────────────────────────────────────────────
+  // Advances / retreats the per-edge lane cursor (_edgeLane).
+  // Does NOT modify any existing segment — the cursor only affects future draws.
+  {
+    const plusEdge  = e.target.dataset.edgePlus;
+    const minusEdge = e.target.dataset.edgeMinus;
+    if (plusEdge !== undefined) {
+      const edge = parseInt(plusEdge);
+      _edgeLane[edge] = Math.min(3, (_edgeLane[edge] || 0) + 1);  // max lane index = 3 (4 lanes)
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
+    if (minusEdge !== undefined) {
+      const edge = parseInt(minusEdge);
+      _edgeLane[edge] = Math.max(0, (_edgeLane[edge] || 0) - 1);
+      _renderCanvas();
+      _updateDslPreview();
+      return;
+    }
   }
 
   // ── Lane badge click — cycle lanes on a segment ───────────────────────────
@@ -1360,7 +1570,8 @@ function _onCanvasClick(e) {
       _pendingEdge = null;
       const xi = _segments.findIndex(s => (s.ea===ea&&s.eb===eb)||(s.ea===eb&&s.eb===ea));
       if (xi >= 0) _segments.splice(xi, 1);
-      else _segments.push({ id: _nextId(), ea, eb });
+      else _segments.push({ id: _nextId(), ea, eb,
+        laneA: _edgeLane[ea] || 0, laneB: _edgeLane[eb] || 0 });
       _renderCanvas();
       _updateDslPreview();
     }
