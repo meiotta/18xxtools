@@ -11,22 +11,76 @@
 const RENDERER_VERSION = '2026-04-17-tobymao-revenue';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
 
-// ── Debug: inspect a hex by grid key or by clicking ──────────────────────────
-window.debugHex = function(key) {
+// ── Debug: inspect a hex by grid key; supports before/after comparison ────────
+//
+// Usage:
+//   debugHex('P9')           — log hex model, SVG hash, paths with lane info
+//   debugHex('P9','before')  — snapshot the hash under key 'before'
+//   debugHex('P9','after')   — snapshot and compare against stored 'before'
+//
+// Hash format: SVG length + first 40 chars — enough to detect any structural change.
+// Stored snapshots survive across multiple calls until the page reloads.
+const _debugSnapshots = {};   // key → { label → hash }
+
+function _svgHash(svg) {
+  const s = svg || '';
+  return `len:${s.length}|${s.slice(0, 40).replace(/\s+/g, ' ')}`;
+}
+
+window.debugHex = function(key, label) {
   if (typeof state === 'undefined' || !state.hexes) { console.warn('[debugHex] no state'); return; }
   if (key) {
     const hex = state.hexes[key];
     if (!hex) { console.warn(`[debugHex] no hex at ${key}`); return; }
-    console.group(`[debugHex] ${key}`);
+    console.group(`[debugHex] ${key}${label ? ' [' + label + ']' : ''}`);
     console.log('hex object:', JSON.parse(JSON.stringify(hex)));
-    if (!hex.tile && hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') {
-      try {
-        const svg = hexToSvgInner(hex, null);
-        console.log('hexToSvgInner output:', svg || '(empty string)');
-      } catch(e) {
-        console.error('hexToSvgInner threw:', e);
+
+    // Log paths with full lane info (critical for P9-style convergent tracks)
+    const ps = hex.paths || [];
+    if (ps.length > 0) {
+      console.table(ps.map((p, i) => ({
+        '#': i,
+        a:    p.a  ? `${p.a.type}:${p.a.n}` : '—',
+        b:    p.b  ? `${p.b.type}:${p.b.n}` : '—',
+        aLane: p.aLane  ? `[${p.aLane}]`   : p.a_lane  || '—',
+        bLane: p.bLane  ? `[${p.bLane}]`   : p.b_lane  || '—',
+        lanes: p.lanes  || 1,
+      })));
+    }
+
+    // Render SVG for any DSL hex (including pure-track, feature='none')
+    if (!hex.tile) {
+      const hasContent = (hex.paths?.length > 0) || (hex.exits?.length > 0) ||
+                         (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank');
+      if (hasContent) {
+        try {
+          const svg  = hexToSvgInner(hex, null);
+          const hash = _svgHash(svg);
+          console.log('SVG hash:', hash);
+
+          // Before/after comparison
+          if (label) {
+            if (!_debugSnapshots[key]) _debugSnapshots[key] = {};
+            _debugSnapshots[key][label] = hash;
+            const other = label === 'after' ? 'before' : (label === 'before' ? 'after' : null);
+            if (other && _debugSnapshots[key][other]) {
+              if (hash === _debugSnapshots[key][other]) {
+                console.log('%c✓ SAME as ' + other, 'color:green');
+              } else {
+                console.warn('⚠ DIFFERENT from ' + other);
+                console.log('  ' + other + ':', _debugSnapshots[key][other]);
+                console.log('  ' + label + ':', hash);
+              }
+            } else {
+              console.log(`Snapshot '${label}' stored. Run debugHex('${key}','${label === 'before' ? 'after' : 'before'}') to compare.`);
+            }
+          }
+          console.log('SVG (first 200 chars):', (svg || '').slice(0, 200));
+        } catch(e) {
+          console.error('hexToSvgInner threw:', e);
+        }
       }
-    } else if (hex.tile) {
+    } else {
       const td = TileRegistry.getTileDef(hex.tile);
       console.log('tile:', hex.tile, 'rotation:', hex.rotation, 'tileDef:', td);
     }
@@ -832,6 +886,22 @@ function computePreferredEdges(hex) {
 //   feature     — string        terrain/revenue use only, NOT rendering
 //   bg          — color string  used by the caller, not here
 
+// Parse a lane spec from EITHER the array form [total, idx] produced by the builder /
+// import-ruby, OR the "N.I" string form produced by parseDslHex (a_lane / b_lane attr).
+// Returns [total, idx] or null.  Used everywhere path.aLane / path.bLane are read so
+// that tiles loaded from DSL strings render identically to builder-saved tiles.
+function _parseLane(arr, str) {
+  if (Array.isArray(arr) && arr.length === 2) return arr;
+  if (typeof str === 'string' && str.includes('.')) {
+    const parts = str.split('.');
+    if (parts.length === 2) {
+      const n = parseInt(parts[0], 10), i = parseInt(parts[1], 10);
+      if (!isNaN(n) && !isNaN(i)) return [n, i];
+    }
+  }
+  return null;
+}
+
 // Private helper — collect unique exit edge numbers from a normalised paths[].
 function _exitsFromPaths(paths) {
   const s = new Set();
@@ -1114,8 +1184,9 @@ function hexToSvgInner(hex, tileDef) {
     // begin_shift_edge = begin_edge || end_edge; end_shift_edge = end_edge || begin_edge
     // i.e. whichever endpoint IS an edge determines the perpendicular shift direction.
     for (const path of (hex.paths || [])) {
-      const aL = path.aLane || null;   // [total, idx] or null
-      const bL = path.bLane || null;
+      // Accept both [total,idx] array (builder/_buildFinalModel) and "N.I" string (parseDslHex).
+      const aL = _parseLane(path.aLane, path.a_lane);
+      const bL = _parseLane(path.bLane, path.b_lane);
 
       // Base positions
       let posA = path.a.type === 'edge' ? ep(path.a.n) : (nodePos[path.a.n] || { x: 0, y: 0 });
@@ -1169,13 +1240,14 @@ function hexToSvgInner(hex, tileDef) {
     }
 
     // Edge-to-edge bypass paths (e.g. Altoona path=a:1,b:4 alongside city)
-    // Also renders blankPaths (from hex builder) that coexist with a node feature.
-    // hex.paths is the canonical source for imported maps (already rendered above with
-    // lane offsets in STEP 1). Rendering pathPairs again here would double-draw those
-    // tracks without the lane shift, cancelling the visual effect. Skip pathPairs when
-    // hex.paths is populated; keep the blankPaths source for hex-builder-drawn tracks.
-    const _eeBypass = (hex.paths && hex.paths.length > 0) ? [] : (hex.pathPairs || []);
-    for (const [ea, eb] of [..._eeBypass, ...(hex.blankPaths || [])]) {
+    // hex.paths is the canonical source (rendered above in STEP 1 with lane offsets).
+    // When hex.paths is populated, skip BOTH pathPairs and blankPaths — rendering either
+    // would double-draw tracks without lane shifts, producing a doubled/crossed result.
+    // blankPaths / pathPairs are only used as fallbacks for pre-paths[] legacy saves.
+    const hasPaths   = hex.paths && hex.paths.length > 0;
+    const _eeBypass  = hasPaths ? [] : (hex.pathPairs  || []);
+    const _bpFallback = hasPaths ? [] : (hex.blankPaths || []);
+    for (const [ea, eb] of [..._eeBypass, ..._bpFallback]) {
       const pa = ep(ea), pb = ep(eb);
       const diff = Math.abs(ea - eb);
       if (diff === 3 || diff === 0) {
@@ -1304,7 +1376,8 @@ function hexToSvgInner(hex, tileDef) {
       const isAEdge = path.a.type === 'edge';
       const edgeN   = isAEdge ? path.a.n : (path.b.type === 'edge' ? path.b.n : null);
       if (edgeN === null) continue;
-      const laneSpec = isAEdge ? path.aLane : path.bLane;
+      const laneSpec = _parseLane(isAEdge ? path.aLane : path.bLane,
+                                   isAEdge ? path.a_lane : path.b_lane);
       if (!laneSpec || laneSpec[0] <= 1) continue;
       if (!_obLanesByEdge.has(edgeN)) _obLanesByEdge.set(edgeN, []);
       _obLanesByEdge.get(edgeN).push(laneSpec);
@@ -1334,8 +1407,8 @@ function hexToSvgInner(hex, tileDef) {
 
     // Render hex.paths with lane offsets (same logic as STEP 1, nodePos unused here).
     for (const path of (hex.paths || [])) {
-      const aL = path.aLane || null;
-      const bL = path.bLane || null;
+      const aL = _parseLane(path.aLane, path.a_lane);
+      const bL = _parseLane(path.bLane, path.b_lane);
       let posA = path.a.type === 'edge' ? ep(path.a.n) : { x: 0, y: 0 };
       let posB = path.b.type === 'edge' ? ep(path.b.n) : { x: 0, y: 0 };
       if (path.a.type === 'edge' && aL && aL[0] > 1) posA = _shiftPt(posA, path.a.n, _laneShift(aL[0], aL[1]));
@@ -1351,8 +1424,12 @@ function hexToSvgInner(hex, tileDef) {
       }
     }
 
-    // Legacy pathPairs fallback (only when hex.paths is absent — pre-DSL saves).
-    const _legacyPairs = (hex.paths && hex.paths.length > 0) ? [] : (hex.pathPairs || []);
+    // Legacy pathPairs / blankPaths fallback (only when hex.paths is absent — pre-DSL saves).
+    // When hex.paths is populated it is the canonical source; rendering either fallback
+    // would double-draw tracks without lane shifts.
+    const _hasPaths2   = hex.paths && hex.paths.length > 0;
+    const _legacyPairs = _hasPaths2 ? [] : (hex.pathPairs  || []);
+    const _legacyBlank = _hasPaths2 ? [] : (hex.blankPaths || []);
     const drawSeg = (e1, e2) => {
       const p1 = ep(e1), p2 = ep(e2);
       const diff = Math.abs(e1 - e2);
@@ -1364,7 +1441,7 @@ function hexToSvgInner(hex, tileDef) {
       }
     };
     for (const [ea, eb] of _legacyPairs) drawSeg(ea, eb);
-    for (const [ea, eb] of (hex.blankPaths || [])) drawSeg(ea, eb);
+    for (const [ea, eb] of _legacyBlank) drawSeg(ea, eb);
   }
 
   // ── Stubs — drawn unconditionally, can appear on any hex ───────────────────
