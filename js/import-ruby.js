@@ -523,9 +523,10 @@ function parseTilesBlock(content) {
     const id    = m[1];
     const inner = m[2];
     const cntM   = inner.match(/'count'\s*=>\s*(\d+)/);
+    const unlM   = /'count'\s*=>\s*'unlimited'/.test(inner);
     const colM   = inner.match(/'color'\s*=>\s*'([^']+)'/);
     const codeM  = inner.match(/'code'\s*=>\s*'([^']*)'/);
-    const count  = cntM ? parseInt(cntM[1]) : 1;
+    const count  = unlM ? null : (cntM ? parseInt(cntM[1]) : 1);
     manifest[id] = count;
     if (colM || codeM) {
       customTiles[id] = {

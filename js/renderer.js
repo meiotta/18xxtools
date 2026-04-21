@@ -1976,6 +1976,30 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
            `<text x="${w.x.toFixed(1)}" y="${w.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${rev}</text>`;
   }
 
+  // Render phase-revenue colored blocks centred at world coords (w.x, w.y).
+  // phasesStr: 'yellow_30|green_40|brown_50' format (parseDSL node.revenuePhases).
+  function phaseBubble(w, phasesStr, scl) {
+    const parts = phasesStr.split('|').map(s => {
+      const m = s.match(/^([a-z]+)_(\d+)$/i);
+      return m ? { color: m[1].toLowerCase(), value: parseInt(m[2], 10) } : null;
+    }).filter(Boolean);
+    if (!parts.length) return '';
+    const allSame = parts.every(p => p.value === parts[0].value);
+    if (allSame) return bubble(w, parts[0].value);
+    const bw = 13 * scl, bh = 9 * scl, gapW = scl;
+    const tw = parts.length * bw + (parts.length - 1) * gapW;
+    let bx = w.x - tw / 2;
+    const byp = w.y - bh / 2;
+    let s = '';
+    for (const { color, value } of parts) {
+      const fc = TILE_HEX_COLORS[color] || '#ccc';
+      s += `<rect x="${bx.toFixed(1)}" y="${byp.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${fc}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
+      s += `<text x="${(bx + bw / 2).toFixed(1)}" y="${w.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="6" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${value}</text>`;
+      bx += bw + gapW;
+    }
+    return s;
+  }
+
   const cityTowns = nodes.filter(n => n.type === 'city' || n.type === 'town');
   const numCTs    = cityTowns.length;
 
@@ -2016,7 +2040,10 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       if (cost < bestCost) { bestCost = cost; bestLoc = loc; }
     });
 
-    return bubble(toWorld(bestLoc.x / 2, bestLoc.y / 2), rev);
+    const _w0 = toWorld(bestLoc.x / 2, bestLoc.y / 2);
+    return cityTowns[0].revenuePhases
+      ? phaseBubble(_w0, cityTowns[0].revenuePhases, sc)
+      : bubble(_w0, rev);
   }
 
   // ── Inline badge per node ─────────────────────────────────────────────────
@@ -2227,7 +2254,9 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       y50 = (barY100 + dispT * Math.sin(raRad)) / 2;
     }
 
-    svg += bubble(toWorld(x50, y50), rev);
+    svg += node.revenuePhases
+      ? phaseBubble(toWorld(x50, y50), node.revenuePhases, sc)
+      : bubble(toWorld(x50, y50), rev);
   }
 
   return svg;
