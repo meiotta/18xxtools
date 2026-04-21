@@ -64,12 +64,40 @@
       display: flex; flex-direction: column; gap: 3px;
       font-size: 12px; color: #aaa;
     }
-    .mech-editor-wrap label input[type="checkbox"] { width: auto; margin-right: 6px; }
     .mech-editor-wrap label > select,
-    .mech-editor-wrap label > input[type="number"] {
+    .mech-editor-wrap label > input[type="number"],
+    .mech-editor-wrap label > input[type="text"] {
       background: #1e1e1e; border: 1px solid #444; border-radius: 4px;
       color: #ddd; padding: 4px 8px; font-size: 12px;
     }
+
+    /* Slide toggle */
+    .mech-toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 0; gap: 12px;
+    }
+    .mech-toggle-label { font-size: 12px; color: #aaa; flex: 1; }
+    .mech-toggle { position: relative; width: 34px; height: 19px; flex-shrink: 0; }
+    .mech-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .mech-toggle-slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: #333; border-radius: 19px;
+      border: 1px solid #444; transition: background .18s;
+    }
+    .mech-toggle-slider::before {
+      content: ''; position: absolute;
+      width: 13px; height: 13px; left: 2px; top: 2px;
+      background: #666; border-radius: 50%; transition: transform .18s, background .18s;
+    }
+    .mech-toggle input:checked + .mech-toggle-slider { background: #4338ca; border-color: #6366f1; }
+    .mech-toggle input:checked + .mech-toggle-slider::before { transform: translateX(15px); background: #fff; }
+
+    /* Bank editor row helpers */
+    .mech-row-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .mech-row-pair { display: flex; align-items: center; gap: 4px; }
+    .mech-row-label { font-size: 11px; color: #666; width: 18px; text-align: right; }
+    .mech-num-sm { width: 56px; background: #1e1e1e; border: 1px solid #444; border-radius: 4px; color: #ddd; padding: 3px 6px; font-size: 12px; }
+    .mech-hint-inline { font-size: 10px; color: #555; margin-left: 4px; }
     .mech-warn-banner {
       background: #2a1f0e; border: 1px solid #6b4c12;
       border-radius: 5px; padding: 8px 12px; font-size: 12px; color: #f5a623;
@@ -1087,7 +1115,7 @@
 <script src="js/static-hex-builder.js?v=20260420c"></script>
 
 <!-- ── Evan: Mechanics / Rulebook Panel ──────────────────────────────────── -->
-<script src="js/mechanics-panel.js?v=20260421a"></script>
+<script src="js/mechanics-panel.js?v=20260421b"></script>
 
 <!-- ── Market Debug Modal ─────────────────────────────────────────────────── -->
 <div id="marketDebugModal" class="debug-modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">

@@ -85,12 +85,36 @@ function initMechanicsState() {
   if (typeof state === 'undefined') return;
   if (state.mechanics) return;
   state.mechanics = {
+    // ── Game Flow ──
     initialRound:      'waterfall_auction',
     stockRoundsPerSet: 1,
     mergerRound:       false,
+
+    // ── Bank & Players (base.rb defaults) ──
+    bankCash:     12000,
+    currency:     '$%s',
+    startingCash: { 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+    certLimit:    { 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+
+    // ── Corporation Rules ──
+    floatPercent:            60,
+    homeTokenTiming:         'operate',   // :par :float :operate :operating_round
+    marketShareLimit:        50,
+    bankruptcyAllowed:       true,
+    bankruptcyEndsGameAfter: 'one',       // :one :all_but_one
+    trackRestriction:        'semi_restrictive', // :permissive :semi_restrictive :restrictive
+
+    // ── Stock Round Rules ──
+    sellBuyOrder:     'sell_buy',         // :sell_buy :buy_sell :sell_buy_sell :sell_buy_or_buy_sell
+    sellMovement:     'down_share',       // :down_share :down_block :left_block :left_block_pres :none
+    poolShareDrop:    'none',             // :down_block :none
+    mustSellInBlocks: false,
+    sellAfter:        'first',            // :first :operate :any_time :p_any_time :p_any_operate :full_or_turn
+
+    // ── OR Rules ──
     allowRemovingTowns: false,
-    mustBuyTrain:      'route',
-    capitalization:    'full',
+    mustBuyTrain:       'route',
+    capitalization:     'full',
     tileLays: {
       default:       [Object.assign({}, DEFAULT_TILE_LAY_SLOT)],
       byType:        { minor: null, major: null },
@@ -260,41 +284,41 @@ function buildFramework() {
   const m = state.mechanics || {};
   const trains   = state.trains   || [];
   const phases   = state.phases   || [];
-  const corps    = (state.companies || []).filter(c => !c.isMinor);
   const minors   = state.minors   || [];
   const privates = state.privates || [];
-  const hexCount = Object.keys(state.hexes || {}).filter(k => !(state.hexes[k] || {}).killed).length;
-  const hasMarket = !!(state.market && state.market.length);
+  const corps    = (state.companies || []).filter(c => !c.isMinor);
 
-  // OR count string derived from phases
   const orCounts = phases.map(p => p.operating_rounds || p.operatingRounds || 1);
   const orStr = orCounts.length
     ? [...new Set(orCounts)].join('/') + ' OR' + (Math.max(...orCounts) > 1 ? 's' : '')
     : null;
+
+  // Bank cash: may be a flat number or per-player-count hash
+  const bankDisplay = m.bankCash
+    ? (typeof m.bankCash === 'object'
+        ? Object.entries(m.bankCash).map(([p,v]) => p+'p:$'+v).join(' ')
+        : '$' + m.bankCash)
+    : 'not set';
 
   return [
     // ── GAME FLOW ──────────────────────────────────────────────────────────
     {
       id: 'game_flow', label: 'Game Flow',
       items: [
-        {
-          id: 'initial_round',
-          label: 'Initial Round',
-          value: formatInitialRound(m.initialRound),
-          status: m.initialRound ? 'green' : 'red',
-        },
-        {
-          id: 'stock_rounds',
-          label: 'Stock Rounds per set',
-          value: String(m.stockRoundsPerSet || 1),
-          status: 'green',
-        },
-        {
-          id: 'or_sequence',
-          label: 'OR Sequence',
-          value: orStr || 'from phases',
-          status: phases.length ? 'green' : 'amber',
-        },
+        { id: 'initial_round', label: 'Initial Round',       value: formatInitialRound(m.initialRound), status: m.initialRound ? 'green' : 'red' },
+        { id: 'stock_rounds',  label: 'Stock Rounds per set', value: String(m.stockRoundsPerSet || 1),   status: 'green' },
+        { id: 'or_sequence',   label: 'OR Sequence',          value: orStr || 'from phases',             status: phases.length ? 'green' : 'amber' },
+      ],
+    },
+
+    // ── BANK & PLAYERS ─────────────────────────────────────────────────────
+    {
+      id: 'bank_players', label: 'Bank & Players',
+      items: [
+        { id: 'bank_cash',     label: 'Bank Cash',          value: bankDisplay,                   status: m.bankCash ? 'green' : 'red' },
+        { id: 'bank_currency', label: 'Currency',           value: m.currency || '$%s',           status: 'green' },
+        { id: 'bank_start',    label: 'Starting Cash',      value: _summariseCashTable(m.startingCash), status: _cashTableFilled(m.startingCash) ? 'green' : 'red' },
+        { id: 'bank_cert',     label: 'Certificate Limit',  value: _summariseCashTable(m.certLimit),    status: _cashTableFilled(m.certLimit)    ? 'green' : 'red' },
       ],
     },
 
@@ -302,29 +326,18 @@ function buildFramework() {
     {
       id: 'trains', label: 'Trains',
       empty: trains.length === 0 ? { label: 'No trains defined — use Trains & Phases screen', status: 'red' } : null,
-      items: trains
-        .filter(t => !t._isSpecial)  // standard trains only; special shown separately
-        .map(t => {
-          const ok = t.name && t.cost !== undefined && t.distance !== undefined;
-          return {
-            id: 'train_' + t.name,
-            label: t.name ? t.name + '-train' : '(unnamed)',
-            value: t.cost !== undefined ? '$' + t.cost : '?',
-            status: ok ? 'green' : (t.name ? 'amber' : 'red'),
-            readonly: true,
-          };
-        }),
+      items: trains.filter(t => !t._isSpecial).map(t => {
+        const ok = t.name && t.cost !== undefined && t.distance !== undefined;
+        return { id: 'train_' + t.name, label: (t.name || '?') + '-train', value: t.cost !== undefined ? '$' + t.cost : '?', status: ok ? 'green' : (t.name ? 'amber' : 'red'), readonly: true };
+      }),
     },
 
-    // ── SPECIAL TRAINS ─────────────────────────────────────────────────────
+    // ── SPECIAL TRAINS (only if present) ───────────────────────────────────
     ...(trains.some(t => t._isSpecial) ? [{
       id: 'special_trains', label: 'Special Trains',
       items: trains.filter(t => t._isSpecial).map(t => ({
-        id: 'strain_' + t.name,
-        label: t.name,
-        value: t.cost !== undefined ? '$' + t.cost : '',
-        status: (t.name && t.cost !== undefined) ? 'green' : 'amber',
-        readonly: true,
+        id: 'strain_' + t.name, label: t.name, value: t.cost !== undefined ? '$' + t.cost : '',
+        status: (t.name && t.cost !== undefined) ? 'green' : 'amber', readonly: true,
       })),
     }] : []),
 
@@ -333,44 +346,45 @@ function buildFramework() {
       id: 'phases', label: 'Phases',
       empty: phases.length === 0 ? { label: 'No phases defined — use Trains & Phases screen', status: 'red' } : null,
       items: phases.map(p => ({
-        id: 'phase_' + p.name,
-        label: 'Phase ' + p.name,
-        value: p.on ? 'on ' + p.on : '',
-        status: (p.name && p.on) ? 'green' : 'amber',
-        readonly: true,
+        id: 'phase_' + p.name, label: 'Phase ' + p.name, value: p.on ? 'on ' + p.on : '',
+        status: (p.name && p.on) ? 'green' : 'amber', readonly: true,
       })),
     },
 
     // ── CORPORATIONS ───────────────────────────────────────────────────────
+    // Shows game-level corp rules (FLOAT_PERCENT, HOME_TOKEN_TIMING, etc.)
+    // Per-corp data (sym, name, tokens, coordinates) lives in the Companies panel.
     {
       id: 'corporations', label: 'Corporations',
-      empty: corps.length === 0 ? { label: 'No corporations defined — use Companies screen', status: 'red' } : null,
-      items: corps.map(c => ({
-        id: 'corp_' + c.abbr,
-        label: c.abbr || '?',
-        value: c.name || '',
-        status: (c.abbr && c.name) ? 'green' : 'amber',
-        readonly: true,
-      })),
+      items: [
+        { id: 'corp_float',       label: 'Float Percent',       value: (m.floatPercent ?? 60) + '%',     status: 'green' },
+        { id: 'corp_home_token',  label: 'Home Token Timing',   value: m.homeTokenTiming || 'operate',   status: 'green' },
+        { id: 'corp_mkt_limit',   label: 'Market Share Limit',  value: (m.marketShareLimit ?? 50) + '%', status: 'green' },
+        { id: 'corp_bankruptcy',  label: 'Bankruptcy',          value: m.bankruptcyAllowed ? 'allowed' : 'disabled', status: 'green' },
+        { id: 'corp_track',       label: 'Track Restriction',   value: m.trackRestriction || 'semi_restrictive', status: 'green' },
+        ...( corps.length === 0
+          ? [{ id: 'corp_roster_empty', label: 'No corporations yet — use Companies screen', value: '', status: 'red' }]
+          : [{ id: 'corp_roster', label: corps.length + ' corporations defined', value: '', status: 'green', readonly: true }]
+        ),
+      ],
     },
 
-    // ── MINORS (only if any defined) ───────────────────────────────────────
+    // ── MINOR COMPANIES (only if present) ──────────────────────────────────
     ...(minors.length > 0 ? [{
       id: 'minors', label: 'Minor Companies',
       items: minors.map(m => ({
-        id: 'minor_' + m.abbr,
-        label: m.abbr || '?',
-        value: m.name || '',
-        status: (m.abbr && m.name) ? 'green' : 'amber',
-        readonly: true,
+        id: 'minor_' + m.abbr, label: m.abbr || '?', value: m.name || '',
+        status: (m.abbr && m.name) ? 'green' : 'amber', readonly: true,
       })),
     }] : []),
 
     // ── PRIVATE COMPANIES ──────────────────────────────────────────────────
+    // Per-company data (abilities, revenue, desc) lives in the Companies panel.
+    // Clicking any private shows the COMPANIES array field reference.
     {
       id: 'private_companies', label: 'Private Companies',
       optional: true,
-      empty: privates.length === 0 ? { label: 'None defined', status: 'amber' } : null,
+      empty: privates.length === 0 ? { label: 'None defined — optional', status: 'amber' } : null,
       items: privates.map(p => ({
         id: 'priv_' + (p.abbr || p.name),
         label: p.abbr || p.name || '?',
@@ -380,34 +394,26 @@ function buildFramework() {
       })),
     },
 
+    // ── STOCK ROUND RULES ─────────────────────────────────────────────────
+    {
+      id: 'sr_rules', label: 'Stock Round Rules',
+      items: [
+        { id: 'sr_sell_buy',    label: 'Sell/Buy Order',     value: m.sellBuyOrder || 'sell_buy',  status: 'green' },
+        { id: 'sr_sell_move',   label: 'Sell Movement',      value: m.sellMovement || 'down_share',status: 'green' },
+        { id: 'sr_pool_drop',   label: 'Pool Share Drop',    value: m.poolShareDrop || 'none',     status: 'green' },
+        { id: 'sr_sell_after',  label: 'Sell After',         value: m.sellAfter || 'first',        status: 'green' },
+        { id: 'sr_sell_blocks', label: 'Sell in Blocks',     value: m.mustSellInBlocks ? 'yes' : 'no', status: 'green' },
+      ],
+    },
+
     // ── OPERATING ROUND RULES ──────────────────────────────────────────────
     {
       id: 'or_rules', label: 'Operating Round Rules',
       items: [
-        {
-          id: 'or_tile_lays',
-          label: 'Tile Lays',
-          value: describeTileLaySlots((m.tileLays || {}).default || [DEFAULT_TILE_LAY_SLOT]),
-          status: 'green',
-        },
-        {
-          id: 'or_train_rules',
-          label: 'Train Requirements',
-          value: m.mustBuyTrain || 'route',
-          status: 'green',
-        },
-        {
-          id: 'or_capitalization',
-          label: 'Capitalization',
-          value: m.capitalization || 'full',
-          status: 'green',
-        },
-        {
-          id: 'or_special',
-          label: 'Special Mechanics',
-          value: Object.values(m.orSteps || {}).filter(Boolean).length + ' active',
-          status: 'green',
-        },
+        { id: 'or_tile_lays',   label: 'Tile Lays',          value: describeTileLaySlots((m.tileLays || {}).default || [DEFAULT_TILE_LAY_SLOT]), status: 'green' },
+        { id: 'or_train_rules', label: 'Train Requirements', value: m.mustBuyTrain || 'route',    status: 'green' },
+        { id: 'or_capital',     label: 'Capitalization',     value: m.capitalization || 'full',   status: 'green' },
+        { id: 'or_special',     label: 'Special Mechanics',  value: Object.values(m.orSteps || {}).filter(Boolean).length + ' active', status: 'green' },
       ],
     },
 
@@ -417,10 +423,7 @@ function buildFramework() {
       optional: true,
       empty: (m.events || []).length === 0 ? { label: 'No event triggers defined', status: 'amber' } : null,
       items: (m.events || []).map((ev, i) => ({
-        id: 'event_' + i,
-        label: ev.triggerOn + '-train purchase',
-        value: ev.eventType,
-        status: 'green',
+        id: 'event_' + i, label: ev.triggerOn + '-train purchase', value: ev.eventType, status: 'green',
       })),
     },
 
@@ -430,35 +433,17 @@ function buildFramework() {
       items: [],
       empty: { label: 'Not yet configurable in this tool', status: 'red' },
     },
-
-    // ── MAP ────────────────────────────────────────────────────────────────
-    {
-      id: 'map', label: 'Map',
-      readonly: true,
-      items: [{
-        id: 'map_hexes',
-        label: 'Hex count',
-        value: hexCount > 0 ? hexCount + ' hexes' : 'empty',
-        status: hexCount > 0 ? 'green' : 'red',
-        readonly: true,
-      }],
-    },
-
-    // ── STOCK MARKET ───────────────────────────────────────────────────────
-    {
-      id: 'stock_market', label: 'Stock Market',
-      readonly: true,
-      items: [{
-        id: 'market_grid',
-        label: 'Market grid',
-        value: hasMarket
-          ? (state.marketType || '2D') + ' · ' + (state.marketRows || '?') + '×' + (state.marketCols || '?')
-          : 'not configured',
-        status: hasMarket ? 'green' : 'red',
-        readonly: true,
-      }],
-    },
   ];
+}
+
+function _summariseCashTable(tbl) {
+  if (!tbl) return 'not set';
+  const entries = Object.entries(tbl).filter(([,v]) => v > 0);
+  if (!entries.length) return 'not set';
+  return entries.map(([p, v]) => p + 'p:$' + v).join(' ');
+}
+function _cashTableFilled(tbl) {
+  return tbl && Object.values(tbl).some(v => v > 0);
 }
 
 function formatInitialRound(val) {
@@ -580,6 +565,18 @@ function renderMechanicsRight() {
       renderMechanicsRight();
     });
   });
+  // Bank cash-table inputs (starting cash + cert limit per player count)
+  el.querySelectorAll('[data-cashkey]').forEach(input => {
+    input.addEventListener('change', e => {
+      const [section, pStr] = e.target.dataset.cashkey.split(':');
+      const p = Number(pStr);
+      const tbl = section === 'starting' ? 'startingCash' : 'certLimit';
+      state.mechanics[tbl] = state.mechanics[tbl] || {};
+      state.mechanics[tbl][p] = Number(e.target.value);
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+    });
+  });
   // Event add/remove buttons
   const addEvtBtn = el.querySelector('#mechAddEventBtn');
   if (addEvtBtn) addEvtBtn.addEventListener('click', onAddEvent);
@@ -590,66 +587,255 @@ function renderMechanicsRight() {
 
 function renderEditorFor(itemId) {
   const m = state.mechanics || {};
-  const backBtn = `<button class="mech-editor-back" id="mechEditorBack">← Overview</button>`;
+  const back = `<button class="mech-editor-back" id="mechEditorBack">← Overview</button>`;
 
-  // Game flow items
-  if (['initial_round','stock_rounds','or_sequence'].includes(itemId)) {
-    return `<div class="mech-editor-wrap">${backBtn}<h4>Game Flow</h4>${renderRoundStructure(m)}</div>`;
-  }
-  // OR rules items
-  if (itemId === 'or_tile_lays') {
-    return `<div class="mech-editor-wrap">${backBtn}<h4>Tile Lays</h4>${renderTileLays(m)}</div>`;
-  }
-  if (itemId === 'or_train_rules' || itemId === 'or_capitalization') {
-    return `<div class="mech-editor-wrap">${backBtn}<h4>Train Rules & Capitalization</h4>${renderTrainRules(m)}</div>`;
-  }
-  if (itemId === 'or_special') {
-    return `<div class="mech-editor-wrap">${backBtn}<h4>Special Mechanics</h4>${renderSpecialMechanics(m)}</div>`;
-  }
-  // Events
-  if (itemId === 'events' || itemId.startsWith('event_')) {
-    return `<div class="mech-editor-wrap">${backBtn}<h4>Event Triggers</h4>${renderEventsSection(m)}</div>`;
-  }
-  // Train / phase read-only (Farrah's domain)
+  // ── Game Flow ──
+  if (['initial_round','stock_rounds','or_sequence'].includes(itemId))
+    return wrap(back, 'Game Flow', renderRoundStructure(m));
+
+  // ── Bank & Players ──
+  if (itemId.startsWith('bank_'))
+    return wrap(back, 'Bank & Players', renderBankPlayers(m));
+
+  // ── Corporation game-level rules ──
+  if (['corp_float','corp_home_token','corp_mkt_limit','corp_bankruptcy','corp_track'].includes(itemId))
+    return wrap(back, 'Corporation Rules', renderCorpRules(m));
+
+  // Corp roster line — show info about CORPORATIONS array
+  if (itemId === 'corp_roster' || itemId === 'corp_roster_empty')
+    return wrap(back, 'Corporations', renderInfoPanel('corporations'));
+
+  // ── Private Companies — info panel ──
+  if (itemId.startsWith('priv_') || itemId === 'private_companies_empty')
+    return wrap(back, 'Private Companies', renderInfoPanel('private_companies'));
+
+  // ── Minor roster — info panel ──
+  if (itemId.startsWith('minor_'))
+    return wrap(back, 'Minor Companies', renderInfoPanel('minors'));
+
+  // ── Stock Round Rules ──
+  if (itemId.startsWith('sr_'))
+    return wrap(back, 'Stock Round Rules', renderStockRoundRules(m));
+
+  // ── OR Rules ──
+  if (itemId === 'or_tile_lays')
+    return wrap(back, 'Tile Lays', renderTileLays(m));
+  if (itemId === 'or_train_rules' || itemId === 'or_capital')
+    return wrap(back, 'Train Rules & Capitalization', renderTrainRules(m));
+  if (itemId === 'or_special')
+    return wrap(back, 'Special Mechanics', renderSpecialMechanics(m));
+
+  // ── Events ──
+  if (itemId === 'events' || itemId.startsWith('event_'))
+    return wrap(back, 'Event Triggers', renderEventsSection(m));
+
+  // ── Trains / Phases (Farrah's domain — read-only reference) ──
   if (itemId.startsWith('train_')) {
-    const name = itemId.slice(6);
-    const train = (state.trains || []).find(t => t.name === name);
-    return `<div class="mech-editor-wrap">${backBtn}${renderTrainReadOnly(train)}</div>`;
+    const t = (state.trains || []).find(t => t.name === itemId.slice(6));
+    return wrap(back, null, renderTrainReadOnly(t));
   }
   if (itemId.startsWith('strain_')) {
-    const name = itemId.slice(7);
-    const train = (state.trains || []).find(t => t.name === name);
-    return `<div class="mech-editor-wrap">${backBtn}${renderTrainReadOnly(train)}</div>`;
+    const t = (state.trains || []).find(t => t.name === itemId.slice(7));
+    return wrap(back, null, renderTrainReadOnly(t));
   }
   if (itemId.startsWith('phase_')) {
-    const name = itemId.slice(6);
-    const phase = (state.phases || []).find(p => p.name === name);
-    return `<div class="mech-editor-wrap">${backBtn}${renderPhaseReadOnly(phase)}</div>`;
-  }
-  // Corp / private / minor — cross-panel
-  if (itemId.startsWith('corp_') || itemId.startsWith('minor_') || itemId.startsWith('priv_')) {
-    const panelName = itemId.startsWith('priv_') ? 'Private Companies' : 'Corporations';
-    return `<div class="mech-editor-wrap">${backBtn}
-      <p class="mech-hint" style="margin-top:12px;">Edit in the <strong>${panelName}</strong> panel.<br>Structural validation runs automatically.</p>
-      ${renderStructuralNets()}
-    </div>`;
-  }
-  // Map / market — cross-panel
-  if (itemId.startsWith('map_') || itemId.startsWith('market_')) {
-    return `<div class="mech-editor-wrap">${backBtn}
-      <p class="mech-hint" style="margin-top:12px;">Configured in the <strong>Map</strong> and <strong>Market</strong> panels.</p>
-    </div>`;
-  }
-  // Empty-state placeholders
-  if (itemId.endsWith('_empty')) {
-    return `<div class="mech-editor-wrap">${backBtn}
-      <p class="mech-hint" style="margin-top:12px;">This section is empty. Import a game file or add data in the relevant panel.</p>
-    </div>`;
+    const p = (state.phases || []).find(p => p.name === itemId.slice(6));
+    return wrap(back, null, renderPhaseReadOnly(p));
   }
 
-  return `<div class="mech-editor-wrap">${backBtn}
-    <p class="mech-hint" style="margin-top:12px;">No editor for this item yet.</p>
-  </div>`;
+  // ── Game End ──
+  if (itemId === 'game_end' || itemId === 'game_end_empty')
+    return wrap(back, 'Game End Conditions', renderInfoPanel('game_end'));
+
+  // ── Empty placeholders ──
+  if (itemId.endsWith('_empty'))
+    return wrap(back, null, `<p class="mech-hint">Import a game file or add data in the relevant panel to populate this section.</p>`);
+
+  return wrap(back, null, `<p class="mech-hint">No editor for this item yet.</p>`);
+}
+
+function wrap(back, title, body) {
+  const h = title ? `<h4 style="margin:0 0 14px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#666;border-bottom:1px solid #2a2a2a;padding-bottom:6px;">${title}</h4>` : '';
+  return `<div class="mech-editor-wrap">${back}${h}${body}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Info panels — shown when clicking a category that has no direct editor
+// ---------------------------------------------------------------------------
+const SECTION_INFO = {
+  corporations: {
+    title: 'CORPORATIONS array — per-corporation fields',
+    note: 'Edit individual corporations in the Companies panel. Game-level corp rules (float %, home token timing, etc.) are above.',
+    fields: [
+      { key: 'sym',         type: 'String',  desc: 'Unique abbreviation used throughout the engine (e.g. "PRR")' },
+      { key: 'name',        type: 'String',  desc: 'Full display name' },
+      { key: 'logo',        type: 'String',  desc: 'Asset path for the corporation logo image' },
+      { key: 'tokens',      type: 'Array',   desc: 'Token costs array — first token is always 0 (home token); subsequent entries are city token placement costs' },
+      { key: 'coordinates', type: 'String',  desc: 'Home hex coordinate (e.g. "H12") — where the home token is placed' },
+      { key: 'destination_coordinates', type: 'String', desc: '1822-style destination hex for destination token mechanic' },
+      { key: 'color',       type: 'Symbol',  desc: 'Token/charter colour — must match a colour defined in the colour palette' },
+      { key: 'text_color',  type: 'String',  desc: 'Text colour on the charter (default: black)' },
+      { key: 'float_percent', type: 'Integer', desc: 'Per-corp override of FLOAT_PERCENT; omit to use game default' },
+      { key: 'shares',      type: 'Array',   desc: 'Custom share split — defaults to [20,10,10,10,10,10,10,10,10,10] (president + 9)' },
+      { key: 'max_ownership_percent', type: 'Integer', desc: 'Maximum % a single player may own — default 60' },
+      { key: 'always_market_price', type: 'Boolean', desc: 'If true, shares always sell at market price (no par)' },
+      { key: 'abilities',   type: 'Array',   desc: 'Permanent corp-level abilities (e.g. extra tile lay, route bonus)' },
+    ],
+  },
+  private_companies: {
+    title: 'COMPANIES array — per-private fields',
+    note: 'Edit individual private companies in the Companies panel.',
+    fields: [
+      { key: 'sym',        type: 'String',  desc: 'Unique abbreviation (e.g. "SV")' },
+      { key: 'name',       type: 'String',  desc: 'Full display name' },
+      { key: 'value',      type: 'Integer', desc: 'Face/purchase price — used as auction starting price' },
+      { key: 'revenue',    type: 'Integer / Array', desc: 'Income paid per OR. Array = phase-variable revenues indexed by phase number' },
+      { key: 'desc',       type: 'String',  desc: 'Rules text shown on the company card' },
+      { key: 'abilities',  type: 'Array',   desc: 'Ability objects — tile lay, special token, route bonus, exchange, etc.' },
+      { key: 'min_price',  type: 'Integer', desc: 'Minimum bid in the auction (often 1 or half value)' },
+      { key: 'max_price',  type: 'Integer', desc: 'Maximum bid — omit for no cap' },
+      { key: 'color',      type: 'String',  desc: 'Card background colour (nil = default private card style)' },
+      { key: 'owner_type', type: 'Symbol',  desc: ':player (default) or :corporation — who can hold this private' },
+    ],
+  },
+  minors: {
+    title: 'MINORS array — per-minor fields',
+    note: 'Minor companies in 1822-family games. Edit individual minors in the Companies panel.',
+    fields: [
+      { key: 'sym',         type: 'String', desc: 'Unique abbreviation (e.g. "M1")' },
+      { key: 'name',        type: 'String', desc: 'Display name' },
+      { key: 'logo',        type: 'String', desc: 'Logo asset path' },
+      { key: 'tokens',      type: 'Array',  desc: 'Token costs — minors typically have one token [0]' },
+      { key: 'coordinates', type: 'String', desc: 'Home hex coordinate' },
+      { key: 'color',       type: 'Symbol', desc: 'Charter colour' },
+      { key: 'abilities',   type: 'Array',  desc: 'Minor-level abilities' },
+    ],
+  },
+  game_end: {
+    title: 'GAME_END_CHECK — end condition triggers',
+    note: 'A hash mapping trigger keys to timing values. Multiple conditions are OR\'d — game ends when the first fires.',
+    fields: [
+      { key: 'bank',      type: ':current_round / :full_or / :immediate', desc: 'Game ends when the bank runs out. Most common trigger.' },
+      { key: 'bankrupt',  type: ':immediate',                             desc: 'Game ends immediately when a player goes bankrupt' },
+      { key: 'stock_market', type: ':current_or / :full_or',             desc: 'Game ends when a token reaches the end of the market' },
+      { key: 'final_round',  type: ':one_more_full_or_set',              desc: 'Explicit final-round trigger set by a custom step' },
+      { key: 'final_or_set', type: ':one_more_full_or_set',              desc: 'Alternative final-OR-set countdown' },
+    ],
+  },
+};
+
+function renderInfoPanel(sectionId) {
+  const info = SECTION_INFO[sectionId];
+  if (!info) return `<p class="mech-hint">No reference available for this section.</p>`;
+  const rows = info.fields.map(f => `
+    <tr>
+      <td style="color:#a5b4fc;padding:5px 14px 5px 0;font-size:11px;font-family:monospace;vertical-align:top;white-space:nowrap;">${f.key}</td>
+      <td style="color:#666;padding:5px 14px 5px 0;font-size:10px;vertical-align:top;white-space:nowrap;">${f.type}</td>
+      <td style="color:#999;padding:5px 0;font-size:11px;line-height:1.5;">${f.desc}</td>
+    </tr>`).join('');
+  return `
+    ${info.note ? `<p class="mech-hint" style="margin-bottom:14px;">${info.note}</p>` : ''}
+    <table style="border-collapse:collapse;width:100%;">${rows}</table>`;
+}
+
+// ---------------------------------------------------------------------------
+// New section editors
+// ---------------------------------------------------------------------------
+function renderBankPlayers(m) {
+  const sc = m.startingCash || {};
+  const cl = m.certLimit    || {};
+  const players = [2,3,4,5,6];
+  const scRows = players.map(p => `
+    <div class="mech-row-pair">
+      <span class="mech-row-label">${p}p</span>
+      <input type="number" min="0" class="mech-num-sm" data-cashkey="starting:${p}" value="${sc[p] || 0}">
+    </div>`).join('');
+  const clRows = players.map(p => `
+    <div class="mech-row-pair">
+      <span class="mech-row-label">${p}p</span>
+      <input type="number" min="0" class="mech-num-sm" data-cashkey="cert:${p}" value="${cl[p] || 0}">
+    </div>`).join('');
+  return `
+    <label>Bank Cash
+      <input type="number" min="0" data-mkey="bankCash" value="${m.bankCash || 12000}">
+    </label>
+    <label>Currency format <span class="mech-hint-inline">%s = amount (e.g. $%s → $120)</span>
+      <input type="text" maxlength="8" data-mkey="currency" value="${m.currency || '$%s'}">
+    </label>
+    <p class="mech-hint" style="margin-top:10px;">Starting Cash per player count</p>
+    <div class="mech-row-group">${scRows}</div>
+    <p class="mech-hint" style="margin-top:10px;">Certificate Limit per player count</p>
+    <div class="mech-row-group">${clRows}</div>`;
+}
+
+function renderCorpRules(m) {
+  return `
+    <label>Float Percent
+      <input type="number" min="10" max="100" data-mkey="floatPercent" value="${m.floatPercent ?? 60}">
+    </label>
+    <label>Home Token Timing
+      <select data-mkey="homeTokenTiming">
+        <option value="operate"          ${sel(m.homeTokenTiming,'operate')}>On first operate (default)</option>
+        <option value="float"            ${sel(m.homeTokenTiming,'float')}>On float</option>
+        <option value="par"              ${sel(m.homeTokenTiming,'par')}>On par (immediate)</option>
+        <option value="operating_round"  ${sel(m.homeTokenTiming,'operating_round')}>Start of first OR</option>
+      </select>
+    </label>
+    <label>Market Share Limit (%)
+      <input type="number" min="0" max="100" data-mkey="marketShareLimit" value="${m.marketShareLimit ?? 50}">
+    </label>
+    <label>Track Restriction
+      <select data-mkey="trackRestriction">
+        <option value="semi_restrictive" ${sel(m.trackRestriction,'semi_restrictive')}>Semi-restrictive (default)</option>
+        <option value="permissive"       ${sel(m.trackRestriction,'permissive')}>Permissive (1830-style)</option>
+        <option value="restrictive"      ${sel(m.trackRestriction,'restrictive')}>Restrictive</option>
+      </select>
+    </label>
+    ${toggle('Bankruptcy Allowed', 'bankruptcyAllowed', m.bankruptcyAllowed ?? true)}
+    <label>Bankruptcy Ends Game After
+      <select data-mkey="bankruptcyEndsGameAfter">
+        <option value="one"         ${sel(m.bankruptcyEndsGameAfter,'one')}>One bankruptcy (default)</option>
+        <option value="all_but_one" ${sel(m.bankruptcyEndsGameAfter,'all_but_one')}>All but one player bankrupt</option>
+      </select>
+    </label>`;
+}
+
+function renderStockRoundRules(m) {
+  return `
+    <label>Sell / Buy Order
+      <select data-mkey="sellBuyOrder">
+        <option value="sell_buy"              ${sel(m.sellBuyOrder,'sell_buy')}>Sell then buy (most games)</option>
+        <option value="buy_sell"              ${sel(m.sellBuyOrder,'buy_sell')}>Buy then sell</option>
+        <option value="sell_buy_sell"         ${sel(m.sellBuyOrder,'sell_buy_sell')}>Sell, buy, sell (1830)</option>
+        <option value="sell_buy_or_buy_sell"  ${sel(m.sellBuyOrder,'sell_buy_or_buy_sell')}>Player chooses order (base default)</option>
+      </select>
+    </label>
+    <label>Sell Movement
+      <select data-mkey="sellMovement">
+        <option value="down_share"      ${sel(m.sellMovement,'down_share')}>Down one share (default)</option>
+        <option value="down_block"      ${sel(m.sellMovement,'down_block')}>Down one block</option>
+        <option value="left_block"      ${sel(m.sellMovement,'left_block')}>Left one block</option>
+        <option value="left_block_pres" ${sel(m.sellMovement,'left_block_pres')}>Left block (pres share = 2 left)</option>
+        <option value="none"            ${sel(m.sellMovement,'none')}>No movement on sale</option>
+      </select>
+    </label>
+    <label>Pool Share Drop
+      <select data-mkey="poolShareDrop">
+        <option value="none"       ${sel(m.poolShareDrop,'none')}>No drop (default)</option>
+        <option value="down_block" ${sel(m.poolShareDrop,'down_block')}>Down one block when pool fills</option>
+      </select>
+    </label>
+    <label>Sell After
+      <select data-mkey="sellAfter">
+        <option value="first"          ${sel(m.sellAfter,'first')}>After first SR (default)</option>
+        <option value="operate"        ${sel(m.sellAfter,'operate')}>After operating once</option>
+        <option value="any_time"       ${sel(m.sellAfter,'any_time')}>Any time</option>
+        <option value="p_any_time"     ${sel(m.sellAfter,'p_any_time')}>Any time (pres share restricted)</option>
+        <option value="p_any_operate"  ${sel(m.sellAfter,'p_any_operate')}>Any time after first operation</option>
+        <option value="full_or_turn"   ${sel(m.sellAfter,'full_or_turn')}>After full OR turn</option>
+      </select>
+    </label>
+    ${toggle('Must Sell in Blocks', 'mustSellInBlocks', m.mustSellInBlocks)}`;
 }
 
 function renderTrainReadOnly(train) {
@@ -794,7 +980,7 @@ function renderSlotEditor(slots, keyPrefix) {
         <option value="false"           ${sel(String(s.upgrade),'false')}>No</option>
       </select></label>
       <label>Cost <input type="number" min="0" data-slotkey="cost" value="${s.cost || 0}"></label>
-      <label><input type="checkbox" data-slotkey="cannot_reuse_same_hex" ${s.cannot_reuse_same_hex ? 'checked' : ''}> Can't reuse same hex</label>
+      ${toggleSlot("Can't reuse same hex", 'cannot_reuse_same_hex', s.cannot_reuse_same_hex)}
     </div>`).join('');
 }
 
@@ -853,8 +1039,7 @@ function renderSpecialMechanics(m) {
     priceProtection:  'Price protection (president buys at old price)',
     loanOperations:   'Loan operations (auto interest + nationalize on failure)',
   };
-  return Object.keys(stepLabels).map(k => `
-    <label><input type="checkbox" data-orkey="${k}" ${steps[k] ? 'checked' : ''}> ${stepLabels[k]}</label>`).join('');
+  return Object.keys(stepLabels).map(k => toggleOrkey(stepLabels[k], k, steps[k])).join('');
 }
 
 function renderStructuralNets() {
@@ -911,6 +1096,37 @@ function identifyCustomRubyRequired() {
 
 function sel(current, value) {
   return current === value ? 'selected' : '';
+}
+
+// ---------------------------------------------------------------------------
+// Toggle switch helpers — slide toggle, label left, switch right
+// ---------------------------------------------------------------------------
+function toggle(label, mkey, checked) {
+  return `<div class="mech-toggle-row">
+    <span class="mech-toggle-label">${label}</span>
+    <label class="mech-toggle">
+      <input type="checkbox" data-mkey="${mkey}" ${checked ? 'checked' : ''}>
+      <span class="mech-toggle-slider"></span>
+    </label>
+  </div>`;
+}
+function toggleOrkey(label, orkey, checked) {
+  return `<div class="mech-toggle-row">
+    <span class="mech-toggle-label">${label}</span>
+    <label class="mech-toggle">
+      <input type="checkbox" data-orkey="${orkey}" ${checked ? 'checked' : ''}>
+      <span class="mech-toggle-slider"></span>
+    </label>
+  </div>`;
+}
+function toggleSlot(label, slotkey, checked) {
+  return `<div class="mech-toggle-row">
+    <span class="mech-toggle-label">${label}</span>
+    <label class="mech-toggle">
+      <input type="checkbox" data-slotkey="${slotkey}" ${checked ? 'checked' : ''}>
+      <span class="mech-toggle-slider"></span>
+    </label>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
