@@ -696,6 +696,12 @@
       <!-- table area -->
       <div style="flex:1; overflow:auto; padding:24px 28px; background:var(--bg-base);">
 
+        <style>
+          .train-events-badge { display:inline-block; background:#c09020; color:#111; border-radius:8px; font-size:9px; padding:1px 5px; margin-left:4px; vertical-align:middle; cursor:default; font-weight:700; }
+          .status-chip { display:inline-block; background:rgba(255,255,255,0.10); color:#aaa; border-radius:4px; font-size:9px; padding:2px 6px; margin:1px 2px; text-transform:capitalize; }
+          .status-chips-cell { vertical-align:middle; }
+        </style>
+
         <!-- Train Roster section -->
         <div style="margin-bottom:40px;">
           <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px; border-bottom:1px solid var(--border);">
@@ -706,7 +712,8 @@
               <tr>
                 <th style="width:6px;"></th>
                 <th>Train</th>
-                <th>Configuration</th>
+                <th>Type</th>
+                <th>Reach</th>
                 <th>Cost</th>
                 <th>Quantity</th>
                 <th>Rusts On</th>
@@ -728,6 +735,7 @@
           <table class="card-table fullview-table">
             <thead>
               <tr>
+                <th style="width:6px;"></th>
                 <th>Phase</th>
                 <th>On Train</th>
                 <th>ORs</th>

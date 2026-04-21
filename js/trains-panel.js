@@ -42,6 +42,7 @@ function renderTrainsTable() {
         const label = calculateTrainLabel(tr);
         const isLinked = tr.linkedPrivateIdx !== undefined && tr.linkedPrivateIdx !== null;
         const linkedSym = isLinked ? 'P' + (tr.linkedPrivateIdx + 1) : '';
+        const hasEvents = tr.events && tr.events.length;
 
         trRow.innerHTML = `
             <td style="padding:0; position:relative;">
@@ -50,18 +51,19 @@ function renderTrainsTable() {
             <td>
                 <span class="train-auto-label">${label}</span>
                 ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
+                ${hasEvents ? `<span class="train-events-badge" title="${(tr.events||[]).map(function(ev){return ev.type;}).join(', ')}">⚡ ${(tr.events||[]).length}</span>` : ''}
             </td>
             <td>
-                <div class="config-cell">
-                    <select class="tr-dist-type">
-                        <option value="n" ${tr.distType === 'n' ? 'selected' : ''}>Standard (N)</option>
-                        <option value="xy" ${tr.distType === 'xy' ? 'selected' : ''}>Split (X/Y)</option>
-                        <option value="nm" ${tr.distType === 'nm' ? 'selected' : ''}>Plus (N+M)</option>
-                        <option value="h" ${tr.distType === 'h' ? 'selected' : ''}>Hexes (H)</option>
-                        <option value="u" ${tr.distType === 'u' ? 'selected' : ''}>Unlimited (D/E)</option>
-                    </select>
-                    <div class="tr-dist-inputs"></div>
-                </div>
+                <select class="tr-dist-type">
+                    <option value="n" ${tr.distType === 'n' ? 'selected' : ''}>Steam</option>
+                    <option value="xy" ${tr.distType === 'xy' ? 'selected' : ''}>Split</option>
+                    <option value="nm" ${tr.distType === 'nm' ? 'selected' : ''}>Local</option>
+                    <option value="h" ${tr.distType === 'h' ? 'selected' : ''}>Hex</option>
+                    <option value="u" ${tr.distType === 'u' ? 'selected' : ''}>Diesel</option>
+                </select>
+            </td>
+            <td>
+                <div class="tr-dist-inputs"></div>
             </td>
             <td>
                 <div class="input-with-label">
@@ -152,7 +154,7 @@ function renderTrainsTable() {
     const addRow = document.createElement('tr');
     addRow.className = 'add-row-inline';
     addRow.innerHTML = `
-        <td colspan="7" style="padding: 0;">
+        <td colspan="8" style="padding: 0;">
             <button id="inlineAddTrainBtn" style="width: 100%; padding: 12px; background: transparent; border: none; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background 0.2s, color 0.2s;">
                 + Add Train
             </button>
@@ -264,6 +266,9 @@ function renderPhasesTable() {
     state.phases.forEach((ph, idx) => {
         const row = document.createElement('tr');
         row.innerHTML = `
+            <td style="padding:0; position:relative; width:6px;">
+                <div style="background:${ph.color || '#444'}; width:6px; position:absolute; top:0; bottom:0; left:0;"></div>
+            </td>
             <td>
                 <div style="display:flex; align-items:center;">
                     <input type="color" class="ph-color" value="${ph.color || '#ffffff'}" style="width:24px; height:24px; margin-right:8px; border:none; background:transparent; cursor:pointer;">
@@ -285,6 +290,9 @@ function renderPhasesTable() {
                     <option value="brown" ${ph.tiles === 'brown' ? 'selected' : ''}>+ Brown</option>
                     <option value="grey" ${ph.tiles === 'grey' ? 'selected' : ''}>+ Grey</option>
                 </select>
+            </td>
+            <td class="status-chips-cell">
+                ${(ph.status || []).map(function(s){ return '<span class="status-chip">'+s.replace(/_/g,' ')+'</span>'; }).join('')}
             </td>
             <td>
                 <button class="table-btn delete-btn">✕</button>
@@ -312,7 +320,7 @@ function renderPhasesTable() {
     const addPhaseRow = document.createElement('tr');
     addPhaseRow.className = 'add-row-inline';
     addPhaseRow.innerHTML = `
-        <td colspan="7" style="padding: 0;">
+        <td colspan="8" style="padding: 0;">
             <button id="inlineAddPhaseBtn" style="width: 100%; padding: 12px; background: transparent; border: none; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background 0.2s, color 0.2s;">
                 + Add Phase
             </button>
