@@ -740,17 +740,24 @@ function importRubyMap(content) {
   //   If they mostly use ODD  numbers → standard odd-row stagger → psp=0
   // Run for ALL pointy maps regardless of transposedAxes — pointy+transposed
   // (e.g. 18OEUKFR) still uses letter=row and needs the same parity detection.
-  let _evenRowEven = 0, _evenRowOdd = 0;
+  let _evenRowEven = 0, _evenRowOdd = 0, _minEvenNumPart = Infinity;
   if (orientation === 'pointy') {
     for (const coord of allCoords) {
       const p = parseCoordParts(coord); if (!p) continue;
       if (p.letterIdx % 2 === 0) {
-        if (p.numPart % 2 === 0) _evenRowEven++; else _evenRowOdd++;
+        if (p.numPart % 2 === 0) {
+          _evenRowEven++;
+          _minEvenNumPart = Math.min(_minEvenNumPart, p.numPart);
+        } else _evenRowOdd++;
       }
     }
   }
   const pointyStaggerParity = (orientation === 'pointy' && _evenRowEven > _evenRowOdd) ? 1 : 0;
-  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
+  // Detect even-row column base: most psp=1 games start even-row numParts at 2,
+  // but some (e.g. 18OE) start at 0.  This drives coordToGrid's fallback formula
+  // and hexId's inverse, so they must agree.
+  const pointyEvenBase = (pointyStaggerParity === 1 && _minEvenNumPart === 0) ? 0 : 2;
+  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} pointyEvenBase=${pointyEvenBase} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
 
   // ── Eagerly update state.meta so hexId uses the correct keys during build ────
   // hexId() reads state.meta.orientation / coordParity / pointyStaggerParity at
@@ -1283,6 +1290,243 @@ function _rbParsePhase(hashStr) {
   return ph;
 }
 
+// ── Mechanics constant parsers ────────────────────────────────────────────────
+// Each _rbConst* function extracts a single top-level constant from stripped src.
+// Returns null when the constant is absent so callers can skip vs. default.
+
+// NAME = :symbol → 'symbol'
+function _rbConstSym(src, name) {
+  const m = src.match(new RegExp(`^[ \\t]*${name}\\s*=\\s*:(\\w+)`, 'm'));
+  return m ? m[1] : null;
+}
+
+// NAME = true | false → boolean (null when absent)
+function _rbConstBool(src, name) {
+  const m = src.match(new RegExp(`^[ \\t]*${name}\\s*=\\s*(true|false)(?:[^\\w]|$)`, 'm'));
+  if (!m) return null;
+  return m[1] === 'true';
+}
+
+// NAME = 12_000 → 12000 (null when absent)
+function _rbConstInt(src, name) {
+  const m = src.match(new RegExp(`^[ \\t]*${name}\\s*=\\s*([\\d_]+)(?:[^\\w]|$)`, 'm'));
+  return m ? parseInt(m[1].replace(/_/g, ''), 10) : null;
+}
+
+// NAME = 'string' or "string" → string (null when absent)
+function _rbConstStr(src, name) {
+  const m = src.match(new RegExp(`^[ \\t]*${name}\\s*=\\s*['"]([^'"]*?)['"]`, 'm'));
+  return m ? m[1] : null;
+}
+
+// NAME = { 3 => 100, 4 => 80 }.freeze → { '3': 100, '4': 80 }
+// Handles integer-keyed, integer-value hashes (STARTING_CASH, CERT_LIMIT).
+function _rbConstIntHash(src, name) {
+  const re = new RegExp(`^[ \\t]*${name}\\s*=\\s*\\{`, 'm');
+  const start = re.exec(src);
+  if (!start) return null;
+  const inner = _rbExtractBraces(src, start.index + start[0].length - 1);
+  if (!inner) return null;
+  const result = {};
+  const pair = /(\d+)\s*=>\s*(\d+)/g;
+  let m;
+  while ((m = pair.exec(inner)) !== null) result[m[1]] = parseInt(m[2], 10);
+  return Object.keys(result).length ? result : null;
+}
+
+// NAME = { bank: :full_or, bankrupt: :immediate }.freeze
+// Handles symbol-key → symbol-value hashes (GAME_END_CHECK).
+// Accepts both colon-key `key: :val` and hashrocket `:key => :val` forms.
+function _rbConstSymSymHash(src, name) {
+  const re = new RegExp(`^[ \\t]*${name}\\s*=\\s*\\{`, 'm');
+  const start = re.exec(src);
+  if (!start) return null;
+  const inner = _rbExtractBraces(src, start.index + start[0].length - 1);
+  if (!inner) return null;
+  const result = {};
+  let m;
+  const reColon = /(\w+):\s*:(\w+)/g;
+  while ((m = reColon.exec(inner)) !== null) result[m[1]] = m[2];
+  const reArrow = /:(\w+)\s*=>\s*:(\w+)/g;
+  while ((m = reArrow.exec(inner)) !== null) result[m[1]] = m[2];
+  return Object.keys(result).length ? result : null;
+}
+
+// NAME = [{ lay: true, upgrade: true, cost: 0 }].freeze → slot array
+function _rbConstTileLays(src, name) {
+  const content = _rbExtractArray(src, name);
+  if (!content) return null;
+  const slots = _rbSplitHashes(content).map(h => {
+    const slot = {};
+    const layM = h.match(/\blay:\s*(true|false|:[\w]+)/);
+    if (layM) {
+      if      (layM[1] === 'true')  slot.lay = true;
+      else if (layM[1] === 'false') slot.lay = false;
+      else                          slot.lay = layM[1].slice(1);
+    } else { slot.lay = true; }
+    const upgM = h.match(/\bupgrade:\s*(true|false)/);
+    slot.upgrade = upgM ? upgM[1] === 'true' : true;
+    const costM = h.match(/\bcost:\s*(\d+)/);
+    if (costM) slot.cost = parseInt(costM[1], 10);
+    const ucM = h.match(/\bupgrade_cost:\s*(\d+)/);
+    if (ucM) slot.upgrade_cost = parseInt(ucM[1], 10);
+    if (/\bcannot_reuse_same_hex:\s*true/.test(h)) slot.cannot_reuse_same_hex = true;
+    return slot;
+  });
+  return slots.length ? slots : null;
+}
+
+// Walk a {…} block starting at the opening brace index, return inner content.
+function _rbExtractBraces(src, openIdx) {
+  let depth = 0, i = openIdx;
+  while (i < src.length) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(openIdx + 1, i); }
+    i++;
+  }
+  return null;
+}
+
+// ── Main mechanics parser ─────────────────────────────────────────────────────
+// Reads all supported constants from a stripped game.rb string.
+// Returns a partial mechanics object — only keys that were explicitly present in
+// the file.  Missing keys are left for the caller to fill from defaultMechanics().
+function _rbParseMechanics(src) {
+  const m = {};
+
+  // ── Bank & Players ──────────────────────────────────────────────────────────
+  const bank = _rbConstInt(src, 'BANK_CASH');
+  if (bank !== null) m.bankCash = bank;
+
+  const currency = _rbConstStr(src, 'CURRENCY_FORMAT_STR');
+  if (currency !== null) m.currency = currency;
+
+  const startingCash = _rbConstIntHash(src, 'STARTING_CASH');
+  if (startingCash) {
+    m.startingCash = startingCash;
+    // Derive player count range from the hash keys
+    const counts = Object.keys(startingCash).map(Number).filter(n => n > 0);
+    if (counts.length) {
+      m.minPlayers = Math.min(...counts);
+      m.maxPlayers = Math.max(...counts);
+    }
+  }
+
+  const certLimit = _rbConstIntHash(src, 'CERT_LIMIT');
+  if (certLimit) m.certLimit = certLimit;
+
+  // ── Corporation Rules ───────────────────────────────────────────────────────
+  const homeTokenTiming = _rbConstSym(src, 'HOME_TOKEN_TIMING');
+  if (homeTokenTiming) m.homeTokenTiming = homeTokenTiming;
+
+  const marketShareLimit = _rbConstInt(src, 'MARKET_SHARE_LIMIT');
+  if (marketShareLimit !== null) m.marketShareLimit = marketShareLimit;
+
+  const trackRestriction = _rbConstSym(src, 'TRACK_RESTRICTION');
+  if (trackRestriction) m.trackRestriction = trackRestriction;
+
+  const bankruptcyAllowed = _rbConstBool(src, 'BANKRUPTCY_ALLOWED');
+  if (bankruptcyAllowed !== null) m.bankruptcyAllowed = bankruptcyAllowed;
+
+  const bankruptcyEndsGameAfter = _rbConstSym(src, 'BANKRUPTCY_ENDS_GAME_AFTER');
+  if (bankruptcyEndsGameAfter) m.bankruptcyEndsGameAfter = bankruptcyEndsGameAfter;
+
+  // ── Stock Round ─────────────────────────────────────────────────────────────
+  const sellBuyOrder = _rbConstSym(src, 'SELL_BUY_ORDER');
+  if (sellBuyOrder) m.sellBuyOrder = sellBuyOrder;
+
+  const sellMovement = _rbConstSym(src, 'SELL_MOVEMENT');
+  if (sellMovement) m.sellMovement = sellMovement;
+
+  const poolShareDrop = _rbConstSym(src, 'POOL_SHARE_DROP');
+  if (poolShareDrop) m.poolShareDrop = poolShareDrop;
+
+  const mustSellInBlocks = _rbConstBool(src, 'MUST_SELL_IN_BLOCKS');
+  if (mustSellInBlocks !== null) m.mustSellInBlocks = mustSellInBlocks;
+
+  const sellAfter = _rbConstSym(src, 'SELL_AFTER');
+  if (sellAfter) m.sellAfter = sellAfter;
+
+  const soldOutTopRowMovement = _rbConstSym(src, 'SOLD_OUT_TOP_ROW_MOVEMENT');
+  if (soldOutTopRowMovement) m.soldOutTopRowMovement = soldOutTopRowMovement;
+
+  // ── Operating Round ─────────────────────────────────────────────────────────
+  const mustBuyTrain = _rbConstSym(src, 'MUST_BUY_TRAIN');
+  if (mustBuyTrain) m.mustBuyTrain = mustBuyTrain;
+
+  const allowRemovingTowns = _rbConstBool(src, 'ALLOW_REMOVING_TOWNS');
+  if (allowRemovingTowns !== null) m.allowRemovingTowns = allowRemovingTowns;
+
+  // TILE_LAYS family
+  const tileLays      = _rbConstTileLays(src, 'TILE_LAYS');
+  const majorTileLays = _rbConstTileLays(src, 'MAJOR_TILE_LAYS');
+  const minorTileLays = _rbConstTileLays(src, 'MINOR_TILE_LAYS');
+  if (tileLays || majorTileLays || minorTileLays) {
+    m.tileLays = {};
+    if (tileLays) m.tileLays.default = tileLays;
+    if (majorTileLays || minorTileLays) {
+      m.tileLays.byType = {};
+      if (majorTileLays) m.tileLays.byType.major = majorTileLays;
+      if (minorTileLays) m.tileLays.byType.minor = minorTileLays;
+    }
+  }
+
+  // ── Emergency Buy ───────────────────────────────────────────────────────────
+  const ebuyFromOthers = _rbConstSym(src, 'EBUY_FROM_OTHERS');
+  if (ebuyFromOthers) m.ebuyFromOthers = ebuyFromOthers;
+
+  const ebuyDepotCheapest = _rbConstBool(src, 'EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST');
+  if (ebuyDepotCheapest !== null) m.ebuyDepotCheapest = ebuyDepotCheapest;
+
+  const mustIssueBeforeEbuy = _rbConstBool(src, 'MUST_EMERGENCY_ISSUE_BEFORE_EBUY');
+  if (mustIssueBeforeEbuy !== null) m.mustIssueBeforeEbuy = mustIssueBeforeEbuy;
+
+  const ebuyOwnerMustHelp = _rbConstBool(src, 'EBUY_OWNER_MUST_HELP');
+  if (ebuyOwnerMustHelp !== null) m.ebuyOwnerMustHelp = ebuyOwnerMustHelp;
+
+  const ebuyCanSellShares = _rbConstBool(src, 'EBUY_CAN_SELL_SHARES');
+  if (ebuyCanSellShares !== null) m.ebuyCanSellShares = ebuyCanSellShares;
+
+  const ebuyPresSwap = _rbConstBool(src, 'EBUY_PRES_SWAP');
+  if (ebuyPresSwap !== null) m.ebuyPresSwap = ebuyPresSwap;
+
+  // EBUY_CAN_TAKE_PLAYER_LOAN is false | :after_sell | :no_sell (true unsupported in UI)
+  const loanSym  = _rbConstSym(src,  'EBUY_CAN_TAKE_PLAYER_LOAN');
+  const loanBool = _rbConstBool(src, 'EBUY_CAN_TAKE_PLAYER_LOAN');
+  if (loanSym)                    m.ebuyCanTakePlayerLoan = loanSym;  // :after_sell | :no_sell
+  else if (loanBool === false)    m.ebuyCanTakePlayerLoan = 'false';  // explicit false
+
+  const loanRate = _rbConstInt(src, 'PLAYER_LOAN_INTEREST_RATE');
+  if (loanRate !== null) m.playerLoanInterestRate = loanRate;
+
+  const loanPenalty = _rbConstInt(src, 'PLAYER_LOAN_ENDGAME_PENALTY');
+  if (loanPenalty !== null) m.playerLoanEndgamePenalty = loanPenalty;
+
+  // ── Game End ────────────────────────────────────────────────────────────────
+  const gecRaw = _rbConstSymSymHash(src, 'GAME_END_CHECK');
+  if (gecRaw) {
+    // Known triggers with their editor-default timing values
+    const GEC_DEFAULTS = {
+      bank:         'full_or',
+      bankrupt:     'immediate',
+      stock_market: 'current_or',
+      all_closed:   'immediate',
+      final_train:  'one_more_full_or_set',
+      final_round:  'one_more_full_or_set',
+      final_or_set: 'one_more_full_or_set',
+    };
+    m.gameEndCheck = {};
+    for (const [key, defTiming] of Object.entries(GEC_DEFAULTS)) {
+      m.gameEndCheck[key] = gecRaw[key]
+        ? { enabled: true,  timing: gecRaw[key] }
+        : { enabled: false, timing: defTiming };
+    }
+  }
+
+  console.log(`[importGameRb] parsed mechanics: ${Object.keys(m).join(', ')}`);
+  return m;
+}
+
 function importGameRb(content) {
   const src = content
     .replace(/'\s*\\\s*\n\s*'/g, '')
@@ -1338,7 +1582,9 @@ function importGameRb(content) {
     ph.onTrain = target ? target.id : '';
   });
 
-  return { trains, phases };
+  const mechanics = _rbParseMechanics(src);
+
+  return { trains, phases, mechanics };
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -1684,14 +1930,32 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const { trains, phases } = importGameRb(ev.target.result);
+        const { trains, phases, mechanics } = importGameRb(ev.target.result);
         state.trains = trains;
         state.phases = phases;
-        if (typeof renderTrainsTable === 'function') renderTrainsTable();
-        if (typeof renderPhasesTable === 'function') renderPhasesTable();
+
+        // Merge parsed mechanics on top of current state — only override what the
+        // file explicitly declares.  Fields absent from the file keep their current
+        // (or default) values so a partial game.rb doesn't clobber manual edits.
+        if (mechanics && Object.keys(mechanics).length) {
+          if (!state.mechanics) state.mechanics = (typeof defaultMechanics === 'function') ? defaultMechanics() : {};
+          Object.assign(state.mechanics, mechanics);
+        }
+
+        if (typeof renderTrainsTable   === 'function') renderTrainsTable();
+        if (typeof renderPhasesTable   === 'function') renderPhasesTable();
+        if (typeof renderMechanicsLeft === 'function') renderMechanicsLeft();
+        if (typeof renderMechanicsRight === 'function') renderMechanicsRight();
         autosave();
-        const evCount = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
-        updateStatus(`Imported ${trains.length} trains, ${phases.length} phases${evCount ? ', ' + evCount + ' events' : ''} from ${file.name}`);
+
+        const evCount    = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
+        const mechCount  = Object.keys(mechanics || {}).length;
+        updateStatus(
+          `Imported ${trains.length} trains, ${phases.length} phases` +
+          (evCount   ? `, ${evCount} events`          : '') +
+          (mechCount ? `, ${mechCount} mechanics fields` : '') +
+          ` from ${file.name}`
+        );
       } catch (err) {
         console.error('[importGameRb] error:', err);
         alert('Game import failed: ' + err.message);
@@ -1704,8 +1968,8 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
 
 // ── Stub handlers for not-yet-implemented import/export types ─────────────────
 
-['importGameBtn', 'importMarketBtn',
- 'exportEntitiesBtn', 'exportGameBtn', 'exportMarketBtn'].forEach(id => {
+['importGameBtn',
+ 'exportEntitiesBtn', 'exportGameBtn'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('click', () => {
     document.getElementById('fileMenu').style.display = 'none';
