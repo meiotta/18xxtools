@@ -224,7 +224,7 @@ function exportRubyMap() {
       if (hex?.killed) continue;  // explicitly killed → off-map, skip
 
       const coord = _rbGridToCoord(r, c);
-      const color = hex.bg || 'white';
+      const color = hex?.bg || 'white';
       const code  = hexToDslCode(hex);
       if (code === null) continue;  // should not happen (killed already filtered)
 
@@ -232,7 +232,7 @@ function exportRubyMap() {
         (buckets[color][code] || []);
       buckets[color][code].push(coord);
 
-      if (hex.cityName) nameMap[coord] = hex.cityName;
+      if (hex?.cityName) nameMap[coord] = hex.cityName;
     }
   }
 
