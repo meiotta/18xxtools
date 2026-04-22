@@ -695,7 +695,17 @@ function importRubyMap(content) {
 
   // ── Grid bounds ─────────────────────────────────────────────────────────
   console.log(`[importRubyMap] hexEntries=${Object.keys(hexEntries).length} locationNames=${Object.keys(locationNames).length}`);
-  let maxRow = 0, maxCol = 0, minRow = 0, minCol = 0, skippedCoords = 0;
+
+  // If this file was exported by 18xxtools it carries an EDITOR_GRID comment
+  // with the original grid dimensions.  Use those as a minimum so that a
+  // round-trip (export → import) restores the full grid even if most hexes
+  // were killed (and therefore not written to the HEXES block).
+  const _egMatch = content.match(/^#\s*EDITOR_GRID\s+rows=(\d+)\s+cols=(\d+)/m);
+  const _editorRows = _egMatch ? parseInt(_egMatch[1]) : 0;
+  const _editorCols = _egMatch ? parseInt(_egMatch[2]) : 0;
+  if (_editorRows > 0) console.log(`[importRubyMap] EDITOR_GRID hint: ${_editorRows}r × ${_editorCols}c`);
+
+  let maxRow = _editorRows, maxCol = _editorCols, minRow = 0, minCol = 0, skippedCoords = 0;
   const maxRowPerCol = {}; // track per-column max row for killed-hex bounds
   const allCoords = [...new Set([...Object.keys(hexEntries), ...Object.keys(locationNames)])];
 

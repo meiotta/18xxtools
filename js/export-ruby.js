@@ -235,7 +235,8 @@ function exportRubyMap() {
 
   // ── Ruby source assembly ───────────────────────────────────────────────────
   let out = `# frozen_string_literal: true\n`;
-  out += `# Exported by 18xxtools — edit freely\n\n`;
+  out += `# Exported by 18xxtools — edit freely\n`;
+  out += `# EDITOR_GRID rows=${rows} cols=${cols}\n\n`;
 
   out += `LAYOUT = :${orientation}\n`;
   // AXES: required for pointy maps and flat-transposed maps.
