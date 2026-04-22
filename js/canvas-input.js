@@ -152,7 +152,8 @@ function _lassoUp(e) {
 
     // Edge tools
     if (activeTool === 'impassable' || activeTool === 'water-crossing' || activeTool === 'province') {
-      selectedHex = pid;
+      // Don't change selectedHex — the gold selection ring (drawn above borders)
+      // would overlap and obscure the border line just placed.
       const edgeNum = findNearestEdge(ph.row, ph.col, startWp.x, startWp.y);
       ensureHex(pid);
       const h = state.hexes[pid];
