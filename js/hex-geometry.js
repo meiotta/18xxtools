@@ -103,13 +103,19 @@ function getHexCenter(row, col, size, orientation) {
 }
 
 function pixelToHex(px, py, size, orientation) {
-  // Inverse of getHexCenter: convert pixel coords back to col/row
+  // Inverse of getHexCenter: convert pixel coords back to col/row.
+  //
+  // Step 1 — rectangular estimate via Math.round.  Fast but inaccurate near the
+  // angled edges of flat-top columns (or the angled edges of pointy-top rows),
+  // where adjacent column (or row) bands overlap in x (or y).  A click on the
+  // lower-right edge of hex (r,c) can fall in the Math.round zone of (r,c+1).
+  //
+  // Step 2 — Voronoi refinement: compare the click against the candidate and all
+  // 8 grid neighbours and return the one whose center is closest.  For regular
+  // hexagonal grids the nearest-center criterion is exactly the Voronoi partition,
+  // so this correctly handles all overlap zones without any shape math.
   let col, row;
   if (orientation === 'flat') {
-    // Flat-top hexagon hit test — inverse of getHexCenter's flat-top branch.
-    // Must use the same staggerParity so that clicking a hex returns the exact
-    // (row,col) that getHexCenter would place it at.
-    // See getHexCenter's comment block for a full explanation of staggerParity.
     const t_x = size * 1.5;
     const t_y = size * Math.sqrt(3);
     const sp = (typeof state !== 'undefined' && state?.meta?.staggerParity) || 0;
@@ -117,8 +123,6 @@ function pixelToHex(px, py, size, orientation) {
     const stagger = ((col + sp) % 2 === 0 ? t_y / 2 : 0);
     row = Math.round((py - size - stagger) / t_y);
   } else {
-    // Pointy-top: inverse of the pointy-top getHexCenter formula.
-    // Must use the same pointyStaggerParity so clicking returns the right (row,col).
     const dx = size * Math.sqrt(3);
     const dy = size * 1.5;
     const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
@@ -126,7 +130,18 @@ function pixelToHex(px, py, size, orientation) {
     const stagger = ((row + psp) % 2 === 1) ? dx / 2 : 0;
     col = Math.round((px - dx / 2 - stagger) / dx);
   }
-  return { row: Math.max(0, row), col: Math.max(0, col) };
+  // Voronoi refinement — check 3×3 neighbourhood, pick nearest center.
+  let bestRow = Math.max(0, row), bestCol = Math.max(0, col), bestDist2 = Infinity;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const cr = row + dr, cc = col + dc;
+      if (cr < 0 || cc < 0) continue;
+      const ctr = getHexCenter(cr, cc, size, orientation);
+      const d2  = (px - ctr.x) ** 2 + (py - ctr.y) ** 2;
+      if (d2 < bestDist2) { bestDist2 = d2; bestRow = cr; bestCol = cc; }
+    }
+  }
+  return { row: bestRow, col: bestCol };
 }
 
 function hexId(row, col) {
