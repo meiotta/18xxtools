@@ -68,7 +68,11 @@ function getHexCenter(row, col, size, orientation) {
     const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
     x = col * dx + dx / 2;
     y = row * dy + size;
-    if ((row + psp) % 2 === 1) x += dx / 2;
+    // psp=0: odd  rows stagger RIGHT (+dx/2) — standard pointy convention
+    // psp=1: even rows stagger LEFT  (-dx/2) — 18OE / 1822MX style
+    //   With psp=1: even-row cols are numbered 0,2,4… matching col=numPart/2,
+    //   so the stagger must go LEFT to put odd rows (B1,D3…) between them.
+    if ((row + psp) % 2 === 1) x += (psp === 0 ? 1 : -1) * dx / 2;
   } else {
     // Flat-top layout:
     //   Column pitch  = size * 1.5  (3/4 of hex width)
@@ -127,7 +131,9 @@ function pixelToHex(px, py, size, orientation) {
     const dy = size * 1.5;
     const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
     row = Math.round((py - size) / dy);
-    const stagger = ((row + psp) % 2 === 1) ? dx / 2 : 0;
+    // Inverse of getHexCenter stagger: psp=0 → subtract dx/2 on odd rows;
+    // psp=1 → add dx/2 on even rows (stagger was leftward, so invert rightward).
+    const stagger = ((row + psp) % 2 === 1) ? (psp === 0 ? 1 : -1) * dx / 2 : 0;
     col = Math.round((px - dx / 2 - stagger) / dx);
   }
   // Voronoi refinement — check 3×3 neighbourhood, pick nearest center.
