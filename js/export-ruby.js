@@ -41,9 +41,12 @@ function _rbNodeRev(node) {
 }
 
 // ── hex object → DSL code string ─────────────────────────────────────────────
-// Inverse of parseDslHex.  Returns '' for blank/ocean hexes, null for killed.
+// Inverse of parseDslHex.  Returns '' for blank/white hexes, null for killed.
+// Absent (null) hexes are treated as blank white — they should appear in HEXES
+// as '' so the engine recognises them as playable terrain.
 function hexToDslCode(hex) {
-  if (!hex || hex.killed) return null;
+  if (hex?.killed) return null;   // explicitly killed → off-map, omit from HEXES
+  if (!hex) return '';            // absent within grid bounds → blank white
 
   const parts = [];
 
@@ -217,8 +220,8 @@ function exportRubyMap() {
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const hex = state.hexes[hexId(r, c)];
-      if (!hex || hex.killed) continue;
+      const hex = state.hexes[hexId(r, c)] ?? null;
+      if (hex?.killed) continue;  // explicitly killed → off-map, skip
 
       const coord = _rbGridToCoord(r, c);
       const color = hex.bg || 'white';
