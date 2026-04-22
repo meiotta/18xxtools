@@ -294,9 +294,10 @@ function showValidateModal(issues) {
   document.body.appendChild(overlay);
 }
 
-// ── Wire up button ────────────────────────────────────────────────────────────
+// ── Wire up buttons ───────────────────────────────────────────────────────────
 
-document.getElementById('validateMapBtn').addEventListener('click', () => {
+// Config panel button
+document.getElementById('mapValidateBtn').addEventListener('click', () => {
   const issues = validateMapState();
   showValidateModal(issues);
 });

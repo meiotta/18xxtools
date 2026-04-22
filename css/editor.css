@@ -214,6 +214,63 @@ input[type="color"] { padding: 2px; width: 40px; height: 40px; }
 .canvas-container { flex: 1; background: #1a1a1a; position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; }
 canvas { display: block; }
 
+/* ── Map overlay scrollbars ────────────────────────────────────────────────── */
+/* Custom themed scrollbars overlaid on the SVG canvas container.              */
+/* They reflect panX/panY/zoom and can be dragged or clicked to navigate.      */
+.map-scroll-track {
+  position: absolute;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 5px;
+  pointer-events: auto;
+}
+.map-scroll-h {
+  bottom: 3px;
+  left: 3px;
+  right: 14px;   /* gap for corner cap */
+  height: 9px;
+}
+.map-scroll-v {
+  top: 3px;
+  right: 3px;
+  bottom: 14px;  /* gap for corner cap */
+  width: 9px;
+}
+.map-scroll-corner {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 2px;
+  z-index: 20;
+  pointer-events: none;
+}
+.map-scroll-thumb {
+  position: absolute;
+  background: var(--accent);
+  opacity: 0.5;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  min-width: 22px;
+  min-height: 22px;
+}
+.map-scroll-thumb:hover  { opacity: 0.75; }
+.map-scroll-thumb:active { opacity: 0.95; }
+.map-scroll-h .map-scroll-thumb {
+  top:    1px;
+  height: calc(100% - 2px);
+}
+.map-scroll-v .map-scroll-thumb {
+  left:  1px;
+  width: calc(100% - 2px);
+}
+/* Light theme: slightly darker track so it's visible on pale canvas bg */
+[data-theme="light"] .map-scroll-track  { background: rgba(0, 0, 0, 0.15); }
+[data-theme="light"] .map-scroll-corner { background: rgba(0, 0, 0, 0.15); }
+
 /* MD Side Sheet (right panel) */
 .right-panel { width: 300px; min-width: 300px; max-width: 300px; background: #1e1e1e; border-left: none; overflow-y: auto; overflow-x: hidden; box-shadow: -2px 0 6px rgba(0,0,0,0.3); z-index: 5; box-sizing: border-box; }
 .right-panel::-webkit-scrollbar { width: 6px; }
