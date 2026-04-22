@@ -759,6 +759,14 @@ function importRubyMap(content) {
   const pointyEvenBase = (pointyStaggerParity === 1 && _minEvenNumPart === 0) ? 0 : 2;
   console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} pointyEvenBase=${pointyEvenBase} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
 
+  // Derive the actual column offsets for even / odd letter-rows.
+  //   psp=1 standard : evenOffset=2 (A2,A4…), oddOffset=1 (B1,B3…)
+  //   psp=1 18OE-style: evenOffset=0 (A0,A2…), oddOffset=1 (B1,B3…)
+  //   psp=0 standard : evenOffset=1 (A1,A3…), oddOffset=2 (B2,B4…)
+  // These are stored in state.meta so hexId() can invert the same formula.
+  const pointyEvenOffset = (pointyStaggerParity === 1) ? pointyEvenBase : 1;
+  const pointyOddOffset  = (pointyStaggerParity === 1) ? 1 : 2;
+
   // ── Eagerly update state.meta so hexId uses the correct keys during build ────
   // hexId() reads state.meta.orientation / coordParity / pointyStaggerParity at
   // call time.  Without this early update, hexId would use the *previous* map's
@@ -769,6 +777,8 @@ function importRubyMap(content) {
     state.meta.coordParity          = coordParity;
     state.meta.pointyStaggerParity  = pointyStaggerParity;
     state.meta.staggerParity        = transposedAxes ? 1 : coordParity;
+    state.meta.pointyEvenOffset     = pointyEvenOffset;
+    state.meta.pointyOddOffset      = pointyOddOffset;
   }
 
   // coordToGrid: convert an 18xx.games Ruby coord string → internal {row, col}.
@@ -834,10 +844,18 @@ function importRubyMap(content) {
       // Pointy-top: letter=row, number encodes col with stagger.
       // Works for both AXES={x:letter,y:number} and AXES={x:number,y:letter} —
       // in both cases the letter prefix is the row indicator for pointy maps.
+      // pointyEvenOffset / pointyOddOffset are pre-computed from the detected
+      // coordinate base so that games like 18OE (A0,A2,… / B1,B3,…) work
+      // correctly — the old hardcoded try-1-then-2 approach mapped A0 → col=-1.
       row = letterIdx;
-      col = (letterIdx % 2 === 0) ? (numPart - 1) / 2 : (numPart - 2) / 2;
+      col = (letterIdx % 2 === 0)
+        ? (numPart - pointyEvenOffset) / 2
+        : (numPart - pointyOddOffset)  / 2;
       if (!Number.isInteger(col)) {
-        col = (letterIdx % 2 === 0) ? (numPart - 2) / 2 : (numPart - 1) / 2;
+        // Fallback: swap even/odd offsets (handles unexpected parity mixtures)
+        col = (letterIdx % 2 === 0)
+          ? (numPart - pointyOddOffset)  / 2
+          : (numPart - pointyEvenOffset) / 2;
       }
     } else {
       // Standard flat-top: letter=col, number=row-identifier.
@@ -969,6 +987,7 @@ function importRubyMap(content) {
 
   return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation,
            staggerParity: transposedAxes ? 1 : coordParity, coordParity, pointyStaggerParity,
+           pointyEvenOffset, pointyOddOffset,
            maxRowPerCol, manifest, customTiles };
 }
 
@@ -1813,6 +1832,8 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
         state.meta.staggerParity      = result.staggerParity;
         state.meta.coordParity        = result.coordParity;
         state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+        state.meta.pointyEvenOffset    = result.pointyEvenOffset;
+        state.meta.pointyOddOffset     = result.pointyOddOffset;
         state.meta.maxRowPerCol        = result.maxRowPerCol;
         // Tile manifest — overwrite only if the file had a TILES block
         if (Object.keys(result.manifest).length > 0) {
