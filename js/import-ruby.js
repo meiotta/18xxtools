@@ -307,7 +307,10 @@ function parseDslHex(code, bg, locationName) {
       cityRevs.push({ phases, flat: flatVal });
       const nodeActive = (Object.values(active).some(Boolean))
         ? active : { yellow:true, green:true, brown:true, gray:true };
-      if (cityCount === 1) {
+      if (cityCount === 1 && hex.feature !== 'offboard') {
+        // Don't overwrite offboard= revenue with city= revenue.
+        // Offboard hexes (e.g. Lisboa Z1) set hex.phaseRevenue from the offboard= part;
+        // city= parts on those hexes have revenue:0 and are just token-slot providers.
         hex.slots = slots;
         hex.phaseRevenue = phases;
         hex.activePhases = nodeActive;
@@ -481,10 +484,11 @@ function parseDslHex(code, bg, locationName) {
 
   // ── Sync phaseRevenue / activePhases from primary node ──────────────────────
   // Generic — no special-casing by feature type. First node wins, same as tobymao.
-  // Offboards set these fields directly above and have no nodes[], so they are
-  // unaffected. Hexes with no nodes get activePhases cleared.
+  // Offboards with city nodes (e.g. Lisboa Z1: offboard=revenue:...;city=revenue:0)
+  // must NOT have their offboard revenue overwritten by the city's revenue:0 nodes.
+  // Hexes with no nodes get activePhases cleared.
   const _pn = hex.nodes[0];
-  if (_pn) {
+  if (_pn && hex.feature !== 'offboard') {
     hex.phaseRevenue = { ..._pn.phaseRevenue };
     hex.activePhases = { ..._pn.activePhases };
   } else if (hex.feature !== 'offboard') {
@@ -756,16 +760,29 @@ function importRubyMap(content) {
   // Run for ALL pointy maps regardless of transposedAxes — pointy+transposed
   // (e.g. 18OEUKFR) still uses letter=row and needs the same parity detection.
   let _evenRowEven = 0, _evenRowOdd = 0;
+  let _pointyEvenMinNP = Infinity, _pointyOddMinNP = Infinity;
   if (orientation === 'pointy') {
     for (const coord of allCoords) {
       const p = parseCoordParts(coord); if (!p) continue;
       if (p.letterIdx % 2 === 0) {
         if (p.numPart % 2 === 0) _evenRowEven++; else _evenRowOdd++;
+        if (p.numPart < _pointyEvenMinNP) _pointyEvenMinNP = p.numPart;
+      } else {
+        if (p.numPart < _pointyOddMinNP) _pointyOddMinNP = p.numPart;
       }
     }
   }
   const pointyStaggerParity = (orientation === 'pointy' && _evenRowEven > _evenRowOdd) ? 1 : 0;
-  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
+  // Per-row-parity offsets: minimum numPart for that series.
+  // Used by coordToGrid and hexId to convert between coord-string numbers and internal cols.
+  // e.g. 18OE: evenOffset=0 (A0,A2…), 1822PNW: evenOffset=2 (A2,A4…), psp=0: evenOffset=1 (A1,A3…)
+  // Fallbacks (if a parity has no hexes): use psp-derived convention.
+  //   psp=1: even rows start at 2 (conservative — 18OE A0 case is caught by the scan)
+  //          odd  rows start at 1
+  //   psp=0: even rows start at 1, odd rows start at 2
+  const _pointyEvenOffset = (_pointyEvenMinNP < Infinity) ? _pointyEvenMinNP : (pointyStaggerParity === 1 ? 2 : 1);
+  const _pointyOddOffset  = (_pointyOddMinNP  < Infinity) ? _pointyOddMinNP  : (pointyStaggerParity === 1 ? 1 : 2);
+  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd}) evenOffset=${_pointyEvenOffset} oddOffset=${_pointyOddOffset}`);
 
   // ── Eagerly update state.meta so hexId uses the correct keys during build ────
   // hexId() reads state.meta.orientation / coordParity / pointyStaggerParity at
@@ -776,6 +793,8 @@ function importRubyMap(content) {
     state.meta.orientation          = orientation;
     state.meta.coordParity          = coordParity;
     state.meta.pointyStaggerParity  = pointyStaggerParity;
+    state.meta.pointyEvenOffset     = _pointyEvenOffset;
+    state.meta.pointyOddOffset      = _pointyOddOffset;
     state.meta.staggerParity        = transposedAxes ? 1 : coordParity;
   }
 
@@ -842,11 +861,20 @@ function importRubyMap(content) {
       // Pointy-top: letter=row, number encodes col with stagger.
       // Works for both AXES={x:letter,y:number} and AXES={x:number,y:letter} —
       // in both cases the letter prefix is the row indicator for pointy maps.
+      //
+      // Formula: col = (numPart - offset) / 2
+      //   where offset = minimum numPart seen for that row-parity series.
+      //
+      // Examples:
+      //   18OE   (psp=1): A0,A2…  B1,B3…  → evenOffset=0, oddOffset=1
+      //   1822PNW(psp=1): A2,A4…  B1,B3…  → evenOffset=2, oddOffset=1
+      //   psp=0  default: A1,A3…  B2,B4…  → evenOffset=1, oddOffset=2
+      //                or A1,A3…  B0,B2…  → evenOffset=1, oddOffset=0
       row = letterIdx;
-      col = (letterIdx % 2 === 0) ? (numPart - 1) / 2 : (numPart - 2) / 2;
-      if (!Number.isInteger(col)) {
-        col = (letterIdx % 2 === 0) ? (numPart - 2) / 2 : (numPart - 1) / 2;
-      }
+      const evenRow2 = (letterIdx % 2 === 0);
+      const ptOffset = evenRow2 ? _pointyEvenOffset : _pointyOddOffset;
+      col = (numPart - ptOffset) / 2;
+      if (!Number.isInteger(col)) col = Math.round(col); // guard for malformed coords
     } else {
       // Standard flat-top: letter=col, number=row-identifier.
       // Use the detected coordParity to pick the correct formula directly.
@@ -977,6 +1005,7 @@ function importRubyMap(content) {
 
   return { hexes: newHexes, rows: maxRow, cols: maxCol, orientation,
            staggerParity: transposedAxes ? 1 : coordParity, coordParity, pointyStaggerParity,
+           pointyEvenOffset: _pointyEvenOffset, pointyOddOffset: _pointyOddOffset,
            maxRowPerCol, manifest, customTiles };
 }
 
@@ -1594,6 +1623,8 @@ document.getElementById('importMapFile').addEventListener('change', (e) => {
         state.meta.staggerParity      = result.staggerParity;
         state.meta.coordParity        = result.coordParity;
         state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+        state.meta.pointyEvenOffset    = result.pointyEvenOffset ?? 1;
+        state.meta.pointyOddOffset     = result.pointyOddOffset  ?? 0;
         state.meta.maxRowPerCol        = result.maxRowPerCol;
         // Tile manifest — overwrite only if the file had a TILES block
         if (Object.keys(result.manifest).length > 0) {

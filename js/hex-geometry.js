@@ -136,18 +136,22 @@ function hexId(row, col) {
     // Pointy layout: coordToGrid stores row=letterIdx (tobymao x=letter), col=normalised(numPart).
     // Invert back to tobymao coordinate format: letter from row, numPart from col.
     //
-    // coordToGrid formula (pointy):
-    //   even letterIdx: tries (numPart-1)/2 first, falls back to (numPart-2)/2
-    //   odd  letterIdx: tries (numPart-2)/2 first, falls back to (numPart-1)/2
-    // Whether the first or fallback applies depends on pointyStaggerParity:
-    //   psp=1 (e.g. 1822 PNW): even letterIdx → even numParts → numPart = 2*col+2
-    //                           odd  letterIdx → odd  numParts → numPart = 2*col+1
-    //   psp=0:                  even letterIdx → odd  numParts → numPart = 2*col+1
-    //                           odd  letterIdx → even numParts → numPart = 2*col+2
-    // Combined: condition (row%2===0) === (psp===1) selects +2 or +1 offset.
+    // Formula: numPart = 2*col + offset
+    //   where offset = pointyEvenOffset for even rows, pointyOddOffset for odd rows.
+    //
+    // Examples:
+    //   18OE   (psp=1): evenOffset=0, oddOffset=1 → A0,A2…  B1,B3…
+    //   1822PNW(psp=1): evenOffset=2, oddOffset=1 → A2,A4…  B1,B3…
+    //   psp=0  default: evenOffset=1, oddOffset=0 → A1,A3…  B0,B2… (or +2 variant)
+    // Derive psp-based defaults for maps that predate explicit offset storage.
     const psp = (typeof state !== 'undefined') ? (state.meta?.pointyStaggerParity ?? 0) : 0;
+    const defEven = (psp === 1) ? 2 : 1;  // psp=1 maps: A2,A4… offset=2; psp=0: A1,A3… offset=1
+    const defOdd  = (psp === 1) ? 1 : 2;  // psp=1 maps: B1,B3… offset=1; psp=0: B2,B4… offset=2
+    const evenOffset = (typeof state !== 'undefined') ? (state.meta?.pointyEvenOffset ?? defEven) : defEven;
+    const oddOffset  = (typeof state !== 'undefined') ? (state.meta?.pointyOddOffset  ?? defOdd)  : defOdd;
     const letter  = String.fromCharCode(65 + row);
-    const numPart = ((row % 2 === 0) === (psp === 1)) ? (2 * col + 2) : (2 * col + 1);
+    const offset  = (row % 2 === 0) ? evenOffset : oddOffset;
+    const numPart = 2 * col + offset;
     return letter + numPart;
   }
 

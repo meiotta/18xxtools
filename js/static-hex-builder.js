@@ -293,12 +293,15 @@ function _loadFromModel(h) {
   // Create one segment per endpoint group, carrying lane count + per-endpoint lane index.
   // laneA/laneB are 0-indexed and correspond directly to b_lane:N.I index I.
   Object.values(eeGroups).forEach(({ ea, eb, lanes, laneA, laneB }) => {
-    _segments.push({ id: _nextId(), ea, eb, lanes: lanes > 1 ? lanes : 1,
+    const laneCount = lanes > 1 ? lanes : 1;
+    _segments.push({ id: _nextId(), ea, eb, lanes: laneCount,
       laneA: laneA != null ? laneA : null, laneB: laneB != null ? laneB : null });
-    // Restore the edge lane cursor positioned PAST the max used lane, so the
-    // next draw through this edge lands on a new lane rather than overwriting.
-    // laneA=0 still advances to 1 (lane 0 is occupied; next slot is 1).
-    if (laneA != null) _edgeLane[ea] = Math.max(_edgeLane[ea] || 0, laneA + 1);
+    // Restore the edge lane cursor positioned PAST the max used lane.
+    // For a multi-lane segment the ea side expands as [laneA, laneA+1, …, laneA+N-1],
+    // so the next free slot is laneA + laneCount (not laneA + 1).
+    // The eb side is stored as the HIGHEST bLane (= N-1 for the reversal pattern), so
+    // laneB + 1 already equals N — no special case needed there.
+    if (laneA != null) _edgeLane[ea] = Math.max(_edgeLane[ea] || 0, laneA + laneCount);
     if (laneB != null) _edgeLane[eb] = Math.max(_edgeLane[eb] || 0, laneB + 1);
   });
 
@@ -1011,9 +1014,26 @@ function _renderCanvas() {
         label = String(cursor);
         laneColor = cursor > 0 ? '#ffd700' : 'rgba(255,255,255,0.50)';
       } else {
-        const laneVals = segsHere
-          .map(sg => sg.ea === e ? sg.laneA : sg.laneB)
-          .filter(l => l != null);
+        // Collect ALL occupied lane indices for this edge.
+        // Multi-lane segments (lanes:N) occupy [laneA, laneA+1, …] on the ea side and
+        // [0, 1, …, N-1] on the eb side (reversal pattern from parseDslHex expansion).
+        const laneVals = [];
+        for (const sg of segsHere) {
+          const baseLane = sg.ea === e ? sg.laneA : sg.laneB;
+          if (baseLane == null) continue;
+          const n = sg.lanes || 1;
+          if (n > 1) {
+            if (sg.ea === e) {
+              // ea: expands as [baseLane, baseLane+1, …, baseLane+N-1]
+              for (let i = 0; i < n; i++) laneVals.push(baseLane + i);
+            } else {
+              // eb: bLane is the HIGHEST (N-1), so occupied set is [0, 1, …, N-1]
+              for (let i = 0; i < n; i++) laneVals.push(i);
+            }
+          } else {
+            laneVals.push(baseLane);
+          }
+        }
         label = laneVals.length > 0
           ? [...new Set(laneVals)].sort((a, b) => a - b).join(',')
           : '0';  // track exists but no explicit lane — default lane 0
