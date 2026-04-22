@@ -268,7 +268,7 @@ function buyerTypeColor(p) {
 const ABILITY_CATEGORIES = [
   { label: 'Track & Terrain', types: ['tile_lay', 'tile_discount'] },
   { label: 'Tokens & Stations', types: ['token', 'teleport'] },
-  { label: 'Blocking', types: ['blocks_hexes'] },
+  { label: 'Blocking & Assignment', types: ['blocks_hexes', 'assign_hexes', 'assign_corporation'] },
   { label: 'Corporate', types: ['exchange', 'shares'] },
   { label: 'Revenue', types: ['hex_bonus', 'train_discount'] },
   { label: 'Trains', types: ['grants_train'] },
@@ -440,6 +440,40 @@ const ABILITY_DEFS = {
       { key: 'desc', label: 'Description', type: 'textarea', placeholder: 'Describe the ability in plain text…' },
     ],
     suggest(a) { return a.desc || ''; },
+  },
+  // ── Assignment abilities — require a helper method in game.rb ────────────────
+  // These let a private company be assigned to specific hexes or corporations
+  // (e.g. 1846 Steamboat assigns to a port hex and boosts revenue there).
+  // The base engine's Engine::Step::Assign handles the assign action generically,
+  // but custom step code in game.rb must reference the company by name —
+  // hence the editor auto-generates a helper method for these.
+  assign_hexes: {
+    label: 'Assign to Hex',
+    fields: [
+      { key: 'hexes', label: 'Assignable hexes', type: 'tags', placeholder: 'e.g. B4, C7 — blank = any' },
+      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
+      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
+      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const hx  = (a.hexes && a.hexes.length) ? ` to ${a.hexes.join(', ')}` : ' to a hex';
+      const n   = (a.count && a.count > 1) ? ` (up to ${a.count} hexes)` : '';
+      const who = a.owner_type === 'corporation' ? 'owning corporation' : 'owner';
+      return `The ${who} may assign this company${hx}${n} to grant its bonus. Requires a game.rb helper and custom step code.`;
+    },
+  },
+  assign_corporation: {
+    label: 'Assign to Corporation',
+    fields: [
+      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
+      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
+    ],
+    suggest(a) {
+      const n = (a.count && a.count > 1) ? ` (up to ${a.count})` : '';
+      return `Can be assigned to a corporation${n} to grant its bonus while assigned. Requires a game.rb helper and custom step code.`;
+    },
   },
 };
 

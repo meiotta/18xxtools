@@ -657,6 +657,20 @@ function renderMechanicsRight() {
   el.querySelectorAll('[data-remove-event]').forEach(btn => {
     btn.addEventListener('click', () => onRemoveEvent(Number(btn.dataset.removeEvent)));
   });
+  // Player count chip steppers (minPlayers / maxPlayers)
+  el.querySelectorAll('[data-stepper]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const key = e.currentTarget.dataset.stepper;
+      const dir = Number(e.currentTarget.dataset.dir);
+      const cur = state.mechanics[key] || (key === 'minPlayers' ? 2 : 6);
+      const lo  = key === 'minPlayers' ? 1 : (state.mechanics.minPlayers || 1);
+      const hi  = key === 'maxPlayers' ? 12 : (state.mechanics.maxPlayers || 12);
+      state.mechanics[key] = Math.max(lo, Math.min(hi, cur + dir));
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+      renderMechanicsRight();
+    });
+  });
 }
 
 function renderEditorFor(itemId) {
@@ -832,13 +846,19 @@ function renderBankPlayers(m) {
       <input type="number" min="0" class="mech-num-sm" data-cashkey="cert:${p}" value="${cl[p] || 0}">
     </div>`).join('');
   return `
-    <div style="display:flex;gap:12px;">
-      <label style="flex:1;">Min players
-        <input type="number" min="1" max="12" data-mkey="minPlayers" value="${m.minPlayers || 2}">
-      </label>
-      <label style="flex:1;">Max players
-        <input type="number" min="1" max="12" data-mkey="maxPlayers" value="${m.maxPlayers || 6}">
-      </label>
+    <div style="display:flex;gap:20px;align-items:center;margin-bottom:12px;">
+      <span class="mech-hint" style="white-space:nowrap;">Min players</span>
+      <div class="stepper">
+        <button class="axis-handle minus" data-stepper="minPlayers" data-dir="-1">−</button>
+        <span style="min-width:22px;text-align:center;color:var(--text-primary);font-size:13px;">${m.minPlayers || 2}</span>
+        <button class="axis-handle" data-stepper="minPlayers" data-dir="1">+</button>
+      </div>
+      <span class="mech-hint" style="white-space:nowrap;">Max players</span>
+      <div class="stepper">
+        <button class="axis-handle minus" data-stepper="maxPlayers" data-dir="-1">−</button>
+        <span style="min-width:22px;text-align:center;color:var(--text-primary);font-size:13px;">${m.maxPlayers || 6}</span>
+        <button class="axis-handle" data-stepper="maxPlayers" data-dir="1">+</button>
+      </div>
     </div>
     <label style="margin-top:8px;">Bank Cash
       <input type="number" min="0" data-mkey="bankCash" value="${m.bankCash || 12000}">
@@ -873,12 +893,15 @@ function renderCorpRules(m) {
       </select>
     </label>
     ${toggle('Bankruptcy Allowed', 'bankruptcyAllowed', m.bankruptcyAllowed ?? true)}
-    <label>Bankruptcy Ends Game After
-      <select data-mkey="bankruptcyEndsGameAfter">
-        <option value="one"         ${sel(m.bankruptcyEndsGameAfter,'one')}>One bankruptcy (default)</option>
-        <option value="all_but_one" ${sel(m.bankruptcyEndsGameAfter,'all_but_one')}>All but one player bankrupt</option>
-      </select>
-    </label>`;
+    ${(m.bankruptcyAllowed ?? true)
+      ? `<label>Bankruptcy Ends Game After
+          <select data-mkey="bankruptcyEndsGameAfter">
+            <option value="one"         ${sel(m.bankruptcyEndsGameAfter,'one')}>One bankruptcy (default)</option>
+            <option value="all_but_one" ${sel(m.bankruptcyEndsGameAfter,'all_but_one')}>All but one player bankrupt</option>
+          </select>
+        </label>`
+      : `<p class="mech-hint" style="margin:4px 0 0 0;padding:6px 8px;background:rgba(255,200,0,0.08);border-left:3px solid #b8860b;border-radius:3px;font-size:11px;">Bankruptcy disabled — configure how the shortfall resolves in the <strong>Emergency Buy</strong> section (president must help, player loans, share issuance).</p>`
+    }`;
 }
 
 function renderStockRoundRules(m) {
@@ -916,10 +939,17 @@ function renderStockRoundRules(m) {
         <option value="full_or_turn"   ${sel(m.sellAfter,'full_or_turn')}>After full OR turn</option>
       </select>
     </label>
-    ${toggle('Must Sell in Blocks', 'mustSellInBlocks', m.mustSellInBlocks)}`;
+    ${toggle('Must Sell in Blocks', 'mustSellInBlocks', m.mustSellInBlocks)}
+    <label>Top-row sold-out movement <span class="mech-hint-inline">SOLD_OUT_TOP_ROW_MOVEMENT</span>
+      <select data-mkey="soldOutTopRowMovement">
+        <option value="none"       ${sel(m.soldOutTopRowMovement,'none')}>None — block at top (default)</option>
+        <option value="down_right" ${sel(m.soldOutTopRowMovement,'down_right')}>Down-right — wrap to next column (18Neb, 18NY)</option>
+      </select>
+    </label>`;
 }
 
 function renderEmergencyBuy(m) {
+  const loansOn = m.ebuyCanTakePlayerLoan && m.ebuyCanTakePlayerLoan !== 'false';
   return `
     <p class="mech-hint" style="margin-bottom:12px;">Emergency buy (ebuy) triggers when a corporation must buy a train it cannot fully afford.</p>
     <label>Buy from others <span class="mech-hint-inline">EBUY_FROM_OTHERS</span>
@@ -932,7 +962,27 @@ function renderEmergencyBuy(m) {
     ${toggle('Depot train must be cheapest available', 'ebuyDepotCheapest', m.ebuyDepotCheapest ?? true)}
     <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST — default true</p>
     ${toggle('Must issue shares before ebuy (if possible)', 'mustIssueBeforeEbuy', m.mustIssueBeforeEbuy ?? false)}
-    <p class="mech-hint" style="margin:2px 0 0 0;font-size:10px;">MUST_EMERGENCY_ISSUE_BEFORE_EBUY — default false</p>`;
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">MUST_EMERGENCY_ISSUE_BEFORE_EBUY — default false</p>
+    ${toggle('President must help cover shortfall', 'ebuyOwnerMustHelp', m.ebuyOwnerMustHelp ?? false)}
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_OWNER_MUST_HELP — default false. President must contribute personal cash toward the purchase.</p>
+    ${toggle('President can sell shares during ebuy', 'ebuyCanSellShares', m.ebuyCanSellShares ?? true)}
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_CAN_SELL_SHARES — default true</p>
+    ${toggle('Allow presidency swap during ebuy', 'ebuyPresSwap', m.ebuyPresSwap ?? true)}
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_PRES_SWAP — default true. Another player can take the presidency mid-emergency-buy.</p>
+    <label>Player loans <span class="mech-hint-inline">EBUY_CAN_TAKE_PLAYER_LOAN</span>
+      <select data-mkey="ebuyCanTakePlayerLoan">
+        <option value="false"      ${sel(m.ebuyCanTakePlayerLoan || 'false', 'false')}>Disabled (default)</option>
+        <option value="after_sell" ${sel(m.ebuyCanTakePlayerLoan, 'after_sell')}>After selling shares — 1822-style</option>
+        <option value="no_sell"    ${sel(m.ebuyCanTakePlayerLoan, 'no_sell')}>Instead of selling shares — 18ESP-style</option>
+      </select>
+    </label>
+    ${loansOn ? `
+    <label>Loan interest rate (%) <span class="mech-hint-inline">PLAYER_LOAN_INTEREST_RATE</span>
+      <input type="number" min="0" max="200" step="5" data-mkey="playerLoanInterestRate" value="${m.playerLoanInterestRate ?? 50}">
+    </label>
+    <label>Endgame loan penalty (%) <span class="mech-hint-inline">PLAYER_LOAN_ENDGAME_PENALTY</span>
+      <input type="number" min="0" max="200" step="5" data-mkey="playerLoanEndgamePenalty" value="${m.playerLoanEndgamePenalty ?? 0}">
+    </label>` : ''}`;
 }
 
 function renderGameEndEditor(m) {
@@ -1450,6 +1500,8 @@ function generateGameRb() {
     def('MUST_SELL_IN_BLOCKS', 'true');
   if ((m.sellAfter || 'first') !== 'first')
     def('SELL_AFTER', `:${m.sellAfter}`);
+  if ((m.soldOutTopRowMovement || 'none') !== 'none')
+    def('SOLD_OUT_TOP_ROW_MOVEMENT', `:${m.soldOutTopRowMovement}`);
 
   sec('Operating Round Rules');
   if ((m.mustBuyTrain || 'route') !== 'route')
@@ -1463,6 +1515,19 @@ function generateGameRb() {
     def('EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST', 'false');
   if (m.mustIssueBeforeEbuy)
     def('MUST_EMERGENCY_ISSUE_BEFORE_EBUY', 'true');
+  if (m.ebuyOwnerMustHelp)
+    def('EBUY_OWNER_MUST_HELP', 'true');
+  if (!(m.ebuyCanSellShares ?? true))
+    def('EBUY_CAN_SELL_SHARES', 'false');
+  if (!(m.ebuyPresSwap ?? true))
+    def('EBUY_PRES_SWAP', 'false');
+  if (m.ebuyCanTakePlayerLoan && m.ebuyCanTakePlayerLoan !== 'false') {
+    def('EBUY_CAN_TAKE_PLAYER_LOAN', `:${m.ebuyCanTakePlayerLoan}`);
+    if ((m.playerLoanInterestRate ?? 50) !== 50)
+      def('PLAYER_LOAN_INTEREST_RATE', String(m.playerLoanInterestRate ?? 50));
+    if ((m.playerLoanEndgamePenalty ?? 0) !== 0)
+      def('PLAYER_LOAN_ENDGAME_PENALTY', String(m.playerLoanEndgamePenalty ?? 0));
+  }
   const defSlots = (m.tileLays && m.tileLays.default) || [DEFAULT_TILE_LAY_SLOT];
   def('TILE_LAYS', `[${defSlots.map(slotToRuby).join(', ')}].freeze`);
   if (m.tileLays && m.tileLays.byType) {
@@ -1509,7 +1574,41 @@ function generateGameRb() {
     lines.push('# GAME_END_CHECK not configured');
   }
 
+  // ── Private company helper methods ──────────────────────────────────────────
+  // Abilities that require the company to be referenced directly in custom step
+  // code — the base engine's generic ability dispatch isn't sufficient.
+  //   :assign_hexes / :assign_corporation  — custom assign step references company
+  //   :generic                             — fully custom mechanic
+  const HELPER_ABILITY_TYPES = new Set(['assign_hexes', 'assign_corporation', 'generic']);
+  const helpPrivates = (state.privates || []).filter(p =>
+    (p.abilities || []).some(a => HELPER_ABILITY_TYPES.has(a.type))
+  );
+  if (helpPrivates.length) {
+    sec('Private Company Helpers');
+    lines.push('# Paste these inside your game class body.');
+    lines.push('# They let custom step code reference companies by name rather than');
+    lines.push('# calling company_by_id(\'SYM\') every time.');
+    for (const priv of helpPrivates) {
+      const mName = _companyHelperName(priv.name, priv.sym);
+      lines.push('');
+      lines.push(`def ${mName}`);
+      lines.push(`  @${mName} ||= company_by_id('${priv.sym}')`);
+      lines.push('end');
+    }
+  }
+
   return lines.join('\n').replace(/^\n/, '');
+}
+
+// Derive a Ruby method name from a private company name + sym.
+// Strips trailing company-type words, lowercases, replaces non-alphanumeric with _.
+function _companyHelperName(name, sym) {
+  let s = (name || '').toLowerCase();
+  s = s.replace(/\s+(company|railroad|railway|corp(?:oration)?|co\.?|lines?|inc\.?|limited|ltd\.?)$/i, '');
+  s = s.replace(/\s*&\s*/g, '_and_');
+  s = s.replace(/[^a-z0-9]+/g, '_');
+  s = s.replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+  return s || (sym || '').toLowerCase().replace(/[^a-z0-9]/g, '_') || 'company';
 }
 
 function showRbPreview() {
