@@ -183,27 +183,54 @@ function calcArc(bx, by, ex, ey) {
 }
 
 // ─── SVG BUILD HELPERS ─────────────────────────────────────────────────────────
-// buildBordersSvg: border markers (impassable/water) in hex-local world-unit coords.
-// All positions relative to hex center (0,0).
+// buildBordersSvg — faithful port of tobymao borders.rb.
+// Source: assets/app/view/game/part/borders.rb, assets/app/lib/hex.rb
+//
+// Tobymao draws borders as full-edge lines from one hex vertex to the adjacent one:
+//   EDGES[0] = { x1: X_M_R(50), y1: Y_B(87), x2: X_M_L(-50), y2: Y_B(87) }
+// stroke-width: impassable→10, others→8 (100-unit space); cost: circle r=18 + text.
+//
+// For edge e (0=bottom, 1=lower-left … 5=lower-right) the two bounding vertices in
+// our hexPts indexing are (e+1)%6 and (e+2)%6, using the same orientOff as the hex
+// polygon itself (0° for flat-top, 30° for pointy-top).
+// All coordinates are hex-local world-unit space (relative to hex center 0,0).
 function buildBordersSvg(hex) {
   if (!hex || !hex.borders || hex.borders.length === 0) return '';
-  const sc = HEX_SIZE / 50;  // 50-unit edgePos space → world-unit scale
+  const R        = HEX_SIZE;
+  const orientOff = (state?.meta?.orientation === 'pointy') ? 30 : 0;
+  const d2r      = Math.PI / 180;
+  // Tobymao stroke-widths in 100-unit space scaled to ours (×R/100):
+  //   impassable → 10*(40/100) = 4.0
+  //   water/mountain → 8*(40/100) = 3.2
+  const impW   = +(10 * R / 100).toFixed(1);
+  const otherW = +(8  * R / 100).toFixed(1);
+  // Cost circle: tobymao render_cost uses r=18, tile__text font ~14 (100-unit space).
+  const costR  = +(18 * R / 100).toFixed(1);
+  const costFs = Math.round(14 * R / 100);
+
   let svg = '';
   for (const border of hex.borders) {
-    const mp = edgePos(border.edge);         // orientation-aware midpoint in 43.3-unit space
-    const bx = mp.x * sc, by = mp.y * sc;   // world space
-    const len = Math.hypot(bx, by);
-    const edgeDx = -by / len, edgeDy = bx / len;
-    const halfLen = 11 * sc;
-    if (border.type === 'impassable') {
-      svg += `<line x1="${(bx-edgeDx*halfLen).toFixed(2)}" y1="${(by-edgeDy*halfLen).toFixed(2)}" x2="${(bx+edgeDx*halfLen).toFixed(2)}" y2="${(by+edgeDy*halfLen).toFixed(2)}" stroke="#8b0000" stroke-width="4" stroke-linecap="round"/>`;
-    } else if (border.type === 'water' || border.type === 'mountain') {
-      const col = border.type === 'water' ? '#2266cc' : '#8B6914';
-      svg += `<line x1="${(bx-edgeDx*halfLen).toFixed(2)}" y1="${(by-edgeDy*halfLen).toFixed(2)}" x2="${(bx+edgeDx*halfLen).toFixed(2)}" y2="${(by+edgeDy*halfLen).toFixed(2)}" stroke="${col}" stroke-width="3" stroke-linecap="round"/>`;
-      if (border.cost) {
-        const radDx = bx / len, radDy = by / len;
-        svg += `<text x="${(bx-radDx*8*sc).toFixed(2)}" y="${(by-radDy*8*sc).toFixed(2)}" font-family="Lato,Arial,sans-serif" font-size="7" font-weight="bold" fill="${col}" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
-      }
+    const e  = border.edge;
+    // Vertices flanking this edge, same formula as the hex polygon (buildHexSvg).
+    const ai = (e + 1) % 6, bi = (e + 2) % 6;
+    const x1 = +(Math.cos((orientOff + ai * 60) * d2r) * R).toFixed(2);
+    const y1 = +(Math.sin((orientOff + ai * 60) * d2r) * R).toFixed(2);
+    const x2 = +(Math.cos((orientOff + bi * 60) * d2r) * R).toFixed(2);
+    const y2 = +(Math.sin((orientOff + bi * 60) * d2r) * R).toFixed(2);
+    const mx = +((x1 + x2) / 2).toFixed(2);
+    const my = +((y1 + y2) / 2).toFixed(2);
+
+    const col = border.type === 'impassable' ? '#8b0000'
+              : border.type === 'water'      ? '#2266cc'
+              :                                '#8B6914';  // mountain/sepia
+    const sw  = border.type === 'impassable' ? impW : otherW;
+
+    svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`;
+
+    if (border.cost) {
+      // tobymao render_cost: colored circle at edge midpoint + contrasting white text
+      svg += `<circle cx="${mx}" cy="${my}" r="${costR}" fill="${col}" stroke="none"/>`;
+      svg += `<text x="${mx}" y="${my}" font-family="Lato,Arial,sans-serif" font-size="${costFs}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">${escSvg(String(border.cost))}</text>`;
     }
   }
   return svg;
