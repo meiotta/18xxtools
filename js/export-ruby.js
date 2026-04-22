@@ -10,10 +10,10 @@
 //   exportRubyMap  → hexToDslCode ← state.hexes
 //
 // What IS preserved: nodes, paths, stubs, borders, icons, terrain, labels,
-//   revenue (flat and phase), loc: positions, feature=offboard, location names.
-// What is NOT preserved: placed tiles (hex.tile > 0 is game-state, not map
-//   definition — the underlying DSL of the base hex is exported instead),
-//   TILE_TYPE (not stored on import), module/class hierarchy (generic wrapper).
+//   revenue (flat and phase), loc: positions, feature=offboard, location names,
+//   placed tiles (baked to static DSL with rotation applied — see hexToDslCode).
+// What is NOT preserved: TILE_TYPE (not stored on import), module/class
+//   hierarchy (generic wrapper).
 
 // ── Revenue string helpers ────────────────────────────────────────────────────
 
@@ -35,18 +35,78 @@ function _rbRevenueStr(phases, active) {
 
 // Per-node revenue: prefer node.flat (set when the DSL used a bare number)
 // to avoid turning 'revenue:30' into 'revenue:yellow_30|green_30|brown_30|gray_30'.
+// Also handles node.revenue (set by tile-geometry.js parseDSL for tile-pack tiles).
 function _rbNodeRev(node) {
   if (node.flat !== null && node.flat !== undefined) return String(node.flat);
+  if (node.revenue !== null && node.revenue !== undefined) return String(node.revenue);
   return _rbRevenueStr(node.phaseRevenue, node.activePhases);
+}
+
+// ── Tile rotation helpers ─────────────────────────────────────────────────────
+// Rotate an edge index by R steps of 60°.
+function _rotateEdge(n, r) { return (n + r) % 6; }
+
+// Rotate a loc string by R steps of 60°.
+//   'center'  → 'center'  (unchanged)
+//   '2'       → '3'       (integer loc, rotation 1)
+//   '5.5'     → '0.5'     (half loc, rotation 1, wraps around)
+function _rotateLocStr(locStr, r) {
+  if (!locStr || locStr === 'center' || r === 0) return locStr;
+  const v = parseFloat(locStr);
+  if (isNaN(v)) return locStr;
+  const isHalf = String(locStr).includes('.');
+  const base   = Math.floor(v);
+  const rotated = (base + r) % 6;
+  return isHalf ? String(rotated + 0.5) : String(rotated);
 }
 
 // ── hex object → DSL code string ─────────────────────────────────────────────
 // Inverse of parseDslHex.  Returns '' for blank/white hexes, null for killed.
 // Absent (null) hexes are treated as blank white — they should appear in HEXES
 // as '' so the engine recognises them as playable terrain.
+//
+// Tile baking: if hex.tile is set (a tile was dragged onto this hex), look up
+// the tile definition, apply hex.rotation to all edge indices and loc positions,
+// and export the result as a static DSL hex.  Terrain, borders, and icons that
+// were already on the underlying hex are preserved.
 function hexToDslCode(hex) {
   if (hex?.killed) return null;   // explicitly killed → off-map, omit from HEXES
   if (!hex) return '';            // absent within grid bounds → blank white
+
+  // ── Bake tile placement into static DSL ────────────────────────────────────
+  if (hex.tile) {
+    const tileDef = (typeof TileRegistry !== 'undefined')
+      ? TileRegistry.getTileDef(hex.tile) : null;
+    if (tileDef) {
+      const R = (hex.rotation || 0);
+      // Build a synthetic static hex with rotated nodes/paths from the tile def,
+      // plus any terrain/borders/icons already on the underlying map hex.
+      const synth = {
+        bg:              tileDef.color === 'grey' ? 'gray' : tileDef.color,
+        nodes:           (tileDef.nodes  || []).map(n => ({
+                           ...n,
+                           locStr: _rotateLocStr(n.locStr, R),
+                         })),
+        paths:           (tileDef.paths  || []).map(p => ({
+                           ...p,
+                           a: p.a?.type === 'edge'
+                              ? { type: 'edge', n: _rotateEdge(p.a.n, R) } : p.a,
+                           b: p.b?.type === 'edge'
+                              ? { type: 'edge', n: _rotateEdge(p.b.n, R) } : p.b,
+                         })),
+        label:           tileDef.tileLabel,
+        terrain:         hex.terrain,
+        terrainCost:     hex.terrainCost,
+        terrainHasWater: hex.terrainHasWater,
+        borders:         hex.borders,
+        icons:           hex.icons,
+        hidden:          hex.hidden,
+        cityName:        hex.cityName,
+      };
+      return hexToDslCode(synth);   // re-enter without hex.tile — no infinite loop
+    }
+    // Tile not found in registry — fall through and export static hex fields as-is
+  }
 
   const parts = [];
 
@@ -55,19 +115,25 @@ function hexToDslCode(hex) {
     parts.push(`offboard=revenue:${_rbRevenueStr(hex.phaseRevenue, hex.activePhases)}`);
   }
 
-  // Nodes — city / town / junction
+  // Nodes — city / town / junction / offboard
+  // (offboard nodes appear in baked tile defs; static map offboards use hex.feature above)
   for (const node of (hex.nodes || [])) {
-    if (node.type === 'city') {
+    const origType = node.originalType || node.type;
+    if (origType === 'city') {
       let s = `city=revenue:${_rbNodeRev(node)}`;
       if ((node.slots || 1) > 1) s += `,slots:${node.slots}`;
       if (node.locStr && node.locStr !== 'center') s += `,loc:${node.locStr}`;
       parts.push(s);
-    } else if (node.type === 'town') {
+    } else if (origType === 'town') {
       let s = `town=revenue:${_rbNodeRev(node)}`;
       if (node.locStr && node.locStr !== 'center') s += `,loc:${node.locStr}`;
       parts.push(s);
-    } else if (node.type === 'junction') {
+    } else if (origType === 'junction') {
       parts.push('junction');
+    } else if (origType === 'offboard') {
+      let s = `offboard=revenue:${_rbNodeRev(node)}`;
+      if (node.locStr && node.locStr !== 'center') s += `,loc:${node.locStr}`;
+      parts.push(s);
     }
   }
 
@@ -224,7 +290,13 @@ function exportRubyMap() {
       if (hex?.killed) continue;  // explicitly killed → off-map, skip
 
       const coord = _rbGridToCoord(r, c);
-      const color = hex?.bg || 'white';
+      // Determine color bucket.  For tile hexes hex.bg is unset; read color from tileDef.
+      let color = hex?.bg || 'white';
+      if (!hex?.bg && hex?.tile) {
+        const _td = (typeof TileRegistry !== 'undefined')
+          ? TileRegistry.getTileDef(hex.tile) : null;
+        if (_td) color = (_td.color === 'grey' ? 'gray' : _td.color) || 'white';
+      }
       const code  = hexToDslCode(hex);
       if (code === null) continue;  // should not happen (killed already filtered)
 
