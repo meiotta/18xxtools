@@ -99,6 +99,7 @@ function initMechanicsState() {
     certLimit:    {},
 
     // ── Corporation Rules ──
+    capitalization:          'full',      // :full :incremental :none :escrow
     homeTokenTiming:         'operate',   // :par :float :operate :operating_round
     marketShareLimit:        50,
     bankruptcyAllowed:       true,
@@ -373,6 +374,7 @@ function buildFramework() {
     {
       id: 'corporations', label: 'Corporations',
       items: [
+        { id: 'corp_capitalization', label: 'Capitalization',     value: m.capitalization  || 'full',      status: 'green' },
         { id: 'corp_home_token',  label: 'Home Token Timing',   value: m.homeTokenTiming || 'operate',   status: 'green' },
         { id: 'corp_mkt_limit',   label: 'Market Share Limit',  value: (m.marketShareLimit ?? 50) + '%', status: 'green' },
         { id: 'corp_bankruptcy',  label: 'Bankruptcy',          value: m.bankruptcyAllowed ? 'allowed' : 'disabled', status: 'green' },
@@ -751,7 +753,7 @@ const SECTION_INFO = {
       { key: 'destination_coordinates', type: 'String', desc: '1822-style destination hex for destination token mechanic' },
       { key: 'color',       type: 'Symbol',  desc: 'Token/charter colour — must match a colour defined in the colour palette' },
       { key: 'text_color',  type: 'String',  desc: 'Text colour on the charter (default: black)' },
-      { key: 'float_percent', type: 'Integer', desc: 'Per-corp override of FLOAT_PERCENT; omit to use game default' },
+      { key: 'float_percent', type: 'Integer', desc: 'Float threshold for this corporation (engine default: 60). There is no game-level FLOAT_PERCENT constant — this is always per-corporation.' },
       { key: 'shares',      type: 'Array',   desc: 'Custom share split — defaults to [20,10,10,10,10,10,10,10,10,10] (president + 9)' },
       { key: 'max_ownership_percent', type: 'Integer', desc: 'Maximum % a single player may own — default 60' },
       { key: 'always_market_price', type: 'Boolean', desc: 'If true, shares always sell at market price (no par)' },
@@ -854,6 +856,15 @@ function renderBankPlayers(m) {
 
 function renderCorpRules(m) {
   return `
+    <label>Capitalization <span class="mech-hint-inline">CAPITALIZATION — base.rb default: :full</span>
+      <select data-mkey="capitalization">
+        <option value="full"        ${sel(m.capitalization,'full')}>Full — all IPO cash paid immediately (default)</option>
+        <option value="incremental" ${sel(m.capitalization,'incremental')}>Incremental — cash paid as each share is sold</option>
+        <option value="escrow"      ${sel(m.capitalization,'escrow')}>Escrow — cash held until destination reached (1856)</option>
+        <option value="none"        ${sel(m.capitalization,'none')}>None — no cash paid on float</option>
+      </select>
+    </label>
+    <p class="mech-hint">Per-corporation overrides can be set in the Companies panel.</p>
     <label>Home Token Timing
       <select data-mkey="homeTokenTiming">
         <option value="operate"          ${sel(m.homeTokenTiming,'operate')}>On first operate (default)</option>
@@ -1426,7 +1437,11 @@ function generateGameRb() {
   }
 
   sec('Corporation Rules');
-  lines.push('# Float percent and capitalization → Companies panel (corp packs)');
+  // CAPITALIZATION — only emit when non-full; per-corp overrides go in entities.rb
+  if ((m.capitalization || 'full') !== 'full')
+    def('CAPITALIZATION', `:${m.capitalization}`);
+  // Note: FLOAT_PERCENT is not a real engine constant. float_percent is always
+  // per-corporation in entities.rb (engine default: 60). See export-entities.js.
   if ((m.homeTokenTiming || 'operate') !== 'operate')
     def('HOME_TOKEN_TIMING', `:${m.homeTokenTiming}`);
   if ((m.marketShareLimit ?? 50) !== 50)
