@@ -1241,7 +1241,8 @@ function _rbTrainEvents(hashStr) {
 function _rbParseTrain(hashStr) {
   const label  = _rbStr(hashStr, 'name')  || '';
   const cost   = _rbNum(hashStr, 'price') || 0;
-  const count  = _rbNum(hashStr, 'num')   || 0;
+  // 'unlimited' is a literal Ruby symbol/string used in some games; map to null
+  const count  = /\bnum:\s*['"]?unlimited['"]?/.test(hashStr) ? null : (_rbNum(hashStr, 'num') || 0);
 
   // Restrict distance-sensitive fields to the portion of the hash before any
   // variants: key so that a base train (e.g. 1822 '7' with an E-variant) does
@@ -1319,7 +1320,8 @@ function importGameRb(content) {
     const tr = _rbParseTrain(hashStr);
     if (tr.label) trains.push(tr);
 
-    // Expand variants as sibling trains (e.g. 1822 L-train → 2-variant)
+    // Attach variants as tr.variants[] — they share the parent's pool (count),
+    // not pushed into the flat trains list as siblings.
     const vi = hashStr.indexOf('variants:');
     if (vi === -1) return;
     let bi = hashStr.indexOf('[', vi + 9);
@@ -1330,9 +1332,10 @@ function importGameRb(content) {
       else if (hashStr[ei] === ']') { depth--; if (depth === 0) break; }
       ei++;
     }
+    tr.variants = [];
     _rbSplitHashes(hashStr.slice(bi + 1, ei)).forEach(vh => {
       const vtr = _rbParseTrain(vh);
-      if (vtr.label) trains.push(vtr);
+      if (vtr.label) tr.variants.push(vtr);
     });
   });
 

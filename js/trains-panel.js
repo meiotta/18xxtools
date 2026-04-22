@@ -42,6 +42,9 @@ function renderTrainsTable() {
         const label = calculateTrainLabel(tr);
         const isLinked = tr.linkedPrivateIdx !== undefined && tr.linkedPrivateIdx !== null;
         const linkedSym = isLinked ? 'P' + (tr.linkedPrivateIdx + 1) : '';
+        const hasEvents = !!(tr.events && tr.events.length);
+        const hasVariants = !!(tr.variants && tr.variants.length);
+        const isUnlimited = tr.count === null;
 
         trRow.innerHTML = `
             <td style="padding:0; position:relative;">
@@ -49,19 +52,21 @@ function renderTrainsTable() {
             </td>
             <td>
                 <span class="train-auto-label">${label}</span>
+                ${hasVariants ? `<button class="var-toggle" title="${tr._expanded ? 'Collapse variants' : 'Show variants'}">${tr._expanded ? '▼' : '▶'} ${tr.variants.length}</button>` : ''}
                 ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
+                ${hasEvents ? `<span class="train-events-badge" title="${(tr.events||[]).map(function(ev){return ev.type;}).join(', ')}">⚡ ${(tr.events||[]).length}</span>` : ''}
             </td>
             <td>
-                <div class="config-cell">
-                    <select class="tr-dist-type">
-                        <option value="n" ${tr.distType === 'n' ? 'selected' : ''}>Standard (N)</option>
-                        <option value="xy" ${tr.distType === 'xy' ? 'selected' : ''}>Split (X/Y)</option>
-                        <option value="nm" ${tr.distType === 'nm' ? 'selected' : ''}>Plus (N+M)</option>
-                        <option value="h" ${tr.distType === 'h' ? 'selected' : ''}>Hexes (H)</option>
-                        <option value="u" ${tr.distType === 'u' ? 'selected' : ''}>Unlimited (D/E)</option>
-                    </select>
-                    <div class="tr-dist-inputs"></div>
-                </div>
+                <select class="tr-dist-type">
+                    <option value="n" ${tr.distType === 'n' ? 'selected' : ''}>Steam</option>
+                    <option value="xy" ${tr.distType === 'xy' ? 'selected' : ''}>Split</option>
+                    <option value="nm" ${tr.distType === 'nm' ? 'selected' : ''}>Local</option>
+                    <option value="h" ${tr.distType === 'h' ? 'selected' : ''}>Hex</option>
+                    <option value="u" ${tr.distType === 'u' ? 'selected' : ''}>Diesel</option>
+                </select>
+            </td>
+            <td>
+                <div class="tr-dist-inputs"></div>
             </td>
             <td>
                 <div class="input-with-label">
@@ -70,9 +75,11 @@ function renderTrainsTable() {
                 </div>
             </td>
             <td>
-                <div class="input-with-label">
-                    <span class="input-prefix">QTY</span>
-                    <input type="number" class="tr-count" value="${tr.count || 0}">
+                <div class="qty-chips">
+                    <button class="qty-btn qty-dec"${isUnlimited ? ' disabled' : ''}>−</button>
+                    <span class="qty-val${isUnlimited ? ' is-inf' : ''}">${isUnlimited ? '∞' : (tr.count || 0)}</span>
+                    <button class="qty-btn qty-inc"${isUnlimited ? ' disabled' : ''}>+</button>
+                    <button class="qty-btn qty-inf${isUnlimited ? ' is-active' : ''}" title="${isUnlimited ? 'Set fixed count' : 'Set unlimited'}">${isUnlimited ? '∞ ×' : '∞'}</button>
                 </div>
             </td>
             <td>
@@ -114,7 +121,10 @@ function renderTrainsTable() {
         });
 
         trRow.querySelector('.tr-cost').addEventListener('change', (e) => { tr.cost = parseInt(e.target.value) || 0; autosave(); });
-        trRow.querySelector('.tr-count').addEventListener('change', (e) => { tr.count = parseInt(e.target.value) || 0; autosave(); });
+
+        trRow.querySelector('.qty-dec').addEventListener('click', () => { if (tr.count === null) return; tr.count = Math.max(0, (tr.count || 0) - 1); renderTrainsTable(); autosave(); });
+        trRow.querySelector('.qty-inc').addEventListener('click', () => { if (tr.count === null) return; tr.count = (tr.count || 0) + 1; renderTrainsTable(); autosave(); });
+        trRow.querySelector('.qty-inf').addEventListener('click', () => { tr.count = tr.count === null ? 1 : null; renderTrainsTable(); autosave(); });
 
         trRow.querySelector('.rust-check').addEventListener('change', (e) => {
             tr.rusts = e.target.checked;
@@ -146,13 +156,67 @@ function renderTrainsTable() {
         });
 
         tbody.appendChild(trRow);
+
+        // Expand toggle wire-up
+        if (hasVariants) {
+            trRow.querySelector('.var-toggle').addEventListener('click', () => {
+                tr._expanded = !tr._expanded;
+                renderTrainsTable();
+            });
+        }
+
+        // Variant sub-rows (rendered immediately after parent)
+        if (hasVariants && tr._expanded) {
+            tr.variants.forEach(function(vtr, vi) {
+                const vRow = document.createElement('tr');
+                vRow.className = 'variant-sub-row';
+                const vLabel = calculateTrainLabel(vtr);
+                vRow.innerHTML = `
+                    <td style="padding:0; position:relative;">
+                        <div class="phase-sliver" style="background:${phaseColor}; width:6px; position:absolute; top:0; bottom:0; left:0;"></div>
+                    </td>
+                    <td style="padding-left:18px;">
+                        <span class="variant-indent">↳</span>
+                        <span class="train-auto-label">${vLabel}</span>
+                    </td>
+                    <td>
+                        <select class="vtr-dist-type">
+                            <option value="n" ${vtr.distType === 'n' ? 'selected' : ''}>Steam</option>
+                            <option value="xy" ${vtr.distType === 'xy' ? 'selected' : ''}>Split</option>
+                            <option value="nm" ${vtr.distType === 'nm' ? 'selected' : ''}>Local</option>
+                            <option value="h" ${vtr.distType === 'h' ? 'selected' : ''}>Hex</option>
+                            <option value="u" ${vtr.distType === 'u' ? 'selected' : ''}>Diesel</option>
+                        </select>
+                    </td>
+                    <td><div class="tr-dist-inputs"></div></td>
+                    <td>
+                        <div class="input-with-label">
+                            <span class="input-prefix">COST</span>
+                            <input type="number" class="vtr-cost" value="${vtr.cost || 0}">
+                        </div>
+                    </td>
+                    <td>
+                        <span class="qty-val${isUnlimited ? ' is-inf' : ''}" style="opacity:0.45;" title="Shares pool with ${label}">${isUnlimited ? '∞' : (tr.count || 0)}</span>
+                    </td>
+                    <td></td>
+                    <td>
+                        <button class="table-btn delete-btn vtr-del" title="Remove variant">✕</button>
+                    </td>
+                `;
+                renderDistSubInputs(vtr, vRow.querySelector('.tr-dist-inputs'));
+                vRow.querySelector('.vtr-dist-type').addEventListener('change', function(e) { vtr.distType = e.target.value; renderTrainsTable(); autosave(); });
+                vRow.querySelector('.vtr-cost').addEventListener('change', function(e) { vtr.cost = parseInt(e.target.value) || 0; autosave(); });
+                vRow.querySelector('.vtr-del').addEventListener('click', function() { tr.variants.splice(vi, 1); renderTrainsTable(); autosave(); });
+                tbody.appendChild(vRow);
+            });
+        }
     });
 
     // Inline Add Train Button Row
     const addRow = document.createElement('tr');
     addRow.className = 'add-row-inline';
     addRow.innerHTML = `
-        <td colspan="7" style="padding: 0;">
+        <td colspan="8" style="padding: 0;">
             <button id="inlineAddTrainBtn" style="width: 100%; padding: 12px; background: transparent; border: none; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background 0.2s, color 0.2s;">
                 + Add Train
             </button>
@@ -172,7 +236,8 @@ function renderTrainsTable() {
                 cost: 100,
                 count: 1,
                 rusts: false,
-                phase: ''
+                phase: '',
+                variants: []
             });
             renderTrainsTable();
             autosave();
@@ -264,6 +329,9 @@ function renderPhasesTable() {
     state.phases.forEach((ph, idx) => {
         const row = document.createElement('tr');
         row.innerHTML = `
+            <td style="padding:0; position:relative; width:6px;">
+                <div style="background:${ph.color || '#444'}; width:6px; position:absolute; top:0; bottom:0; left:0;"></div>
+            </td>
             <td>
                 <div style="display:flex; align-items:center;">
                     <input type="color" class="ph-color" value="${ph.color || '#ffffff'}" style="width:24px; height:24px; margin-right:8px; border:none; background:transparent; cursor:pointer;">
@@ -285,6 +353,9 @@ function renderPhasesTable() {
                     <option value="brown" ${ph.tiles === 'brown' ? 'selected' : ''}>+ Brown</option>
                     <option value="grey" ${ph.tiles === 'grey' ? 'selected' : ''}>+ Grey</option>
                 </select>
+            </td>
+            <td class="status-chips-cell">
+                ${(ph.status || []).map(function(s){ return '<span class="status-chip">'+s.replace(/_/g,' ')+'</span>'; }).join('')}
             </td>
             <td>
                 <button class="table-btn delete-btn">✕</button>
@@ -312,7 +383,7 @@ function renderPhasesTable() {
     const addPhaseRow = document.createElement('tr');
     addPhaseRow.className = 'add-row-inline';
     addPhaseRow.innerHTML = `
-        <td colspan="7" style="padding: 0;">
+        <td colspan="8" style="padding: 0;">
             <button id="inlineAddPhaseBtn" style="width: 100%; padding: 12px; background: transparent; border: none; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background 0.2s, color 0.2s;">
                 + Add Phase
             </button>
