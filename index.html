@@ -696,8 +696,26 @@
 
         <style>
           .train-events-badge { display:inline-block; background:#c09020; color:#111; border-radius:8px; font-size:9px; padding:1px 5px; margin-left:4px; vertical-align:middle; cursor:default; font-weight:700; }
-          .status-chip { display:inline-block; background:rgba(255,255,255,0.10); color:#aaa; border-radius:4px; font-size:9px; padding:2px 6px; margin:1px 2px; }
-          .status-chips-cell { vertical-align:middle; }
+          /* ── Status tag picker ─────────────────────────────────────────── */
+          .status-picker-cell { vertical-align:top; padding-top:6px; min-width:160px; }
+          .status-chip { display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.07); border-radius:4px; font-size:9px; padding:2px 5px; margin:1px 2px 1px 0; border-left:2px solid #444; color:#bbb; vertical-align:middle; }
+          .status-chip--universal    { border-left-color:#6366f1; }
+          .status-chip--hook         { border-left-color:#d97706; }
+          .status-chip--family_1856  { border-left-color:#16a34a; }
+          .status-chip--family_1822  { border-left-color:#0891b2; }
+          .status-chip--game_specific{ border-left-color:#7c3aed; }
+          .status-chip--unknown      { border-left-color:#ef4444; color:#f87171; }
+          .status-tier-badge { font-size:7px; font-weight:800; opacity:0.75; }
+          .tier-universal    { color:#818cf8; }
+          .tier-hook         { color:#fbbf24; }
+          .tier-family_1856  { color:#4ade80; }
+          .tier-family_1822  { color:#22d3ee; }
+          .tier-game_specific{ color:#c084fc; }
+          .status-warn-badge { color:#f87171; font-weight:800; font-size:9px; }
+          .status-chip-remove { background:none; border:none; color:#555; cursor:pointer; font-size:9px; padding:0 1px; line-height:1; }
+          .status-chip-remove:hover { color:#ef4444; }
+          .status-add-sel { display:block; background:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.14); color:#666; border-radius:4px; font-size:10px; padding:2px 4px; cursor:pointer; margin-top:3px; max-width:155px; }
+          .status-add-sel:hover, .status-add-sel:focus { background:rgba(255,255,255,0.08); color:#aaa; outline:none; }
           .qty-chips { display:flex; align-items:center; gap:2px; }
           .qty-btn { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12); color:#ccc; border-radius:4px; padding:2px 7px; cursor:pointer; font-size:11px; line-height:1.4; }
           .qty-btn:disabled { opacity:0.22; cursor:not-allowed; }
