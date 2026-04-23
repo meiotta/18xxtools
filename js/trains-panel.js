@@ -361,7 +361,6 @@ function renderPhasesTable() {
     tbody.innerHTML = '';
 
     const TILE_LABEL = { yellow: 'Yellow tiles', green: 'Green unlocked', brown: 'Brown unlocked', grey: 'Grey unlocked' };
-    const STATUS_LABEL = { close_companies: 'Companies close', full_capitalisation: 'Full capitalisation', phase_revenue: 'Phase revenue', close_concessions: 'Concessions close' };
 
     state.phases.forEach((ph, idx) => {
         const triggerTrain = state.trains.find(function(t) { return t.id === ph.onTrain; });
@@ -396,9 +395,7 @@ function renderPhasesTable() {
                     <option value="grey" ${ph.tiles === 'grey' ? 'selected' : ''}>+ Grey</option>
                 </select>
             </td>
-            <td class="status-chips-cell">
-                ${(ph.status || []).map(function(s){ const lbl=STATUS_LABEL[s]||(s.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();})); return '<span class="status-chip" title="'+s+'">'+lbl+'</span>'; }).join('')}
-            </td>
+            <td class="status-picker-cell"></td>
             <td>
                 <button class="table-btn delete-btn">✕</button>
             </td>
@@ -417,6 +414,8 @@ function renderPhasesTable() {
             renderTrainsTable();
             autosave();
         });
+
+        _buildStatusPicker(row.querySelector('.status-picker-cell'), ph, idx);
 
         tbody.appendChild(row);
     });
@@ -445,6 +444,111 @@ function renderPhasesTable() {
         addPhaseBtn.addEventListener('mouseenter', () => { addPhaseBtn.style.color = '#ccc'; addPhaseBtn.style.background = 'rgba(255,255,255,0.04)'; });
         addPhaseBtn.addEventListener('mouseleave', () => { addPhaseBtn.style.color = '#888'; addPhaseBtn.style.background = 'transparent'; });
     }
+}
+
+/**
+ * Tier abbreviation shown inside each status chip badge.
+ */
+function _tierAbbr(tier) {
+    var MAP = { universal: 'U', hook: 'H', family_1856: '56', family_1822: '22', game_specific: 'G' };
+    return MAP[tier] || '?';
+}
+
+/**
+ * Builds the interactive status tag picker into the given <td> element.
+ *
+ * Reads window.KNOWN_STATUS (defined in mechanics-panel.js) for tier metadata.
+ * Falls back gracefully when KNOWN_STATUS is not yet loaded or the key is unknown.
+ * Writes all mutations directly to ph.status[] then calls renderPhasesTable() + autosave().
+ */
+function _buildStatusPicker(cell, ph, phIdx) {
+    cell.innerHTML = '';
+    var statuses = ph.status || [];
+
+    // ── Existing chips ──────────────────────────────────────────────────────
+    statuses.forEach(function(skey, si) {
+        var known = (typeof KNOWN_STATUS !== 'undefined')
+            ? KNOWN_STATUS.find(function(k) { return k.key === skey; })
+            : null;
+
+        var chip = document.createElement('span');
+        chip.className = 'status-chip' + (known ? ' status-chip--' + known.tier : ' status-chip--unknown');
+        chip.title = known ? known.desc : 'Unknown status: ' + skey;
+
+        if (known) {
+            var tb = document.createElement('span');
+            tb.className = 'status-tier-badge tier-' + known.tier;
+            tb.textContent = _tierAbbr(known.tier);
+            chip.appendChild(tb);
+            chip.appendChild(document.createTextNode('\u00a0' + known.label));
+        } else {
+            var wb = document.createElement('span');
+            wb.className = 'status-warn-badge';
+            wb.textContent = '?';
+            chip.appendChild(wb);
+            chip.appendChild(document.createTextNode('\u00a0' + skey));
+        }
+
+        var removeBtn = document.createElement('button');
+        removeBtn.className = 'status-chip-remove';
+        removeBtn.textContent = '\u00d7';
+        removeBtn.title = 'Remove';
+        (function(capturedIdx) {
+            removeBtn.addEventListener('click', function() {
+                ph.status = (ph.status || []).filter(function(_, i) { return i !== capturedIdx; });
+                renderPhasesTable();
+                autosave();
+            });
+        })(si);
+        chip.appendChild(removeBtn);
+        cell.appendChild(chip);
+    });
+
+    // ── "Add status" dropdown from KNOWN_STATUS ─────────────────────────────
+    var sel = document.createElement('select');
+    sel.className = 'status-add-sel';
+
+    var defOpt = document.createElement('option');
+    defOpt.value = '';
+    defOpt.textContent = '+ Add status';
+    sel.appendChild(defOpt);
+
+    var TIER_GROUPS = [
+        { tier: 'universal',     label: 'Universal' },
+        { tier: 'hook',          label: 'Hooks' },
+        { tier: 'family_1856',   label: '1856 Family' },
+        { tier: 'family_1822',   label: '1822 Family' },
+        { tier: 'game_specific', label: 'Game-Specific' }
+    ];
+
+    if (typeof KNOWN_STATUS !== 'undefined') {
+        TIER_GROUPS.forEach(function(grp) {
+            var items = KNOWN_STATUS.filter(function(k) {
+                return k.tier === grp.tier && statuses.indexOf(k.key) === -1;
+            });
+            if (!items.length) return;
+            var og = document.createElement('optgroup');
+            og.label = grp.label;
+            items.forEach(function(k) {
+                var opt = document.createElement('option');
+                opt.value = k.key;
+                var shortDesc = k.desc.length > 55 ? k.desc.substring(0, 55) + '\u2026' : k.desc;
+                opt.textContent = k.label + ' \u2014 ' + shortDesc;
+                og.appendChild(opt);
+            });
+            sel.appendChild(og);
+        });
+    }
+
+    sel.addEventListener('change', function() {
+        if (!sel.value) return;
+        if (!ph.status) ph.status = [];
+        ph.status.push(sel.value);
+        renderPhasesTable();
+        autosave();
+    });
+
+    cell.appendChild(sel);
 }
 
 // ── Initialization ────────────────────────────────────────────────────────────
