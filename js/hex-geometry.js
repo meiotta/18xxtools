@@ -150,6 +150,16 @@ function pixelToHex(px, py, size, orientation) {
   return { row: bestRow, col: bestCol };
 }
 
+// Convert a 0-based letter index to a tobymao coord letter string.
+// Mirrors parseCoordParts in import-ruby.js and _rbLetterStr in export-ruby.js.
+//   0→'A'  …  25→'Z'  26→'AA'  27→'AB'  …  51→'AZ'  52→'BA'  …
+// Formula matches parseCoordParts:  li = 26*(first-64) + (second-65)
+function _hexIdLetter(li) {
+  if (li < 26) return String.fromCharCode(65 + li);
+  return String.fromCharCode(64 + Math.floor(li / 26)) +
+         String.fromCharCode(65 + (li % 26));
+}
+
 function hexId(row, col) {
   const orientation = (typeof state !== 'undefined') ? (state.meta?.orientation ?? 'flat') : 'flat';
 
@@ -170,7 +180,7 @@ function hexId(row, col) {
     const defOdd  = (psp === 1) ? 1 : 2;  // psp=1 maps: B1,B3… offset=1; psp=0: B2,B4… offset=2
     const evenOffset = (typeof state !== 'undefined') ? (state.meta?.pointyEvenOffset ?? defEven) : defEven;
     const oddOffset  = (typeof state !== 'undefined') ? (state.meta?.pointyOddOffset  ?? defOdd)  : defOdd;
-    const letter  = String.fromCharCode(65 + row);
+    const letter  = _hexIdLetter(row);
     const offset  = (row % 2 === 0) ? evenOffset : oddOffset;
     const numPart = 2 * col + offset;
     return letter + numPart;
@@ -184,7 +194,7 @@ function hexId(row, col) {
   // When cp=0: evenCol→even(+2), !evenCol→odd(+1)
   // When cp=1: evenCol→odd(+1),  !evenCol→even(+2)
   const coordRow = ((evenCol) === (cp === 0)) ? (2 * row + 2) : (2 * row + 1);
-  return String.fromCharCode(65 + col) + coordRow;
+  return _hexIdLetter(col) + coordRow;
 }
 
 function terrainCost(type) {
