@@ -44,6 +44,206 @@ const KNOWN_EVENTS = [
   { type: 'close_ndem',               desc: 'NDEM auto-corporation dissolves',                      layer: 'hook' },
 ];
 
+// ---------------------------------------------------------------------------
+// Known phase status vocabulary.
+// Source: STATUS_TEXT constants across 18xx-master lib/engine/game/ files.
+// Format: { key, label, desc, tier, effects[] }
+// Tiers: 'universal' | 'hook' | 'family_1856' | 'family_1822' | 'game_specific'
+// Effects: identifiers for which downstream wiring is required.
+// ---------------------------------------------------------------------------
+const KNOWN_STATUS = [
+  // ── Tier A: Universal engine ──────────────────────────────────────────────
+  // lib/engine/step/buy_company.rb:26, buy_sell_par_shares.rb:301,
+  // single_depot_train_buy.rb:15
+  { key: 'can_buy_companies',
+    label: 'Can Buy Companies',
+    desc: 'All corporations can buy companies from players (OR step)',
+    tier: 'universal', effects: ['buy_company_step'] },
+  { key: 'can_buy_companies_from_other_players',
+    label: 'Interplayer Company Buy',
+    desc: 'Companies can be bought between players after first stock round',
+    tier: 'universal', effects: [] },
+  { key: 'can_buy_companies_operation_round_one',
+    label: 'Buy Companies OR1 Only',
+    desc: 'Corporations may buy companies during first OR of each set only',
+    tier: 'hook', effects: ['buy_company_step'] },
+  { key: 'limited_train_buy',
+    label: 'Limited Train Buy',
+    desc: 'Corporations can only buy one train from the bank per OR',
+    tier: 'universal', effects: ['single_depot_train_buy_step'] },
+  // ── Tier B: Common hooks ──────────────────────────────────────────────────
+  // Require game method or step overrides; editor should generate stub.
+  // g_1822/step/buy_train.rb:13, g_1867/game.rb:153, g_18_co/game.rb:1405,
+  // g_18_mt/game.rb:145, g_18_fr/game.rb:336, g_18_esp/game.rb:514
+  { key: 'can_buy_trains',
+    label: 'Buy Trains From Others',
+    desc: 'Corporations may buy trains from other corporations',
+    tier: 'hook', effects: ['custom_buy_train_step'] },
+  { key: 'export_train',
+    label: 'Train Export',
+    desc: 'At OR end, next available train exported (triggers phase change)',
+    tier: 'hook', effects: ['custom_or_end'] },
+  { key: 'reduced_tile_lay',
+    label: 'Reduced Tile Lay',
+    desc: 'Corporations place only one tile per OR',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'extra_tile_lays',
+    label: 'Extra Tile Lay',
+    desc: 'Corporations receive an additional tile lay slot',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'two_tile_lays',
+    label: 'Two Tile Lays',
+    desc: 'Corporations lay two tiles per OR (where default is one)',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'lay_second_tile',
+    label: 'Second Tile Lay',
+    desc: 'Specific corporations can lay a second tile',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  // ── Tier C: 1856 family — capitalization mode (mutually exclusive) ────────
+  // lib/engine/game/g_1856/game.rb:846–891
+  { key: 'escrow',
+    label: 'Escrow Cap',
+    desc: 'New corps capitalize for first 5 shares; last 5 held in escrow until destinated',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  { key: 'incremental',
+    label: 'Incremental Cap',
+    desc: 'New corps capitalize for all 10 shares as sold, regardless of destination',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  { key: 'fullcap',
+    label: 'Full Cap',
+    desc: 'New corps capitalize 10×par when 60% of IPO is sold',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  // ── Tier D: 1856 family — float threshold (display-only) ─────────────────
+  { key: 'facing_2',  label: '20% to Start', desc: 'Unstarted corp needs 20% sold to start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_3',  label: '30% to Start', desc: 'Unstarted corp needs 30% sold to start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_4',  label: '40% to Start', desc: 'Unstarted corp needs 40% sold to start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_5',  label: '50% to Start', desc: 'Unstarted corp needs 50% sold to start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_6',  label: '60% to Start', desc: 'Unstarted corp needs 60% sold to start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'upgradeable_towns',
+    label: 'Towns Can Be Upgraded',
+    desc: 'Single town tiles can upgrade to plain track or yellow city',
+    tier: 'family_1856', effects: [] },
+  { key: 'no_loans',
+    label: 'No Loans',
+    desc: 'Outstanding loans must be repaid; no new loans may be taken',
+    tier: 'family_1856', effects: [] },
+  // ── Tier E: 1822 family ───────────────────────────────────────────────────
+  // Require 1822 step suite. g_1822/step/buy_sell_par_shares.rb:76,
+  // g_1822/step/minor_acquisition.rb:74, g_1822/game.rb:570,883
+  { key: 'can_convert_concessions',
+    label: 'Convert Concessions',
+    desc: 'A concession can be exchanged for a major corp presidency during SR',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'can_acquire_minor_bidbox',
+    label: 'Acquire Minor from Bidbox',
+    desc: 'During OR, a major can acquire a minor from the bid box for £200',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'can_par',
+    label: 'Majors 50% Float',
+    desc: 'Major corporations require 50% of IPO sold to float',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'full_capitalisation',
+    label: 'Full Capitalisation',
+    desc: 'Major companies receive full capitalisation when floated (1822 British spelling)',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'minors_green_upgrade',
+    label: 'Minors Can Upgrade to Green',
+    desc: 'Minor companies can lay green tiles this phase',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'minor_float_phase1',
+    label: 'Minors Receive £100',
+    desc: 'Minors receive 100 capital with 50 stock value (display only)',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'minor_float_phase2',
+    label: 'Minors Receive 2× Stock Value',
+    desc: 'Minors receive 2× stock value as capital (display only)',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'minor_float_phase3on',
+    label: 'Minors Receive Winning Bid',
+    desc: 'Minors receive entire winning bid as capital (display only)',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'l_upgrade',
+    label: '£70 L-Train Upgrade',
+    desc: 'Cost to upgrade L-train to 2-train reduced from £80 to £70',
+    tier: 'family_1822', effects: [] },
+  // ── Tier F: Corporation lifecycle (game-specific) ─────────────────────────
+  { key: 'national_operates',
+    label: 'National Railway Operates',
+    desc: 'After minors and majors operate, the national runs trains and withholds',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'closable_corporations',
+    label: 'Closable Corporations',
+    desc: 'Unparred corps removed if no home token space available',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'corporate_shares_open',
+    label: 'Corporate Shares Open',
+    desc: 'All corporate shares available for any player to purchase',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'all_corps_available',
+    label: 'All Corporations Available',
+    desc: 'All railroad companies are now available to start',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'full_capitalization',
+    label: 'Full Capitalization',
+    desc: 'Corporations float at 60% and receive full capitalization (1868WY American spelling)',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'normal_formation',
+    label: 'Full Capitalization (18EU)',
+    desc: 'Corps may form without exchanging a minor; 5 remaining shares go to bank pool',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'can_convert_corporation',
+    label: 'Convert Corporation',
+    desc: 'Corporations can convert from 5 shares to 10 shares',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'can_convert_major',
+    label: 'Convert Major National',
+    desc: 'President of PRU/K2S can form Germany or Italy Major National',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // ── Tier G: Stock market modifiers ───────────────────────────────────────
+  { key: 'blue_zone',
+    label: 'Blue Zone Active',
+    desc: 'Stock market price movement to/from blue zone cells is permitted',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'no_new_shorts',
+    label: 'No New Shorts',
+    desc: 'Short selling is not permitted; existing shorts remain',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // ── Tier H: 1862 train kind limits ───────────────────────────────────────
+  { key: 'three_per',   label: '3 Per Kind',      desc: 'Limit of 3 trains of each kind (Freight/Local/Express)', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'two_per',     label: '2 Per Kind',       desc: 'Limit of 2 trains of each kind', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'three_total', label: '3 Total',           desc: 'Limit of 3 trains total across all kinds', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'first_rev',   label: 'First Offboard',   desc: 'First offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'middle_rev',  label: 'Middle Offboard',  desc: 'Middle offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'last_rev',    label: 'Last Offboard',    desc: 'Last offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
+  // ── Minor train limits (18EU) ─────────────────────────────────────────────
+  { key: 'minor_limit_one',
+    label: 'Minor Train Limit: 1',
+    desc: 'Minor companies are limited to owning 1 train',
+    tier: 'game_specific', effects: [] },
+  { key: 'minor_limit_two',
+    label: 'Minor Train Limit: 2',
+    desc: 'Minor companies are limited to owning 2 trains',
+    tier: 'game_specific', effects: [] },
+  // ── 18ESP ────────────────────────────────────────────────────────────────
+  { key: 'mountain_pass',
+    label: 'Mountain Pass',
+    desc: 'Can build mountain passes',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'higher_par_prices',
+    label: 'Higher Par Prices',
+    desc: 'Northern corporations can now par at 95 and 100',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // ── 1824 ─────────────────────────────────────────────────────────────────
+  { key: 'may_exchange_mountain_railways',
+    label: 'Exchange Mountain Railways',
+    desc: 'Mountain railway shares can be exchanged for major corp shares',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'may_exchange_coal_railways',
+    label: 'Exchange Coal Railways',
+    desc: 'Coal railway shares can be exchanged for major corp shares',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+];
+
 // Timing vocabulary for ability `when:` field.
 const ABILITY_TIMING = [
   { value: 'track',                   desc: 'During the normal Track step' },
@@ -373,10 +573,20 @@ function buildFramework() {
     {
       id: 'phases', label: 'Phases',
       empty: phases.length === 0 ? { label: 'No phases defined — use Trains & Phases screen', status: 'red' } : null,
-      items: phases.map(p => ({
-        id: 'phase_' + p.name, label: 'Phase ' + p.name, value: p.on ? 'on ' + p.on : '',
-        status: (p.name && p.on) ? 'green' : 'amber', readonly: true,
-      })),
+      items: phases.map(p => {
+        const trigPart = p.on ? 'on ' + p.on : '';
+        // Resolve status[] strings to short labels via KNOWN_STATUS.
+        const statusParts = (p.status || []).map(s => {
+          const ks = KNOWN_STATUS.find(k => k.key === s);
+          return ks ? ks.label : s;   // fall back to raw key if unknown
+        });
+        const valueParts = [trigPart, ...statusParts].filter(Boolean);
+        return {
+          id: 'phase_' + p.name, label: 'Phase ' + p.name,
+          value: valueParts.join(' · '),
+          status: (p.name && p.on) ? 'green' : 'amber', readonly: true,
+        };
+      }),
     },
 
     // ── CORPORATIONS ───────────────────────────────────────────────────────

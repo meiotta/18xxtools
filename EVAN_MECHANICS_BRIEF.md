@@ -992,3 +992,477 @@ New nav-rail button: "Rulebook" with a book icon, `data-lsec="mechanics"`. Sits 
 8. **COMPANIES `discount:` field** — negative value (used in 1846 for minor companies). Should be captured.
 9. **Ability `lay_count:` / `upgrade_count:`** — split counters for tile_lay abilities that allow multiple lays but only some can be upgrades. Needs to be in the ability schema.
 10. **Ability `must_lay_together:`/`must_lay_all:`** — boolean flags on tile_lay abilities; need to be in the schema.
+
+---
+
+## 11. Phase Status UI Design
+
+### 11.1 How status works in the engine
+
+Source: `lib/engine/phase.rb:70`
+
+```ruby
+@status = phase[:status] || []
+```
+
+`status` is a plain Ruby array of strings stored directly on the Phase object. There is no validation — the engine never checks that a status string is "valid". Whether a status string does anything depends entirely on whether game-specific Ruby code calls `phase.status.include?('that_string')`.
+
+**The canonical label map is `STATUS_TEXT`** — a class-level constant on every game class, established at `lib/engine/game/base.rb:360`:
+
+```ruby
+STATUS_TEXT = {
+  'can_buy_companies' =>
+    ['Can Buy Companies', 'All corporations can buy companies from players'],
+}.freeze
+```
+
+Every game that adds new status strings is expected to extend this via `Base::STATUS_TEXT.merge(...)`. The frontend reads it at `assets/app/view/game/game_info.rb:70`:
+
+```ruby
+phase[:status]&.each do |status|
+  row_events << @game.class::STATUS_TEXT[status] if @game.class::STATUS_TEXT[status]
+end
+```
+
+The value format is always `[short_label, long_description]`. A status string that appears in a phase but is NOT in STATUS_TEXT renders nothing in the phase table — it's invisible to players.
+
+**Implication for the editor:** A phase status string that isn't in STATUS_TEXT is a near-certain bug. The editor should warn on any status string not found in its known vocabulary.
+
+---
+
+### 11.2 Full status taxonomy (researched from 18xx-master)
+
+Every entry below was found via `grep -rn "status.include?\|STATUS_TEXT"` across `lib/engine/` and verified by reading the checking code. File:line citations are the first check location.
+
+#### Tier A — Universal engine (base step classes, works in any game with standard wiring)
+
+| Status string | Short label | What it gates | Engine check | Requires |
+|---|---|---|---|---|
+| `can_buy_companies` | Can Buy Companies | Corporations may buy private companies from players during OR | `lib/engine/step/buy_company.rb:26` | BuyCompany step in OR |
+| `can_buy_companies_from_other_players` | Interplayer Company Buy | Players may trade companies between each other in SR | `lib/engine/step/buy_sell_par_shares.rb:301` | Standard BuySellParShares step |
+| `limited_train_buy` | Limited Train Buy | One depot train purchase per corporation per OR | `lib/engine/step/single_depot_train_buy.rb:15` | SingleDepotTrainBuy step instead of BuyTrain |
+
+**Why these are universal:** They live in base step files shipped with the engine. Any game that includes the standard steps automatically gets the behavior — the status string is the only switch.
+
+#### Tier B — Common hooks (used by multiple game families, require a step or game method override in game.rb)
+
+| Status string | Short label | What it gates | Engine check | Requires |
+|---|---|---|---|---|
+| `can_buy_trains` | Buy Trains From Others | Corporations may buy trains from other corporations | `lib/engine/game/g_1822/step/buy_train.rb:13` | Custom BuyTrain step that checks for this before calling super |
+| `export_train` | Train Export | At OR end, next available train is exported (given to CN, triggering phase change) | `lib/engine/game/g_1867/game.rb:153` (event dispatch in OR) | Custom `operating_round` that calls `export_train!` at round end |
+| `reduced_tile_lay` | Reduced Tile Lay | Corporations place only one tile per OR (overrides normal two-tile budget) | `lib/engine/game/g_18_co/game.rb:1405` | `tile_lays` override returning REDUCED_TILE_LAYS constant |
+| `extra_tile_lays` | Extra Tile Lay | Corporations receive an additional tile lay slot | `lib/engine/game/g_18_mt/game.rb:145` | `tile_lays` override returning EXTRA_TILE_LAYS constant |
+| `two_tile_lays` | Two Tile Lays | Corporations lay two tiles per OR (where default is one) | `lib/engine/game/g_18_fr/game.rb:336` | `tile_lays` override returning TWO_TILE_LAYS constant |
+| `lay_second_tile` | Tile Lay | Specific corporations (e.g. northern corps) can lay a second tile | `lib/engine/game/g_18_esp/game.rb:514` | `tile_lays` override branching on corp type and this status |
+
+**Key insight:** The three tile-lay statuses (`reduced_tile_lay`, `extra_tile_lays`, `two_tile_lays`) do NOT directly change tile lay behavior in the base engine. They are purely phase flags that game-specific `tile_lays` overrides test. A game cannot use these without writing a custom `tile_lays` method. The editor must flag this.
+
+#### Tier C — Capitalization mode (1856 family; mutually exclusive; change corp floatation and cash distribution)
+
+| Status string | Short label | Long description | Engine location |
+|---|---|---|---|
+| `escrow` | Escrow Cap | New corps capitalize for the first 5 shares sold; last 5 shares held in escrow until corp destinated | `lib/engine/game/g_1856/game.rb:846` (STATUS_TEXT) |
+| `incremental` | Incremental Cap | New corps capitalize for all 10 shares as sold, regardless of destination | `lib/engine/game/g_1856/game.rb:851` (STATUS_TEXT) |
+| `fullcap` | Full Cap | New corps capitalize 10×par when 60% of IPO is sold | `lib/engine/game/g_1856/game.rb:856` (STATUS_TEXT) |
+
+These statuses are checked in the G1856 round logic that controls how `float_corporation` is called. They are game-family-specific — only 1856/1836jr56 use them. A game not inheriting G1856 cannot use them without implementing the capitalization-mode switching logic.
+
+#### Tier D — Float percentage (1856 family; display-only; records the float threshold in force this phase)
+
+| Status string | Short label | Meaning |
+|---|---|---|
+| `facing_2` | 20% to start | 20% of IPO must be sold before corp can start |
+| `facing_3` | 30% to start | 30% of IPO must be sold |
+| `facing_4` | 40% to start | 40% of IPO must be sold |
+| `facing_5` | 50% to start | 50% of IPO must be sold |
+| `facing_6` | 60% to start | 60% of IPO must be sold |
+
+Source: `lib/engine/game/g_1856/game.rb:860–888`. These are **display-only** in STATUS_TEXT — they exist to show the current float threshold in the phases table. The actual float threshold is enforced separately in G1856's `can_par?` override, not by reading this status string. Including these in a non-1856 game does nothing mechanically.
+
+#### Tier E — 1822 family (require 1822's custom steps and game structure)
+
+| Status string | Short label | What it gates | Check location |
+|---|---|---|---|
+| `can_convert_concessions` | Convert Concessions | A concession company can be exchanged for a major corp presidency during SR | `lib/engine/game/g_1822/step/buy_sell_par_shares.rb:76` |
+| `can_acquire_minor_bidbox` | Acquire Minor from Bidbox | During OR, a major can acquire a minor from the bid box for £200 | `lib/engine/game/g_1822/step/minor_acquisition.rb:74` |
+| `can_par` | Majors 50% Float | Major corporations require 50% of IPO sold to float | `lib/engine/game/g_1822/game.rb:570` |
+| `full_capitalisation` | Full Capitalisation | Major corps receive full capitalisation when floated (British spelling) | `lib/engine/game/g_1822/game.rb:883` |
+| `minors_green_upgrade` | Minors Can Upgrade to Green | Minor companies can lay green tiles | `lib/engine/game/g_1822/step/tracker.rb:54` |
+| `minor_float_phase1` | Minors Receive £100 | Minors receive 100 capital with 50 stock value | Display only — STATUS_TEXT label |
+| `minor_float_phase2` | Minors Receive 2× Stock Value | Minors receive 2× stock value as capital | Display only — STATUS_TEXT label |
+| `minor_float_phase3on` | Minors Receive Winning Bid | Minors receive entire winning bid as capital | Display only — STATUS_TEXT label |
+| `l_upgrade` | £70 L-Train Upgrade | Cost to upgrade L-train to 2-train reduced from £80 to £70 | `lib/engine/game/g_1822/game.rb` train pricing logic |
+
+These require the full 1822 step suite (WaterfallAuction, MinorAcquisition, custom BuyTrain, custom BuySellParShares). They cannot be used in isolation.
+
+#### Tier F — Corporation lifecycle (game-specific; each requires a custom game method or step)
+
+| Status string | Short label | What it gates | Check location | Game(s) |
+|---|---|---|---|---|
+| `closable_corporations` | Closable Corporations | Unparred corps removed if no home token space available | `lib/engine/game/g_18_co/game.rb:1044` STATUS_TEXT | 18CO |
+| `corporate_shares_open` | Corporate Shares Open | All corp shares available for any player to purchase | `lib/engine/game/g_18_co/game.rb:1044` STATUS_TEXT | 18CO |
+| `can_convert_corporation` | Convert Corporation | Corporations can convert from 5 shares to 10 shares | `lib/engine/game/g_1866/game.rb:95` STATUS_TEXT | 1866 |
+| `can_convert_major` | Convert Major National | President of PRU/K2S can form Germany or Italy Major National | `lib/engine/game/g_1866/game.rb:95` STATUS_TEXT | 1866 |
+| `national_operates` | National Railway Operates | After minors and majors operate, the national runs trains and withholds | `lib/engine/game/g_1861/game.rb:163` STATUS_TEXT | 1861 |
+| `normal_formation` | Full Capitalization (18EU) | Corps may form without exchanging a minor; 5 remaining shares go to bank pool | `lib/engine/game/g_18_eu/game.rb:44` STATUS_TEXT | 18EU |
+| `all_corps_available` | All Railroad Companies Available | All corps now available to start | `lib/engine/game/g_1868_wy/game.rb:125` STATUS_TEXT | 1868WY |
+| `full_capitalization` | Full Capitalization (1868WY) | Corps float at 60% and receive full capitalization | `lib/engine/game/g_1868_wy/game.rb:125` STATUS_TEXT | 1868WY |
+
+#### Tier G — Stock market modifiers (game-specific; require custom StockMarket or round overrides)
+
+| Status string | Short label | What it gates | Check location | Game(s) |
+|---|---|---|---|---|
+| `blue_zone` | Blue Zone Active | Price movement to/from restricted blue zone cells is permitted | `lib/engine/game/g_1849/stock_market.rb:24–25` | 1849 |
+| `no_new_shorts` | No New Shorts | Short selling is not permitted; existing shorts remain | `lib/engine/game/g_1817/game.rb` | 1817 |
+| `no_loans` | Loans May Not Be Taken | Outstanding loans must be repaid; no new loans | `lib/engine/game/g_1856/game.rb:876` STATUS_TEXT | 1856/1836jr56 |
+
+#### Tier H — Train kind limits (1862; require custom train-type tracking in game.rb)
+
+| Status string | Short label | Description | Game |
+|---|---|---|---|
+| `three_per` | 3 Per Kind | Limit of 3 trains of each kind (Freight/Local/Express) | 1862 |
+| `two_per` | 2 Per Kind | Limit of 2 trains of each kind | 1862 |
+| `three_total` | 3 Total | Limit of 3 trains total across all kinds | 1862 |
+| `first_rev` | First Offboard | First offboard/port value used for revenue | 1862 |
+| `middle_rev` | Middle Offboard | Middle offboard/port value used for revenue | 1862 |
+| `last_rev` | Last Offboard | Last offboard/port value used for revenue | 1862 |
+
+Source: `lib/engine/game/g_1862/game.rb:472` STATUS_TEXT.
+
+#### Tier I — Miscellaneous game-specific
+
+| Status string | Short label | Game | Notes |
+|---|---|---|---|
+| `can_buy_companies_operation_round_one` | Buy Companies OR1 | Various | Restricts company purchase to first OR of a set |
+| `minor_limit_one` | Minor Train Limit: 1 | 18EU | Minors limited to 1 train |
+| `minor_limit_two` | Minor Train Limit: 2 | 18EU | Minors limited to 2 trains |
+| `mountain_pass` | Mountain Pass | 18ESP | Can build mountain passes |
+| `higher_par_prices` | Higher Par Prices | 18ESP | Northern corps can par at 95/100 |
+| `may_exchange_mountain_railways` | Exchange Mountain Railways | 1824 | `lib/engine/game/g_1824/game.rb:454` |
+| `may_exchange_coal_railways` | Exchange Coal Railways | 1824 | `lib/engine/game/g_1824/game.rb:472` |
+| `upgradeable_towns` | Towns Can Be Upgraded | 1856 | Single town → plain track or yellow city |
+| `can_acquire_minor_bidbox` | Acquire Minor from Bidbox | 1822 Africa | `lib/engine/game/g_1822_africa/step/minor_acquisition.rb:42` |
+
+---
+
+### 11.3 UI Design
+
+#### The field type: Tag picker with three-tier vocabulary
+
+The `status:` field on a phase must **not** be free text. Every status string is a behavioral switch in Ruby code; an unrecognized string does nothing and produces a silently-invalid game. The correct widget is a **tag picker** — a multi-select input populated from the known vocabulary — with the ability to add custom strings (flagged as "needs custom Ruby").
+
+```
+Phase 3  status: [can_buy_companies ×] [export_train ×]  [+ add status ▾]
+                                                          ┌─────────────────────┐
+                                                          │ 🔍 Filter...        │
+                                                          ├─────────────────────┤
+                                                          │ ── UNIVERSAL ─────  │
+                                                          │ ✓ can_buy_companies │
+                                                          │   limited_train_buy │
+                                                          │   can_buy_companies_│
+                                                          │   from_other_players│
+                                                          ├─────────────────────┤
+                                                          │ ── COMMON HOOKS ─── │
+                                                          │   can_buy_trains    │
+                                                          │   export_train      │
+                                                          │   reduced_tile_lay  │
+                                                          │   extra_tile_lays   │
+                                                          │   two_tile_lays     │
+                                                          ├─────────────────────┤
+                                                          │ ── GAME-SPECIFIC ── │
+                                                          │   escrow            │
+                                                          │   incremental       │
+                                                          │   fullcap           │
+                                                          │   ... (collapsed)   │
+                                                          ├─────────────────────┤
+                                                          │ + Custom string...  │
+                                                          └─────────────────────┘
+```
+
+Each tag in the picker displays the **short label** from STATUS_TEXT (`'Can Buy Companies'`), not the raw key. Hovering a tag shows the long description in a tooltip.
+
+#### Tier badges on each option
+
+Every option in the picker carries a tier badge visible on hover:
+
+| Badge | Meaning |
+|---|---|
+| `UNIVERSAL` | Works with standard step wiring. No custom Ruby needed. |
+| `HOOK REQUIRED` | Needs a game-method override (e.g. `tile_lays`). Editor generates a stub. |
+| `FAMILY: 1856` | Only useful in games inheriting G1856. Will be ignored otherwise. |
+| `FAMILY: 1822` | Only useful in games with 1822 step suite. |
+| `CUSTOM RUBY` | Non-trivial engine code required. Editor exports a warning, not a stub. |
+
+The `HOOK REQUIRED` and `CUSTOM RUBY` distinctions matter for the export path — the game.rb exporter must include stubs or refuse to export with an error depending on tier.
+
+#### How the designer knows which statuses are valid for their game
+
+Three filtering levels, progressively narrowing:
+
+1. **Default view**: Shows Tier A (universal) + Tier B (common hooks) only. The designer can add any of these immediately with a clear understanding of what they do.
+
+2. **"Advanced" toggle**: Reveals Tier C–I (family-specific and game-specific) with tier badges. These are hidden by default because using them without the matching game family wiring is a bug.
+
+3. **Context-aware suppression**: If the designer has not enabled "Minor Acquisition" in the OR Steps panel, all Tier E (1822 family) statuses are greyed out with the tooltip "Requires Minor Acquisition step enabled in OR Structure". Similar suppression for 1856 family statuses when capitalization mode is not set to "1856-style phase-gated".
+
+#### Downstream effects — which other editor sections are affected
+
+When a status tag is selected, a small "effects" banner appears below the tag list:
+
+```
+can_buy_trains  selected
+→  OR Structure: ensure your OR step list includes a BuyTrain step variant that
+   checks this status. Standard BuyTrain does NOT check it — you need a custom step.
+   [View OR Steps panel]
+```
+
+```
+reduced_tile_lay  selected
+→  OR Structure: this status is only active if your tile_lays() override returns
+   REDUCED_TILE_LAYS when this status is present. Standard wiring does not do this.
+   [Generate tile_lays stub]
+```
+
+```
+escrow  selected
+→  Capitalization: this status is part of the 1856 phase-gated capitalization system.
+   You must also set the capitalization mode to "1856-style" and include escrow, 
+   incremental, and fullcap on successive phases.
+   [View Capitalization settings]
+```
+
+The five effects categories and which statuses trigger them:
+
+| Effect category | Triggered by |
+|---|---|
+| "Requires BuyTrain step override" | `can_buy_trains` |
+| "Requires tile_lays override" | `reduced_tile_lay`, `extra_tile_lays`, `two_tile_lays`, `lay_second_tile` |
+| "Part of 1856 capitalization system (all three required)" | `escrow`, `incremental`, `fullcap` |
+| "Requires 1822 step suite" | `can_convert_concessions`, `can_acquire_minor_bidbox`, `can_par`, `full_capitalisation`, `minors_green_upgrade`, `l_upgrade` |
+| "Display-only — no Ruby behavior" | `facing_2`–`facing_6`, `minor_float_phase1/2/3on` |
+
+#### Structural net: status ↔ export validation
+
+Before emitting game.rb, the exporter checks:
+
+1. Any Tier B status that requires a `tile_lays` override → error unless `tileLays.byType` is set for the relevant entity type, or the designer has acknowledged "will write custom `tile_lays` override".
+2. `can_buy_trains` → error unless OR step list includes a BuyTrain variant, or designer acknowledged.
+3. Any of `escrow`/`incremental`/`fullcap` → error unless all three appear across the phase sequence exactly once each (they must form a progression).
+4. Any Tier E (1822 family) status → error unless `orSteps.minorAcquisition` is enabled.
+5. Any custom string (free-text) → warning: "This status will not be displayed to players and will have no effect unless your game.rb includes `phase.status.include?('your_string')` checks and a `STATUS_TEXT` entry."
+
+#### Phase table column in left panel
+
+The existing left-panel phase items (`id: 'phase_N'`) currently show `value: p.on ? 'on ' + p.on : ''`. When a phase has status entries, append them as short labels:
+
+```
+Phase 3  ▸ on 3-train  · Can Buy Companies
+Phase 4  ▸ on 4-train  · Can Buy Companies · Train Export
+Phase 5  ▸ on 5-train
+```
+
+Implementation: after resolving short labels from the `KNOWN_STATUS` lookup table (same approach as `KNOWN_EVENTS`), join them with ` · ` and append to the value field. Long statuses truncate to fit; a `title` attribute shows the full list on hover.
+
+#### Data model additions
+
+The existing `state.mechanics` already stores phases via `state.phases`. Status strings are already captured per-phase as `phase.status[]`. No new state fields are needed.
+
+What IS new: the `KNOWN_STATUS` lookup table in `mechanics-panel.js`, mirroring `KNOWN_EVENTS`:
+
+```javascript
+const KNOWN_STATUS = [
+  // Tier A — Universal
+  { key: 'can_buy_companies',
+    label: 'Can Buy Companies',
+    desc: 'All corporations can buy companies from players',
+    tier: 'universal', effects: ['buy_company_step'] },
+  { key: 'can_buy_companies_from_other_players',
+    label: 'Interplayer Company Buy',
+    desc: 'Companies can be bought between players after first stock round',
+    tier: 'universal', effects: [] },
+  { key: 'limited_train_buy',
+    label: 'Limited Train Buy',
+    desc: 'Corporations can only buy one train from the bank per OR',
+    tier: 'universal', effects: ['single_depot_train_buy_step'] },
+  // Tier B — Common hooks
+  { key: 'can_buy_trains',
+    label: 'Buy Trains From Others',
+    desc: 'Corporations may buy trains from other corporations',
+    tier: 'hook', effects: ['custom_buy_train_step'] },
+  { key: 'export_train',
+    label: 'Train Export',
+    desc: 'At OR end, next available train exported (triggers phase change)',
+    tier: 'hook', effects: ['custom_or_end'] },
+  { key: 'reduced_tile_lay',
+    label: 'Reduced Tile Lay',
+    desc: 'Corporations place only one tile per OR',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'extra_tile_lays',
+    label: 'Extra Tile Lay',
+    desc: 'Corporations receive an additional tile lay slot',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'two_tile_lays',
+    label: 'Two Tile Lays',
+    desc: 'Corporations lay two tiles per OR',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  { key: 'lay_second_tile',
+    label: 'Second Tile Lay',
+    desc: 'Specific corporations can lay a second tile',
+    tier: 'hook', effects: ['tile_lays_override'] },
+  // Tier C — 1856 family capitalization
+  { key: 'escrow',
+    label: 'Escrow Cap',
+    desc: 'New corps capitalize for first 5 shares; last 5 held in escrow until destinated',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  { key: 'incremental',
+    label: 'Incremental Cap',
+    desc: 'New corps capitalize for all 10 shares as sold',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  { key: 'fullcap',
+    label: 'Full Cap',
+    desc: 'New corps capitalize 10×par when 60% of IPO is sold',
+    tier: 'family_1856', effects: ['cap_mode_1856'] },
+  // Tier D — 1856 family float threshold (display-only)
+  { key: 'facing_2', label: '20% to Start',
+    desc: 'An unstarted corp needs 20% sold from IPO to start',
+    tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_3', label: '30% to Start',
+    desc: 'An unstarted corp needs 30% sold from IPO to start',
+    tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_4', label: '40% to Start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_5', label: '50% to Start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'facing_6', label: '60% to Start', tier: 'family_1856', effects: ['display_only'] },
+  { key: 'upgradeable_towns',
+    label: 'Towns Can Be Upgraded',
+    desc: 'Single town tiles can upgrade to plain track or yellow city',
+    tier: 'family_1856', effects: [] },
+  { key: 'no_loans',
+    label: 'No Loans',
+    desc: 'Outstanding loans must be repaid; no new loans may be taken',
+    tier: 'family_1856', effects: [] },
+  // Tier E — 1822 family
+  { key: 'can_convert_concessions',
+    label: 'Convert Concessions',
+    desc: 'A concession can be exchanged for a major corp presidency during SR',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'can_acquire_minor_bidbox',
+    label: 'Acquire Minor from Bidbox',
+    desc: 'During OR, a major can acquire a minor from the bid box for £200',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'can_par',
+    label: 'Majors 50% Float',
+    desc: 'Major corporations require 50% of IPO sold to float',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'full_capitalisation',
+    label: 'Full Capitalisation',
+    desc: 'Major companies receive full capitalisation when floated',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'minors_green_upgrade',
+    label: 'Minors Can Upgrade to Green',
+    desc: 'Minor companies can lay green tiles this phase',
+    tier: 'family_1822', effects: ['minor_acquisition_step'] },
+  { key: 'minor_float_phase1',
+    label: 'Minors Receive £100',
+    desc: 'Minors receive 100 capital with 50 stock value',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'minor_float_phase2',
+    label: 'Minors Receive 2× Stock Value',
+    desc: 'Minors receive 2× stock value as capital',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'minor_float_phase3on',
+    label: 'Minors Receive Winning Bid',
+    desc: 'Minors receive entire winning bid as capital',
+    tier: 'family_1822', effects: ['display_only'] },
+  { key: 'l_upgrade',
+    label: '£70 L-Train Upgrade',
+    desc: 'Cost to upgrade L-train to 2-train reduced from £80 to £70',
+    tier: 'family_1822', effects: [] },
+  // Tier F — Corporation lifecycle (game-specific)
+  { key: 'national_operates',
+    label: 'National Railway Operates',
+    desc: 'After minors and majors operate, the national runs trains and withholds',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'closable_corporations',
+    label: 'Closable Corporations',
+    desc: 'Unparred corps removed if no home token space available',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'corporate_shares_open',
+    label: 'Corporate Shares Open',
+    desc: 'All corporate shares available for any player to purchase',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'all_corps_available',
+    label: 'All Corporations Available',
+    desc: 'All railroad companies are now available to start',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'full_capitalization',
+    label: 'Full Capitalization',
+    desc: 'Corporations float at 60% and receive full capitalization (1868WY spelling)',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // Tier G — Stock market (game-specific)
+  { key: 'blue_zone',
+    label: 'Blue Zone Active',
+    desc: 'Stock market price movement to/from blue zone cells is permitted',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'no_new_shorts',
+    label: 'No New Shorts',
+    desc: 'Short selling is not permitted; existing shorts remain',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // Tier H — 1862 train kinds
+  { key: 'three_per', label: '3 Per Kind', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'two_per',   label: '2 Per Kind', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'three_total', label: '3 Total',  tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'first_rev',  label: 'First Offboard',  tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'middle_rev', label: 'Middle Offboard', tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'last_rev',   label: 'Last Offboard',   tier: 'game_specific', effects: ['custom_ruby'] },
+  // 18EU / minor train limits
+  { key: 'minor_limit_one',
+    label: 'Minor Train Limit: 1',
+    desc: 'Minor companies are limited to owning 1 train',
+    tier: 'game_specific', effects: [] },
+  { key: 'minor_limit_two',
+    label: 'Minor Train Limit: 2',
+    desc: 'Minor companies are limited to owning 2 trains',
+    tier: 'game_specific', effects: [] },
+  // 18ESP
+  { key: 'mountain_pass',
+    label: 'Mountain Pass',
+    desc: 'Can build mountain passes',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'higher_par_prices',
+    label: 'Higher Par Prices',
+    desc: 'Northern corporations can now par at 95 and 100',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'lay_second_tile',
+    label: 'Second Tile Lay',
+    desc: 'Northern corporations can lay a second tile',
+    tier: 'game_specific', effects: ['tile_lays_override'] },
+  // 1824
+  { key: 'may_exchange_mountain_railways',
+    label: 'Exchange Mountain Railways',
+    desc: 'Mountain railway shares can be exchanged for major corp shares',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  { key: 'may_exchange_coal_railways',
+    label: 'Exchange Coal Railways',
+    desc: 'Coal railway shares can be exchanged for major corp shares',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // 18EU normal_formation
+  { key: 'normal_formation',
+    label: 'Full Capitalization (18EU)',
+    desc: 'Corps may form without exchanging a minor; 5 remaining shares go to bank pool',
+    tier: 'game_specific', effects: ['custom_ruby'] },
+  // Can buy companies variants
+  { key: 'can_buy_companies_operation_round_one',
+    label: 'Buy Companies OR1 Only',
+    desc: 'Corporations may buy companies during the first OR of each set only',
+    tier: 'hook', effects: ['buy_company_step'] },
+];
+```
+
+#### Where KNOWN_STATUS lives
+
+This constant belongs in `js/mechanics-panel.js`, adjacent to `KNOWN_EVENTS`. It is used in:
+1. The Phases panel right-side status tag picker (to be built in a future task)
+2. The left-panel phase items (to convert raw status strings to short labels in the tree)
+3. The export validator (to flag Tier C/D/E/F/G/H statuses that require additional wiring)
+
+**Note:** The Phases panel (Farrah's domain) is the primary edit surface for status. The mechanics panel reads status from `state.phases` and uses `KNOWN_STATUS` for display and validation. The `KNOWN_STATUS` constant is defined in `mechanics-panel.js` and exposed as a global so Farrah's panel can import it by reference from the same bundle (no module system — global is fine since both load in the same HTML context).
