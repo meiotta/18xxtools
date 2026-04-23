@@ -1611,9 +1611,60 @@ function importGameRb(content) {
     ph.onTrain = target ? target.id : '';
   });
 
+  // ── Step 4: @company_trains linkage ───────────────────────────────────────
+  // Source: lib/engine/game/g_1822/game.rb init_company_trains method.
+  // Pattern: @company_trains['SYM'] = find_and_remove_train_by_id('LABEL-N'[, buyable: false])
+  // Train ID format is always LABEL-N where N is the 0-based slot index.
+  // We attach grantedBy: [{sym, name, buyable}] to the train object so
+  // the trains panel can group and label private company trains separately.
+  const companyTrainLinks = _rbParseCompanyTrains(src);
+  if (companyTrainLinks.length) {
+    const byLabel = {};
+    companyTrainLinks.forEach(lk => {
+      (byLabel[lk.trainLabel] = byLabel[lk.trainLabel] || []).push(lk);
+    });
+    trains.forEach(tr => {
+      const links = byLabel[tr.label];
+      if (!links || !links.length) return;
+      links.sort((a, b) => a.trainIndex - b.trainIndex);
+      tr.grantedBy = links.map(lk => {
+        // Best-effort name lookup — null if entities not yet imported.
+        // Farrah should also do a live lookup at render time in case
+        // entities are imported after game.rb.
+        const priv = (typeof state !== 'undefined' && (state.privates || []))
+                       .find(p => p.sym === lk.privateSym);
+        return { sym: lk.privateSym, name: priv ? priv.name : null, buyable: lk.buyable };
+      });
+      // privateOnly: every train instance is locked to a private (none from open depot)
+      tr.privateOnly = (tr.count !== null) &&
+                       (tr.grantedBy.length >= (tr.count || 1)) &&
+                       tr.grantedBy.every(g => !g.buyable);
+    });
+  }
+
   const mechanics = _rbParseMechanics(src);
 
   return { trains, phases, mechanics };
+}
+
+// Parses all @company_trains[...] = find_and_remove_train_by_id(...) assignments
+// from a game.rb source string (comments already stripped by caller).
+// Returns array of { privateSym, trainLabel, trainIndex, buyable }.
+function _rbParseCompanyTrains(src) {
+  const result = [];
+  // Regex handles both quoted key styles and optional buyable: false argument.
+  const re = /@company_trains\[['"]([^'"]+)['"]\]\s*=\s*find_and_remove_train_by_id\(['"]([^'"]+)['"](?:[^)]*\bbuyable:\s*(false|true))?/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const privateSym = m[1];
+    const trainId    = m[2];                    // e.g. '2P-0', 'P+-1', 'LP-0'
+    const buyable    = (m[3] !== 'false');      // default true when arg is absent
+    // Train ID is always LABEL-N — split on the last hyphen-followed-by-digits
+    const idM = trainId.match(/^(.+)-(\d+)$/);
+    if (!idM) continue;
+    result.push({ privateSym, trainLabel: idM[1], trainIndex: parseInt(idM[2], 10), buyable });
+  }
+  return result;
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
