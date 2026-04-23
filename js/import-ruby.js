@@ -1627,20 +1627,22 @@ function importGameRb(content) {
       const links = byLabel[tr.label];
       if (!links || !links.length) return;
       links.sort((a, b) => a.trainIndex - b.trainIndex);
-      tr.grantedBy = links.map(lk => {
-        // Best-effort name lookup — null if entities not yet imported.
-        // Farrah should also do a live lookup at render time in case
-        // entities are imported after game.rb.
-        const priv = (typeof state !== 'undefined' && (state.privates || []))
-                       .find(p => p.sym === lk.privateSym);
-        return { sym: lk.privateSym, name: priv ? priv.name : null, buyable: lk.buyable };
-      });
+      tr.grantedBy = links.map(lk => ({
+        sym:     lk.privateSym,
+        name:    null,   // resolved by _resolveGrantedByNames() below
+        buyable: lk.buyable,
+      }));
       // privateOnly: every train instance is locked to a private (none from open depot)
       tr.privateOnly = (tr.count !== null) &&
                        (tr.grantedBy.length >= (tr.count || 1)) &&
                        tr.grantedBy.every(g => !g.buyable);
     });
   }
+
+  // Best-effort name fill — may leave names null when entities not yet imported.
+  // The entities import wire-up calls _resolveGrantedByNames() after setting
+  // state.privates, which covers the game.rb-first workflow.
+  _resolveGrantedByNames(trains);
 
   const mechanics = _rbParseMechanics(src);
 
@@ -1665,6 +1667,24 @@ function _rbParseCompanyTrains(src) {
     result.push({ privateSym, trainLabel: idM[1], trainIndex: parseInt(idM[2], 10), buyable });
   }
   return result;
+}
+
+// Fills null name entries in any tr.grantedBy arrays by looking up each sym
+// in the supplied privates list (defaults to state.privates when omitted).
+// Names are a snapshot — if a private is renamed after import, use g.name || g.sym
+// for display (sym is the stable identifier). This should NOT be hooked into the
+// Companies panel save path; Evan's display code already has the g.name || g.sym
+// fallback.
+function _resolveGrantedByNames(trains, privates) {
+  const privList = privates || (typeof state !== 'undefined' && state.privates) || [];
+  (trains || (typeof state !== 'undefined' && state.trains) || []).forEach(tr => {
+    if (!tr.grantedBy) return;
+    tr.grantedBy.forEach(g => {
+      if (g.name) return; // already resolved — don't overwrite
+      const priv = privList.find(p => p.sym === g.sym);
+      if (priv) g.name = priv.name;
+    });
+  });
 }
 
 // ── Wire up the Import Map button ─────────────────────────────────────────────
@@ -1957,6 +1977,12 @@ document.getElementById('importEntitiesFile').addEventListener('change', (e) => 
       const { privates, packs } = importEntitiesRb(ev.target.result);
 
       state.privates = privates;
+
+      // Re-resolve grantedBy names now that privates are available.
+      // Handles the case where game.rb was imported before entities.rb,
+      // leaving tr.grantedBy[].name as null.
+      _resolveGrantedByNames(state.trains, privates);
+
       if (!state.corpPacks) state.corpPacks = [];
       packs.forEach(newPack => {
         const xi = state.corpPacks.findIndex(p => p.type === newPack.type);
