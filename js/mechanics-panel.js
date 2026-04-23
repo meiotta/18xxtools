@@ -352,10 +352,21 @@ function buildFramework() {
     // ── SPECIAL TRAINS (only if present) ───────────────────────────────────
     ...(trains.some(t => t._isSpecial) ? [{
       id: 'special_trains', label: 'Special Trains',
-      items: trains.filter(t => t._isSpecial).map(t => ({
-        id: 'strain_' + t.name, label: t.name, value: t.cost !== undefined ? '$' + t.cost : '',
-        status: (t.name && t.cost !== undefined) ? 'green' : 'amber', readonly: true,
-      })),
+      items: trains.filter(t => t._isSpecial).map(t => {
+        const costPart = t.cost !== undefined ? '$' + t.cost : '';
+        let note;
+        if (t.privateOnly) {
+          note = 'private only — not from depot';
+        } else if (t.grantedBy && t.grantedBy.length) {
+          const granters = t.grantedBy.map(g => g.name || g.sym).join(', ');
+          note = 'depot-buyable · linked to ' + granters;
+        }
+        return {
+          id: 'strain_' + t.name, label: t.name,
+          value: costPart + (note ? ' · ' + note : ''),
+          status: (t.name && t.cost !== undefined) ? 'green' : 'amber', readonly: true,
+        };
+      }),
     }] : []),
 
     // ── PHASES ─────────────────────────────────────────────────────────────
@@ -402,13 +413,36 @@ function buildFramework() {
       id: 'private_companies', label: 'Private Companies',
       optional: true,
       empty: privates.length === 0 ? { label: 'None defined — optional', status: 'amber' } : null,
-      items: privates.map(p => ({
-        id: 'priv_' + (p.abbr || p.name),
-        label: p.abbr || p.name || '?',
-        value: p.value !== undefined ? '$' + p.value : '',
-        status: (p.abbr && p.value !== undefined) ? 'green' : 'amber',
-        readonly: true,
-      })),
+      items: privates.map(p => {
+        // Determine if this private grants a train.
+        // Path 1: user-built grants_train ability on the private itself.
+        const grantAbility = (p.abilities || []).find(a => a.type === 'grants_train');
+        // Path 2: import-time linkage — tr.grantedBy contains {sym, name} entries.
+        const linkedTrain = !grantAbility
+          ? trains.find(tr => tr.grantedBy && tr.grantedBy.some(g => g.sym === p.sym || g.sym === p.abbr))
+          : null;
+
+        let grantNote = '';
+        if (grantAbility) {
+          // trainKindLabel returns e.g. 'L', 'P', '2P' — append '-train' for readability.
+          const kindStr = (typeof trainKindLabel === 'function')
+            ? trainKindLabel(grantAbility.trainKind, grantAbility.distance) + '-train'
+            : (grantAbility.trainKind || '?') + '-train';
+          grantNote = ' · grants ' + kindStr;
+        } else if (linkedTrain) {
+          grantNote = ' · grants ' + linkedTrain.name + '-train';
+        }
+
+        return {
+          id: 'priv_' + (p.abbr || p.name),
+          label: p.abbr
+            ? (p.name && p.name !== p.abbr ? p.abbr + ' — ' + p.name : p.abbr)
+            : (p.name || '?'),
+          value: (p.value !== undefined ? '$' + p.value : '') + grantNote,
+          status: (p.abbr && p.value !== undefined) ? 'green' : 'amber',
+          readonly: true,
+        };
+      }),
     },
 
     // ── STOCK ROUND RULES ─────────────────────────────────────────────────
@@ -440,7 +474,9 @@ function buildFramework() {
       optional: true,
       empty: (m.events || []).length === 0 ? { label: 'No event triggers defined', status: 'amber' } : null,
       items: (m.events || []).map((ev, i) => ({
-        id: 'event_' + i, label: ev.triggerOn + '-train purchase', value: ev.eventType, status: 'green',
+        id: 'event_' + i, label: ev.triggerOn + '-train purchase',
+        value: (KNOWN_EVENTS.find(e => e.type === ev.eventType)?.desc || ev.eventType),
+        status: 'green',
       })),
     },
 
@@ -466,9 +502,20 @@ function _cashTableFilled(tbl) {
 function _describeEbuy(m) {
   return { value: 'at face value', never: 'depot only', always: 'any source' }[m.ebuyFromOthers || 'value'] || m.ebuyFromOthers;
 }
+const _GEC_LABELS = {
+  bank:            'Bank empties',
+  bankrupt:        'Player bankrupt',
+  stock_market:    'Stock market end cell',
+  final_train:     'Final train bought',
+  final_phase:     'Final phase reached',
+  custom:          'Custom condition',
+  all_train:       'All trains bought',
+  operating_round: 'Operating round limit',
+};
 function _describeGameEnd(gec) {
   if (!gec) return 'not set';
-  const active = Object.entries(gec).filter(([, v]) => v.enabled).map(([k]) => k);
+  const active = Object.entries(gec).filter(([, v]) => v.enabled)
+    .map(([k]) => _GEC_LABELS[k] || k);
   return active.length ? active.join(', ') : 'none';
 }
 function _gameEndStatus(gec) {
@@ -1242,7 +1289,7 @@ function renderEventsSection(m) {
 
   const rows = (m.events || []).map((ev, i) => `
     <div class="mech-event-row">
-      <span>When first <strong>${ev.triggerOn}</strong>-train bought → <em>${ev.eventType}</em></span>
+      <span>When first <strong>${ev.triggerOn}</strong>-train bought → <em>${KNOWN_EVENTS.find(e => e.type === ev.eventType)?.desc || ev.eventType}</em></span>
       <button class="mech-btn-small mech-btn-danger" data-remove-event="${i}">✕</button>
     </div>`).join('') || '<p class="mech-hint">No event triggers defined.</p>';
 
