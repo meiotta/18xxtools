@@ -4,6 +4,22 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Human-readable display name: label for standard trains, label + company attribution for private trains.
+ * Callable from mechanics-panel via window.getTrainDisplayName(tr).
+ */
+function getTrainDisplayName(tr) {
+    if (!tr) return '—';
+    const label = calculateTrainLabel(tr);
+    if (tr.grantedBy && tr.grantedBy.length) {
+        const companies = tr.grantedBy.map(function(g) {
+            return g.name ? g.sym + ' \u2014 ' + g.name : g.sym;
+        });
+        return label + ' \xb7 ' + companies.join(', ');
+    }
+    return label;
+}
+
+/**
  * Automatically generates a label (e.g. "2", "4/2", "3+1") based on train configuration.
  */
 function calculateTrainLabel(tr) {
@@ -30,12 +46,28 @@ function renderTrainsTable() {
 
     if (!state.phases) state.phases = [];
 
-    // Primary sort by cost
-    state.trains.sort((a, b) => (a.cost || 0) - (b.cost || 0));
+    // Sort: standard buyable trains by cost ascending; private/granted trains at bottom.
+    // tr.privateOnly is set by importGameRb when every instance is locked to a private company.
+    state.trains.sort((a, b) => {
+        const pa = !!a.privateOnly, pb = !!b.privateOnly;
+        if (pa !== pb) return pa ? 1 : -1;
+        if (!pa) return (a.cost || 0) - (b.cost || 0);
+        return (a.label || '').localeCompare(b.label || '');
+    });
 
+    let _specialSepAdded = false;
     state.trains.forEach((tr, idx) => {
+        // Insert "Private Company Trains" section header before first private train
+        if (tr.privateOnly && !_specialSepAdded) {
+            _specialSepAdded = true;
+            const sepRow = document.createElement('tr');
+            sepRow.className = 'train-section-sep';
+            sepRow.innerHTML = '<td colspan="8" class="train-section-label">Private Company Trains</td>';
+            tbody.appendChild(sepRow);
+        }
+        const isSpecial = !!tr.privateOnly;
         const trRow = document.createElement('tr');
-        trRow.className = 'train-grid-row';
+        trRow.className = 'train-grid-row' + (isSpecial ? ' train-special-row' : '');
 
         const phase = state.phases.find(p => p.name === tr.phase);
         const phaseColor = phase ? (phase.color || '#444') : 'transparent';
@@ -55,6 +87,8 @@ function renderTrainsTable() {
                 ${hasVariants ? `<button class="var-toggle" title="${tr._expanded ? 'Collapse variants' : 'Show variants'}">${tr._expanded ? '▼' : '▶'} ${tr.variants.length}</button>` : ''}
                 ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
                 ${hasEvents ? `<span class="train-events-badge" title="${(tr.events||[]).map(function(ev){return ev.type;}).join(', ')}">⚡ ${(tr.events||[]).length}</span>` : ''}
+                ${isSpecial && tr.grantedBy && tr.grantedBy.length ? `<div class="train-granted-line">${tr.grantedBy.map(function(g){return g.name?g.sym+' \u2014 '+g.name:g.sym;}).join(' &middot; ')}</div>` : ''}
+                ${isSpecial && (!tr.grantedBy || !tr.grantedBy.length) ? '<div class="train-granted-line">Permanent — not in open depot</div>' : ''}
             </td>
             <td>
                 <select class="tr-dist-type">
@@ -326,7 +360,14 @@ function renderPhasesTable() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
+    const TILE_LABEL = { yellow: 'Yellow tiles', green: 'Green unlocked', brown: 'Brown unlocked', grey: 'Grey unlocked' };
+    const STATUS_LABEL = { close_companies: 'Companies close', full_capitalisation: 'Full capitalisation', phase_revenue: 'Phase revenue', close_concessions: 'Concessions close' };
+
     state.phases.forEach((ph, idx) => {
+        const triggerTrain = state.trains.find(function(t) { return t.id === ph.onTrain; });
+        const triggerDesc  = triggerTrain ? 'First ' + calculateTrainLabel(triggerTrain) + '-train bought' : (idx === 0 ? 'Game start' : 'Manual trigger');
+        const phaseDesc    = [triggerDesc, TILE_LABEL[ph.tiles] || ph.tiles, (ph.ors || 2) + ' ORs', 'Limit ' + (ph.limit || 4)].join(' · ');
+
         const row = document.createElement('tr');
         row.innerHTML = `
             <td style="padding:0; position:relative; width:6px;">
@@ -337,6 +378,7 @@ function renderPhasesTable() {
                     <input type="color" class="ph-color" value="${ph.color || '#ffffff'}" style="width:24px; height:24px; margin-right:8px; border:none; background:transparent; cursor:pointer;">
                     <input type="text" class="ph-name" value="${ph.name || ''}" placeholder="e.g. 2">
                 </div>
+                <div class="phase-auto-desc">${phaseDesc}</div>
             </td>
             <td>
                 <select class="ph-trigger">
@@ -355,7 +397,7 @@ function renderPhasesTable() {
                 </select>
             </td>
             <td class="status-chips-cell">
-                ${(ph.status || []).map(function(s){ return '<span class="status-chip">'+s.replace(/_/g,' ')+'</span>'; }).join('')}
+                ${(ph.status || []).map(function(s){ const lbl=STATUS_LABEL[s]||(s.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();})); return '<span class="status-chip" title="'+s+'">'+lbl+'</span>'; }).join('')}
             </td>
             <td>
                 <button class="table-btn delete-btn">✕</button>
