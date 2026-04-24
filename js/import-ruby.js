@@ -306,8 +306,14 @@ function parseDslHex(code, bg, locationName) {
         ? active : { yellow:true, green:true, brown:true, gray:true };
       if (cityCount === 1) {
         hex.slots = slots;
-        hex.phaseRevenue = phases;
-        hex.activePhases = nodeActive;
+        // Do NOT overwrite hex-level phaseRevenue / activePhases when this is
+        // an offboard hex — the offboard= declaration already set those fields
+        // and its phase-variable revenue (e.g. yellow_30|green_40|brown_60|gray_80)
+        // must not be clobbered by the city's revenue:0.
+        if (hex.feature !== 'offboard') {
+          hex.phaseRevenue = phases;
+          hex.activePhases = nodeActive;
+        }
       }
       hex.nodes.push({ type: 'city', slots, flat: flatVal,
         phaseRevenue: phases, activePhases: nodeActive, locStr });
