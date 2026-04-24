@@ -1872,212 +1872,159 @@ function _showTileCollisionDialog(collisions, onApply) {
   document.body.appendChild(overlay);
 }
 
+// ── apply helpers — called by both file and URL import paths ──────────────────
+
+// Parses map content, handles tile collision dialog, applies to state.
+// sourceName is a display string (filename or URL label) for the status bar.
+function applyMapImport(content, sourceName) {
+  const result = importRubyMap(content);
+
+  const applyResult = (swaps, buildAsCustom) => {
+    const remapHexTile = (oldId, newId) => {
+      for (const hex of Object.values(result.hexes)) {
+        if (hex.tile !== undefined && hex.tile !== null && String(hex.tile) === oldId)
+          hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
+      }
+    };
+    for (const [oldId, newId] of Object.entries(buildAsCustom || {})) {
+      remapHexTile(oldId, newId);
+      result.customTiles[newId] = result.customTiles[oldId];
+      delete result.customTiles[oldId];
+    }
+    for (const [oldId, newId] of Object.entries(swaps || {})) {
+      remapHexTile(oldId, newId);
+      delete result.customTiles[oldId];
+    }
+    state.hexes = result.hexes;
+    state.meta.rows               = result.rows;
+    state.meta.cols               = result.cols;
+    state.meta.orientation        = result.orientation;
+    state.meta.staggerParity      = result.staggerParity;
+    state.meta.coordParity        = result.coordParity;
+    state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
+    state.meta.pointyEvenOffset   = result.pointyEvenOffset;
+    state.meta.pointyOddOffset    = result.pointyOddOffset;
+    state.meta.maxRowPerCol       = result.maxRowPerCol;
+    if (Object.keys(result.manifest).length > 0) {
+      state.manifest = result.manifest;
+      if (!state.customTiles) state.customTiles = {};
+      Object.assign(state.customTiles, result.customTiles);
+      if (Object.keys(result.customTiles).length > 0)
+        TileRegistry.setEmbeddedTiles(result.customTiles);
+    }
+    syncOrientationSelect();
+    syncDimInputs();
+    panX = 0; panY = 0; zoom = 1;
+    render();
+    autosave();
+    const staticCount = Object.values(result.hexes).filter(h => h.static).length;
+    const tileCount   = Object.keys(result.manifest).length;
+    const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
+    updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg} from ${sourceName}`);
+  };
+
+  const collisions = Object.keys(result.customTiles).length > 0
+    ? TileRegistry.detectEmbeddedCollisions(result.customTiles) : [];
+  if (collisions.length > 0) _showTileCollisionDialog(collisions, applyResult);
+  else applyResult({}, {});
+}
+
+// Parses entities content and applies to state.
+function applyEntitiesImport(content, sourceName) {
+  const { privates, packs } = importEntitiesRb(content);
+  state.privates = privates;
+  _resolveGrantedByNames(state.trains, privates);
+  if (!state.corpPacks) state.corpPacks = [];
+  packs.forEach(newPack => {
+    const xi = state.corpPacks.findIndex(p => p.type === newPack.type);
+    if (xi !== -1) state.corpPacks[xi] = newPack;
+    else state.corpPacks.push(newPack);
+  });
+  if (typeof _selectedPrivateIdx !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
+  if (typeof renderPrivatesCards    === 'function') renderPrivatesCards();
+  if (typeof renderCorpsSection     === 'function') renderCorpsSection();
+  if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
+  autosave();
+  document.getElementById('fileMenu').style.display = 'none';
+  const pCount    = privates.length;
+  const cCount    = packs.reduce((s, p) => s + p.companies.length, 0);
+  const concCount = privates.filter(p => p.companyType === 'concession').length;
+  const abCount   = privates.reduce((s, p) => s + (p.abilities || []).length, 0);
+  updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations from ${sourceName}`);
+}
+
+// Parses game.rb content and applies trains / phases / mechanics to state.
+function applyGameImport(content, sourceName) {
+  const { trains, phases, mechanics } = importGameRb(content);
+  state.trains = trains;
+  state.phases = phases;
+  if (mechanics && Object.keys(mechanics).length) {
+    if (!state.mechanics) state.mechanics = (typeof defaultMechanics === 'function') ? defaultMechanics() : {};
+    Object.assign(state.mechanics, mechanics);
+  }
+  if (typeof renderTrainsTable    === 'function') renderTrainsTable();
+  if (typeof renderPhasesTable    === 'function') renderPhasesTable();
+  if (typeof renderMechanicsLeft  === 'function') renderMechanicsLeft();
+  if (typeof renderMechanicsRight === 'function') renderMechanicsRight();
+  autosave();
+  const evCount   = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
+  const mechCount = Object.keys(mechanics || {}).length;
+  updateStatus(
+    `Imported ${trains.length} trains, ${phases.length} phases` +
+    (evCount   ? `, ${evCount} events`           : '') +
+    (mechCount ? `, ${mechCount} mechanics fields` : '') +
+    ` from ${sourceName}`
+  );
+}
+
+// ── File-picker wiring ────────────────────────────────────────────────────────
+
 document.getElementById('importMapFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (ev) => {
-    try {
-      const result = importRubyMap(ev.target.result);
-
-      // ── Apply parsed result to state ───────────────────────────────────────
-      // swaps         = { oldId: packId }     — use pack tile, discard embedded
-      // buildAsCustom = { oldId: newCustomId } — keep embedded under new ID
-      const applyResult = (swaps, buildAsCustom) => {
-        // Helper: remap hex.tile from one ID to another.
-        const remapHexTile = (oldId, newId) => {
-          for (const hex of Object.values(result.hexes)) {
-            if (hex.tile !== undefined && hex.tile !== null && String(hex.tile) === oldId) {
-              hex.tile = /^\d+$/.test(newId) ? parseInt(newId, 10) : newId;
-            }
-          }
-        };
-
-        // Build-as-custom: move embedded definition to new ID, remap hex refs.
-        for (const [oldId, newId] of Object.entries(buildAsCustom || {})) {
-          remapHexTile(oldId, newId);
-          result.customTiles[newId] = result.customTiles[oldId];
-          delete result.customTiles[oldId];
-        }
-
-        // Swap to pack tile: remap hex refs, discard embedded definition.
-        for (const [oldId, newId] of Object.entries(swaps || {})) {
-          remapHexTile(oldId, newId);
-          delete result.customTiles[oldId];
-        }
-
-        state.hexes = result.hexes;
-        state.meta.rows = result.rows;
-        state.meta.cols = result.cols;
-        state.meta.orientation = result.orientation;
-        state.meta.staggerParity      = result.staggerParity;
-        state.meta.coordParity        = result.coordParity;
-        state.meta.pointyStaggerParity = result.pointyStaggerParity || 0;
-        state.meta.pointyEvenOffset    = result.pointyEvenOffset;
-        state.meta.pointyOddOffset     = result.pointyOddOffset;
-        state.meta.maxRowPerCol        = result.maxRowPerCol;
-        // Tile manifest — overwrite only if the file had a TILES block
-        if (Object.keys(result.manifest).length > 0) {
-          state.manifest = result.manifest;
-          if (!state.customTiles) state.customTiles = {};
-          Object.assign(state.customTiles, result.customTiles);
-          // Register game-specific tiles (X-series etc.) immediately so they render in
-          // the manifest view.  customTiles format is { id: { count, color, code } }
-          // where `code` is the DSL string.  _processEntry now accepts `code` as an
-          // alias for `dsl` so we can pass customTiles directly.
-          if (Object.keys(result.customTiles).length > 0) {
-            TileRegistry.setEmbeddedTiles(result.customTiles);
-          }
-        }
-        // Sync orientation select and dimension inputs in the toolbar/config panel
-        syncOrientationSelect();
-        syncDimInputs();
-        // Reset pan so map is visible
-        panX = 0; panY = 0; zoom = 1;
-        render();
-        autosave();
-        const staticCount = Object.values(result.hexes).filter(h => h.static).length;
-        const tileCount   = Object.keys(result.manifest).length;
-        const tileMsg     = tileCount ? ` — ${tileCount} tiles` : '';
-        updateStatus(`Imported ${result.orientation} map: ${result.rows}r × ${result.cols}c — ${staticCount} static hexes${tileMsg}`);
-      };
-
-      // ── Collision detection ────────────────────────────────────────────────
-      const collisions = Object.keys(result.customTiles).length > 0
-        ? TileRegistry.detectEmbeddedCollisions(result.customTiles)
-        : [];
-
-      if (collisions.length > 0) {
-        _showTileCollisionDialog(collisions, applyResult);
-      } else {
-        applyResult({}, {});
-      }
-
-    } catch (err) {
-      console.error('[importRubyMap] error:', err);
-      alert('Import failed: ' + err.message);
-    }
+    try { applyMapImport(ev.target.result, file.name); }
+    catch (err) { console.error('[importRubyMap] error:', err); alert('Import failed: ' + err.message); }
   };
   reader.readAsText(file);
-  e.target.value = ''; // reset so same file can be re-imported
+  e.target.value = '';
 });
-
-// ── Wire up Import Entities (.rb) ─────────────────────────────────────────────
 
 document.getElementById('importEntitiesBtn').addEventListener('click', () => {
   document.getElementById('importEntitiesFile').click();
 });
-
 document.getElementById('importEntitiesFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (ev) => {
-    try {
-      const { privates, packs } = importEntitiesRb(ev.target.result);
-
-      state.privates = privates;
-
-      // Re-resolve grantedBy names now that privates are available.
-      // Handles the case where game.rb was imported before entities.rb,
-      // leaving tr.grantedBy[].name as null.
-      _resolveGrantedByNames(state.trains, privates);
-
-      if (!state.corpPacks) state.corpPacks = [];
-      packs.forEach(newPack => {
-        const xi = state.corpPacks.findIndex(p => p.type === newPack.type);
-        if (xi !== -1) state.corpPacks[xi] = newPack;
-        else state.corpPacks.push(newPack);
-      });
-
-      // Auto-select first private so detail panel opens immediately
-      if (typeof _selectedPrivateIdx !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
-      if (typeof renderPrivatesCards   === 'function') renderPrivatesCards();
-      if (typeof renderCorpsSection    === 'function') renderCorpsSection();
-      if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
-      autosave();
-      document.getElementById('fileMenu').style.display = 'none';
-
-      const pCount = privates.length;
-      const cCount = packs.reduce((s, p) => s + p.companies.length, 0);
-      const concCount = privates.filter(p => p.companyType === 'concession').length;
-      const abCount  = privates.reduce((s, p) => s + (p.abilities || []).length, 0);
-      updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations from ${file.name}`);
-    } catch (err) {
-      console.error('[importEntitiesRb] error:', err);
-      alert('Entities import failed: ' + err.message);
-    }
-    e.target.value = '';
+    try { applyEntitiesImport(ev.target.result, file.name); }
+    catch (err) { console.error('[importEntitiesRb] error:', err); alert('Entities import failed: ' + err.message); }
   };
   reader.readAsText(file);
+  e.target.value = '';
 });
 
-// ── Wire up Import Game (.rb) ─────────────────────────────────────────────────
-// Source read: g_1830/game.rb + g_1822/game.rb for TRAINS/PHASES shape.
-// Listener registered before the generic stub block so stopImmediatePropagation
-// can suppress the "Not yet implemented" stub handler below.
-(function () {
-  const btn   = document.getElementById('importGameBtn');
-  const input = document.getElementById('importGameFile');
-  if (!btn || !input) return;
+document.getElementById('importGameBtn').addEventListener('click', () => {
+  document.getElementById('fileMenu').style.display = 'none';
+  document.getElementById('importGameFile').click();
+});
+document.getElementById('importGameFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try { applyGameImport(ev.target.result, file.name); }
+    catch (err) { console.error('[importGameRb] error:', err); alert('Game import failed: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
 
-  // Remove stub styling added in the HTML
-  btn.classList.remove('file-menu-stub');
-  const stubTag = btn.querySelector('.stub-tag');
-  if (stubTag) stubTag.remove();
+// ── Stub handlers for not-yet-implemented types ───────────────────────────────
 
-  btn.addEventListener('click', (e) => {
-    e.stopImmediatePropagation();
-    document.getElementById('fileMenu').style.display = 'none';
-    input.click();
-  });
-
-  input.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const { trains, phases, mechanics } = importGameRb(ev.target.result);
-        state.trains = trains;
-        state.phases = phases;
-
-        // Merge parsed mechanics on top of current state — only override what the
-        // file explicitly declares.  Fields absent from the file keep their current
-        // (or default) values so a partial game.rb doesn't clobber manual edits.
-        if (mechanics && Object.keys(mechanics).length) {
-          if (!state.mechanics) state.mechanics = (typeof defaultMechanics === 'function') ? defaultMechanics() : {};
-          Object.assign(state.mechanics, mechanics);
-        }
-
-        if (typeof renderTrainsTable   === 'function') renderTrainsTable();
-        if (typeof renderPhasesTable   === 'function') renderPhasesTable();
-        if (typeof renderMechanicsLeft === 'function') renderMechanicsLeft();
-        if (typeof renderMechanicsRight === 'function') renderMechanicsRight();
-        autosave();
-
-        const evCount    = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
-        const mechCount  = Object.keys(mechanics || {}).length;
-        updateStatus(
-          `Imported ${trains.length} trains, ${phases.length} phases` +
-          (evCount   ? `, ${evCount} events`          : '') +
-          (mechCount ? `, ${mechCount} mechanics fields` : '') +
-          ` from ${file.name}`
-        );
-      } catch (err) {
-        console.error('[importGameRb] error:', err);
-        alert('Game import failed: ' + err.message);
-      }
-      e.target.value = '';
-    };
-    reader.readAsText(file);
-  });
-}());
-
-// ── Stub handlers for not-yet-implemented import/export types ─────────────────
-
-['importGameBtn',
- 'exportEntitiesBtn', 'exportGameBtn'].forEach(id => {
+['exportGameBtn'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('click', () => {
     document.getElementById('fileMenu').style.display = 'none';

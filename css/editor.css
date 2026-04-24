@@ -548,7 +548,36 @@ canvas { display: block; }
 .file-menu-stub:hover { background: transparent !important; cursor: default; }
 .stub-tag { font-size: 10px; color: #888; margin-left: 4px; }
 
-[data-theme="light"] .file-submenu { background: #f5f5f5; border-color: #ccc; }
+/* ── Import sub-sub-menu (From File / From URL, 3rd level) ──────────────────── */
+.file-menu-parent2-btn { display: flex; align-items: center; justify-content: space-between; }
+.file-submenu2 {
+  display: none;
+  background: #1a1a1a;
+  border-top: 1px solid #1e1e1e;
+  border-bottom: 1px solid #1e1e1e;
+}
+/* Items one level deeper than .file-submenu items (28px → 44px) */
+.file-submenu2 .file-menu-item { padding-left: 44px; font-size: 11px; }
+.file-menu-parent2:hover .file-submenu2,
+.file-menu-parent2.sub-open .file-submenu2 { display: block; }
+.file-menu-parent2.sub-open .sub-arrow { transform: rotate(90deg); }
+
+/* ── Toolbar refresh-from-URL button ────────────────────────────────────────── */
+.refresh-import-btn {
+  padding: 5px 10px;
+  font-size: 13px;
+  background: #1a3a5c;
+  color: #7ec8e3;
+  border: 1px solid #2a5480;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.refresh-import-btn:hover { background: #1e4a70; }
+.refresh-import-btn:disabled { opacity: 0.5; cursor: default; }
+
+[data-theme="light"] .file-submenu  { background: #f5f5f5; border-color: #ccc; }
+[data-theme="light"] .file-submenu2 { background: #ebebeb; border-color: #ccc; }
 [data-theme="light"] .file-menu-sep { background: #ddd; }
 
 /* ── Toolbar Dimension Selector ────────────────────────────────────────────── */
