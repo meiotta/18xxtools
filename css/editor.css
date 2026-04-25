@@ -530,23 +530,30 @@ canvas { display: block; }
 .file-menu-item:last-child { border-bottom: none; }
 .file-menu-sep { height: 1px; background: #3a3a3a; margin: 2px 0; }
 
-/* ── File menu submenus (inline accordion — no viewport overflow) ─────────── */
-.file-menu-parent-btn { display: flex; align-items: center; justify-content: space-between; }
-.sub-arrow { font-size: 10px; color: #888; pointer-events: none; transition: transform 0.15s; }
-.file-menu-parent.sub-open .sub-arrow { transform: rotate(90deg); }
-.file-submenu {
-  display: none;
-  border-top: 1px solid #2e2e2e;
-  border-bottom: 1px solid #2e2e2e;
-  background: #222;
+/* ── File menu section labels + indentation ──────────────────────────────── */
+.file-menu-section-label {
+  padding: 8px 16px 2px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.09em;
+  text-transform: uppercase; color: #555;
+  user-select: none; pointer-events: none;
 }
-.file-submenu .file-menu-item { padding-left: 28px; font-size: 12px; }
-.file-submenu .file-menu-sep  { margin: 1px 0; background: #2e2e2e; }
-.file-menu-parent:hover .file-submenu,
-.file-menu-parent.sub-open .file-submenu { display: block; }
+.file-menu-indented { padding-left: 28px; }
 .file-menu-stub { opacity: 0.48; }
 .file-menu-stub:hover { background: transparent !important; cursor: default; }
 .stub-tag { font-size: 10px; color: #888; margin-left: 4px; }
+
+/* ── Retired: accordion submenu styles (kept for reference, unused) ──────────
+   These powered the old Import ▶ / Export ▶ inline-expand layout.
+   Retired because inline expansion causes layout shift.
+   If flyout (Style A) is ever revisited, use position:fixed + JS coords.
+.file-menu-parent-btn { display: flex; align-items: center; justify-content: space-between; }
+.sub-arrow { font-size: 10px; color: #888; pointer-events: none; transition: transform 0.15s; }
+.file-menu-parent.sub-open .sub-arrow { transform: rotate(90deg); }
+.file-submenu { display: none; border-top: 1px solid #2e2e2e; border-bottom: 1px solid #2e2e2e; background: #222; }
+.file-submenu .file-menu-item { padding-left: 28px; font-size: 12px; }
+.file-submenu .file-menu-sep  { margin: 1px 0; background: #2e2e2e; }
+.file-menu-parent:hover .file-submenu, .file-menu-parent.sub-open .file-submenu { display: block; }
+── */
 
 /* ── TBD MENU UI — Import layout ────────────────────────────────────────────
    Two layouts are implemented. Matching HTML is in index.html #importMenuParent.
@@ -570,6 +577,7 @@ canvas { display: block; }
   white-space: nowrap; line-height: 1.4; transition: background 0.12s, color 0.12s;
 }
 .file-menu-import-action:hover { background: #3a3a3a; color: #e0e0e0; border-color: #666; }
+[data-theme="light"] .file-menu-section-label { color: #999; }
 [data-theme="light"] .file-menu-import-row    { border-color: #ddd; }
 [data-theme="light"] .file-menu-import-label  { color: #222; }
 [data-theme="light"] .file-menu-import-ext    { color: #aaa; }

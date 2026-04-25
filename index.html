@@ -236,82 +236,53 @@
     <div class="sep"></div>
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
       <button id="fileMenuBtn" style="padding:5px 14px;">File ▾</button>
-      <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:210px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:visible;">
+      <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:210px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);">
         <button id="newMapBtn" class="file-menu-item">🗺 New Map</button>
         <div class="file-menu-sep"></div>
-        <!-- Import submenu -->
-        <div class="file-menu-parent" id="importMenuParent">
-          <button class="file-menu-item file-menu-parent-btn">⬇ Import <span class="sub-arrow">▶</span></button>
-          <div class="file-submenu">
-            <button id="loadBtn" class="file-menu-item">All (.json)</button>
-            <div class="file-menu-sep"></div>
 
-            <!-- ── TBD MENU UI ────────────────────────────────────────────────
-                 Two import layouts are implemented. Swap comments to switch.
-                 Style B (flat rows) is currently active.
-                 Style A (flyout panels) is commented out below Style B.
-                 See the matching blocks in css/editor.css and js/setup.js.
-                 ─────────────────────────────────────────────────────────── -->
+        <!-- ── TBD MENU UI ──────────────────────────────────────────────────────
+             Fully flat — no accordions, no flyouts, no layout shift.
+             Style A (flyout) was ruled out: position:absolute clips at the
+             viewport edge and position:fixed requires JS coordinate computation
+             (getBoundingClientRect on the trigger + dynamic top/left on open).
+             If flyout is ever revisited, implement it with position:fixed + JS.
+             ─────────────────────────────────────────────────────────────────── -->
 
-            <!-- Style B: flat import rows (ACTIVE) -->
-            <div class="file-menu-import-row">
-              <span class="file-menu-import-label">Map <span class="file-menu-import-ext">(.rb)</span></span>
-              <div class="file-menu-import-actions">
-                <button id="importMapBtn"    class="file-menu-import-action">📁 File</button>
-                <button id="importMapUrlBtn" class="file-menu-import-action">🔗 URL</button>
-              </div>
-            </div>
-            <div class="file-menu-import-row">
-              <span class="file-menu-import-label">Entities <span class="file-menu-import-ext">(.rb)</span></span>
-              <div class="file-menu-import-actions">
-                <button id="importEntitiesBtn"    class="file-menu-import-action">📁 File</button>
-                <button id="importEntitiesUrlBtn" class="file-menu-import-action">🔗 URL</button>
-              </div>
-            </div>
-            <div class="file-menu-import-row">
-              <span class="file-menu-import-label">Game <span class="file-menu-import-ext">(.rb)</span></span>
-              <div class="file-menu-import-actions">
-                <button id="importGameBtn"    class="file-menu-import-action">📁 File</button>
-                <button id="importGameUrlBtn" class="file-menu-import-action">🔗 URL</button>
-              </div>
-            </div>
-
-            <!-- Style A: flyout panels (INACTIVE)
-                 Swap this block in (and comment out Style B above) to activate.
-                 Requires the flyout CSS and hover-delay JS in setup.js (both TBD-labelled).
-            <div class="file-menu-flyout-parent" id="importFileMenuParent">
-              <button class="file-menu-item file-menu-flyout-trigger">📁 From File <span class="sub-arrow">▶</span></button>
-              <div class="file-menu-flyout-panel">
-                <button id="importMapBtn"      class="file-menu-item">Map (.rb)</button>
-                <button id="importEntitiesBtn" class="file-menu-item">Entities (.rb)</button>
-                <button id="importGameBtn"     class="file-menu-item">Game (.rb)</button>
-              </div>
-            </div>
-            <div class="file-menu-flyout-parent" id="importUrlMenuParent">
-              <button class="file-menu-item file-menu-flyout-trigger">🔗 From URL <span class="sub-arrow">▶</span></button>
-              <div class="file-menu-flyout-panel">
-                <button id="importMapUrlBtn"      class="file-menu-item">Map (.rb)</button>
-                <button id="importEntitiesUrlBtn" class="file-menu-item">Entities (.rb)</button>
-                <button id="importGameUrlBtn"     class="file-menu-item">Game (.rb)</button>
-              </div>
-            </div>
-            -->
-
+        <!-- Import section -->
+        <div class="file-menu-section-label">⬇ Import</div>
+        <button id="loadBtn" class="file-menu-item file-menu-indented">All (.json)</button>
+        <div class="file-menu-import-row">
+          <span class="file-menu-import-label">Map <span class="file-menu-import-ext">(.rb)</span></span>
+          <div class="file-menu-import-actions">
+            <button id="importMapBtn"    class="file-menu-import-action">📁 File</button>
+            <button id="importMapUrlBtn" class="file-menu-import-action">🔗 URL</button>
           </div>
         </div>
-        <!-- Export submenu -->
-        <div class="file-menu-parent" id="exportMenuParent">
-          <button class="file-menu-item file-menu-parent-btn">⬆ Export <span class="sub-arrow">▶</span></button>
-          <div class="file-submenu">
-            <button id="saveBtn" class="file-menu-item">All (.json)</button>
-            <div class="file-menu-sep"></div>
-            <button id="exportEntitiesBtn" class="file-menu-item file-menu-stub">Entities (.rb) <span class="stub-tag">soon</span></button>
-            <button id="exportGameBtn"     class="file-menu-item file-menu-stub">Game (.rb) <span class="stub-tag">soon</span></button>
-            <button id="exportRubyBtn"     class="file-menu-item">Map (.rb)</button>
-            <div class="file-menu-sep"></div>
-            <button id="exportBtn"         class="file-menu-item">All (.zip)</button>
+        <div class="file-menu-import-row">
+          <span class="file-menu-import-label">Entities <span class="file-menu-import-ext">(.rb)</span></span>
+          <div class="file-menu-import-actions">
+            <button id="importEntitiesBtn"    class="file-menu-import-action">📁 File</button>
+            <button id="importEntitiesUrlBtn" class="file-menu-import-action">🔗 URL</button>
           </div>
         </div>
+        <div class="file-menu-import-row">
+          <span class="file-menu-import-label">Game <span class="file-menu-import-ext">(.rb)</span></span>
+          <div class="file-menu-import-actions">
+            <button id="importGameBtn"    class="file-menu-import-action">📁 File</button>
+            <button id="importGameUrlBtn" class="file-menu-import-action">🔗 URL</button>
+          </div>
+        </div>
+
+        <div class="file-menu-sep"></div>
+
+        <!-- Export section -->
+        <div class="file-menu-section-label">⬆ Export</div>
+        <button id="saveBtn"           class="file-menu-item file-menu-indented">All (.json)</button>
+        <button id="exportEntitiesBtn" class="file-menu-item file-menu-indented file-menu-stub">Entities (.rb) <span class="stub-tag">soon</span></button>
+        <button id="exportGameBtn"     class="file-menu-item file-menu-indented file-menu-stub">Game (.rb) <span class="stub-tag">soon</span></button>
+        <button id="exportRubyBtn"     class="file-menu-item file-menu-indented">Map (.rb)</button>
+        <div class="file-menu-sep"></div>
+        <button id="exportBtn"         class="file-menu-item file-menu-indented">All (.zip)</button>
       </div>
     </div>
     <button id="refreshImportBtn" title="Re-import from URL" class="refresh-import-btn" style="display:none;">↺ Refresh</button>

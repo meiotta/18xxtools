@@ -206,43 +206,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (_open) {
         _open = false;
         fileMenu.style.display = 'none';
-        document.querySelectorAll('.file-menu-parent.sub-open')
-          .forEach(p => p.classList.remove('sub-open'));
       }
     });
 
-    // Touch-friendly submenu toggle (CSS :hover handles desktop)
-    fileMenu.querySelectorAll('.file-menu-parent').forEach(parent => {
-      const btn = parent.querySelector('.file-menu-parent-btn');
-      if (!btn) return;
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = parent.classList.contains('sub-open');
-        document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
-        if (!isOpen) parent.classList.add('sub-open');
-      });
-    });
-
-    // TBD MENU UI — Style A: flyout hover-delay (INACTIVE)
-    // Uncomment when swapping to the flyout layout in index.html + editor.css.
-    // Adds a collapse delay so the panel doesn't vanish as the mouse angles toward it.
-    /*
-    let _flyoutTimer = null;
-    fileMenu.querySelectorAll('.file-menu-flyout-parent').forEach(parent => {
-      parent.addEventListener('mouseenter', () => {
-        clearTimeout(_flyoutTimer);
-        fileMenu.querySelectorAll('.file-menu-flyout-parent.flyout-open')
-          .forEach(p => { if (p !== parent) p.classList.remove('flyout-open'); });
-        parent.classList.add('flyout-open');
-      });
-      parent.addEventListener('mouseleave', () => {
-        _flyoutTimer = setTimeout(() => parent.classList.remove('flyout-open'), 220);
-      });
-      parent.querySelector('.file-menu-flyout-panel')?.addEventListener('mouseenter', () => {
-        clearTimeout(_flyoutTimer);
-      });
-    });
-    */
+    // TBD MENU UI — no accordion or flyout handlers needed: file menu is fully flat.
+    // If flyout (Style A) is ever revisited, implement with position:fixed + JS:
+    //   const r = trigger.getBoundingClientRect();
+    //   panel.style.top  = r.top + 'px';
+    //   panel.style.left = r.right + 4 + 'px';
+    //   panel.style.position = 'fixed';
+    // Add mouseenter/mouseleave with a ~220ms collapse delay for diagonal movement.
   }
 
   // Map section → Clear Map
