@@ -236,7 +236,7 @@
     <div class="sep"></div>
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
       <button id="fileMenuBtn" style="padding:5px 14px;">File ▾</button>
-      <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:170px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:visible;">
+      <div id="fileMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:210px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);overflow:visible;">
         <button id="newMapBtn" class="file-menu-item">🗺 New Map</button>
         <div class="file-menu-sep"></div>
         <!-- Import submenu -->
@@ -245,24 +245,58 @@
           <div class="file-submenu">
             <button id="loadBtn" class="file-menu-item">All (.json)</button>
             <div class="file-menu-sep"></div>
-            <!-- From File -->
-            <div class="file-menu-parent2" id="importFileMenuParent">
-              <button class="file-menu-item file-menu-parent2-btn">📁 From File <span class="sub-arrow">▶</span></button>
-              <div class="file-submenu2">
+
+            <!-- ── TBD MENU UI ────────────────────────────────────────────────
+                 Two import layouts are implemented. Swap comments to switch.
+                 Style B (flat rows) is currently active.
+                 Style A (flyout panels) is commented out below Style B.
+                 See the matching blocks in css/editor.css and js/setup.js.
+                 ─────────────────────────────────────────────────────────── -->
+
+            <!-- Style B: flat import rows (ACTIVE) -->
+            <div class="file-menu-import-row">
+              <span class="file-menu-import-label">Map <span class="file-menu-import-ext">(.rb)</span></span>
+              <div class="file-menu-import-actions">
+                <button id="importMapBtn"    class="file-menu-import-action">📁 File</button>
+                <button id="importMapUrlBtn" class="file-menu-import-action">🔗 URL</button>
+              </div>
+            </div>
+            <div class="file-menu-import-row">
+              <span class="file-menu-import-label">Entities <span class="file-menu-import-ext">(.rb)</span></span>
+              <div class="file-menu-import-actions">
+                <button id="importEntitiesBtn"    class="file-menu-import-action">📁 File</button>
+                <button id="importEntitiesUrlBtn" class="file-menu-import-action">🔗 URL</button>
+              </div>
+            </div>
+            <div class="file-menu-import-row">
+              <span class="file-menu-import-label">Game <span class="file-menu-import-ext">(.rb)</span></span>
+              <div class="file-menu-import-actions">
+                <button id="importGameBtn"    class="file-menu-import-action">📁 File</button>
+                <button id="importGameUrlBtn" class="file-menu-import-action">🔗 URL</button>
+              </div>
+            </div>
+
+            <!-- Style A: flyout panels (INACTIVE)
+                 Swap this block in (and comment out Style B above) to activate.
+                 Requires the flyout CSS and hover-delay JS in setup.js (both TBD-labelled).
+            <div class="file-menu-flyout-parent" id="importFileMenuParent">
+              <button class="file-menu-item file-menu-flyout-trigger">📁 From File <span class="sub-arrow">▶</span></button>
+              <div class="file-menu-flyout-panel">
                 <button id="importMapBtn"      class="file-menu-item">Map (.rb)</button>
                 <button id="importEntitiesBtn" class="file-menu-item">Entities (.rb)</button>
                 <button id="importGameBtn"     class="file-menu-item">Game (.rb)</button>
               </div>
             </div>
-            <!-- From URL -->
-            <div class="file-menu-parent2" id="importUrlMenuParent">
-              <button class="file-menu-item file-menu-parent2-btn">🔗 From URL <span class="sub-arrow">▶</span></button>
-              <div class="file-submenu2">
+            <div class="file-menu-flyout-parent" id="importUrlMenuParent">
+              <button class="file-menu-item file-menu-flyout-trigger">🔗 From URL <span class="sub-arrow">▶</span></button>
+              <div class="file-menu-flyout-panel">
                 <button id="importMapUrlBtn"      class="file-menu-item">Map (.rb)</button>
                 <button id="importEntitiesUrlBtn" class="file-menu-item">Entities (.rb)</button>
                 <button id="importGameUrlBtn"     class="file-menu-item">Game (.rb)</button>
               </div>
             </div>
+            -->
+
           </div>
         </div>
         <!-- Export submenu -->
@@ -1187,7 +1221,7 @@
 <script src="js/market-painter.js?v=20260419c"></script>
 <script src="js/financials-panel.js?v=20260419c"></script>
 <script src="js/rule-builder.js?v=20260419c"></script>
-<script src="js/setup.js?v=20260419d"></script>
+<script src="js/setup.js?v=20260425a"></script>
 <script src="js/io.js?v=20260419d"></script>
 <script src="js/import-ruby.js?v=20260424a"></script>
 <script src="js/import-url.js?v=20260424a"></script>

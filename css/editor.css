@@ -548,19 +548,54 @@ canvas { display: block; }
 .file-menu-stub:hover { background: transparent !important; cursor: default; }
 .stub-tag { font-size: 10px; color: #888; margin-left: 4px; }
 
-/* ── Import sub-sub-menu (From File / From URL, 3rd level) ──────────────────── */
-.file-menu-parent2-btn { display: flex; align-items: center; justify-content: space-between; }
-.file-submenu2 {
-  display: none;
-  background: #1a1a1a;
-  border-top: 1px solid #1e1e1e;
-  border-bottom: 1px solid #1e1e1e;
+/* ── TBD MENU UI — Import layout ────────────────────────────────────────────
+   Two layouts are implemented. Matching HTML is in index.html #importMenuParent.
+   Style B (flat rows) is active. Style A (flyout panels) is commented out below.
+   Swap comments in both this file and index.html + js/setup.js to switch. */
+
+/* Style B: flat import rows (ACTIVE) */
+.file-menu-import-row {
+  display: flex; align-items: center;
+  padding: 7px 12px 7px 28px;
+  border-bottom: 1px solid #2a2a2a;
+  gap: 6px;
 }
-/* Items one level deeper than .file-submenu items (28px → 44px) */
-.file-submenu2 .file-menu-item { padding-left: 44px; font-size: 11px; }
-.file-menu-parent2:hover .file-submenu2,
-.file-menu-parent2.sub-open .file-submenu2 { display: block; }
-.file-menu-parent2.sub-open .sub-arrow { transform: rotate(90deg); }
+.file-menu-import-row:last-child { border-bottom: none; }
+.file-menu-import-label { flex: 1; font-size: 12px; color: #e0e0e0; white-space: nowrap; }
+.file-menu-import-ext   { font-size: 10px; color: #555; }
+.file-menu-import-actions { display: flex; gap: 3px; flex-shrink: 0; }
+.file-menu-import-action {
+  padding: 3px 8px; background: #2e2e2e; border: 1px solid #444;
+  border-radius: 3px; color: #aaa; font-size: 11px; cursor: pointer;
+  white-space: nowrap; line-height: 1.4; transition: background 0.12s, color 0.12s;
+}
+.file-menu-import-action:hover { background: #3a3a3a; color: #e0e0e0; border-color: #666; }
+[data-theme="light"] .file-menu-import-row    { border-color: #ddd; }
+[data-theme="light"] .file-menu-import-label  { color: #222; }
+[data-theme="light"] .file-menu-import-ext    { color: #aaa; }
+[data-theme="light"] .file-menu-import-action { background: #eee; border-color: #ccc; color: #444; }
+[data-theme="light"] .file-menu-import-action:hover { background: #ddd; color: #111; border-color: #aaa; }
+
+/* Style A: flyout panels (INACTIVE — swap with Style B above to activate)
+.file-menu-flyout-parent { position: relative; }
+.file-menu-flyout-trigger { display: flex; align-items: center; justify-content: space-between; }
+.file-menu-flyout-panel {
+  display: none; position: absolute;
+  left: calc(100% + 2px); top: -1px;
+  background: #2a2a2a; border: 1px solid #555; border-radius: 5px;
+  min-width: 140px; z-index: 400;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+  animation: menuSlideIn 0.12s cubic-bezier(0.4,0,0.2,1);
+}
+.file-menu-flyout-panel::before {
+  content: ''; position: absolute;
+  left: -8px; top: 0; width: 8px; height: 100%;
+}
+.file-menu-flyout-parent:hover > .file-menu-flyout-panel,
+.file-menu-flyout-parent.flyout-open > .file-menu-flyout-panel { display: block; }
+.file-menu-flyout-panel .file-menu-item { padding-left: 16px; font-size: 12px; }
+[data-theme="light"] .file-menu-flyout-panel { background: #fff; border-color: #ccc; }
+*/
 
 /* ── Toolbar refresh-from-URL button ────────────────────────────────────────── */
 .refresh-import-btn {
