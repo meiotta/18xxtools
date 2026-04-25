@@ -270,6 +270,7 @@ const STRUCTURAL_NETS = [
   { id: 'ability_corporation',  name: 'Ability corporation reference',    desc: 'Every ability corporation:/corporations: value must exist in CORPORATIONS',      owner: 'Jenny',  validate: validateAbilityCorporation },
   { id: 'exchange_tokens',      name: 'Exchange token corps',             desc: 'Exchange token map must only contain major corporation syms',                    owner: 'Evan',   validate: validateExchangeTokenCorps },
   { id: 'merger_associations',  name: 'Minor/major merger associations',  desc: 'Every association must reference an existing minor sym and major corp sym',      owner: 'Evan',   validate: validateMergerAssociations },
+  { id: 'home_token_timing',   name: 'Home token timing vs coordinates', desc: 'Minors with no coordinates require HOME_TOKEN_TIMING :par, :float, or :never — not :operate', owner: 'Evan', validate: validateHomeTokenTiming },
 ];
 
 // ---------------------------------------------------------------------------
@@ -483,6 +484,26 @@ function validateMergerAssociations() {
       errors.push({ net: 'merger_associations', message: `Merger minor "${pair.minorSym}" — not in MINORS` });
     if (!majors.has(pair.majorSym))
       errors.push({ net: 'merger_associations', message: `Merger major "${pair.majorSym}" — not in CORPORATIONS` });
+  });
+  return errors;
+}
+function validateHomeTokenTiming() {
+  const errors = [];
+  const m = (state && state.mechanics) || {};
+  const timing = m.homeTokenTiming || 'operate';
+  // :operate and :operating_round both call place_home_token with no custom
+  // home_token_locations override — base.rb:1659 raises NotImplementedError if
+  // coordinates is blank, crashing the game at startup or first OR.
+  // :par and :float are only safe if the game provides home_token_locations;
+  // :never never calls place_home_token at all.
+  const unsafeTiming = timing === 'operate' || timing === 'operating_round';
+  if (!unsafeTiming) return errors;
+  const uncoordinated = (state.minors || []).filter(mn => !mn.coordinates || !String(mn.coordinates).trim());
+  uncoordinated.forEach(mn => {
+    errors.push({
+      net: 'home_token_timing',
+      message: `Minor "${mn.abbr || mn.name || '?'}" has no coordinates — HOME_TOKEN_TIMING :${timing} will crash on startup. Set timing to :par, :float, or :never, or add a home coordinate.`,
+    });
   });
   return errors;
 }
@@ -1148,7 +1169,9 @@ function renderCorpRules(m) {
         <option value="float"            ${sel(m.homeTokenTiming,'float')}>On float</option>
         <option value="par"              ${sel(m.homeTokenTiming,'par')}>On par (immediate)</option>
         <option value="operating_round"  ${sel(m.homeTokenTiming,'operating_round')}>Start of first OR</option>
+        <option value="never"            ${sel(m.homeTokenTiming,'never')}>Never (no home token placed)</option>
       </select>
+    <p class="mech-hint">Use <strong>:par</strong> or <strong>:float</strong> when minors choose their home city at placement time (1867-style). Use <strong>:never</strong> for concessions or entities with no home token. Note: blank coordinates with :operate or :operating_round will crash the engine — a home_token_locations override is required in game.rb.</p>
     </label>
     <label>Market Share Limit (%)
       <input type="number" min="0" max="100" data-mkey="marketShareLimit" value="${m.marketShareLimit ?? 50}">
