@@ -518,12 +518,12 @@ canvas { display: block; }
 /* ── Toolbar Dropdown Menus (File ▾, Map ▾) ────────────────────────────────── */
 /* Smooth open via keyframe — fires automatically when JS sets display:block */
 @keyframes menuSlideIn {
-  from { opacity: 0; transform: scaleY(0.88) translateY(-4px); }
-  to   { opacity: 1; transform: scaleY(1)    translateY(0); }
+  from { transform: scaleY(0.92) translateY(-6px); }
+  to   { transform: scaleY(1)    translateY(0); }
 }
-#fileMenu, #mapMenu { transform-origin: top left; animation-fill-mode: both; }
+#fileMenu, #mapMenu { transform-origin: top left; }
 #fileMenu[style*="block"], #mapMenu[style*="block"] {
-  animation: menuSlideIn 0.14s cubic-bezier(0.4,0,0.2,1);
+  animation: menuSlideIn 0.12s cubic-bezier(0.4,0,0.2,1);
 }
 .file-menu-item { display: block; width: 100%; padding: 10px 16px; background: transparent; border: none; color: #e0e0e0; font-size: 13px; text-align: left; cursor: pointer; border-bottom: 1px solid #2e2e2e; white-space: nowrap; transition: background 0.12s; }
 .file-menu-item:hover:not(:disabled) { background: #333; }
