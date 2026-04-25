@@ -491,18 +491,16 @@ function validateHomeTokenTiming() {
   const errors = [];
   const m = (state && state.mechanics) || {};
   const timing = m.homeTokenTiming || 'operate';
-  // :operate and :operating_round both call place_home_token with no custom
-  // home_token_locations override — base.rb:1659 raises NotImplementedError if
-  // coordinates is blank, crashing the game at startup or first OR.
-  // :par and :float are only safe if the game provides home_token_locations;
-  // :never never calls place_home_token at all.
-  const unsafeTiming = timing === 'operate' || timing === 'operating_round';
+  // Only warn when the constant is still at its engine default (:operate).
+  // Any explicit non-default choice (:par, :float, :operating_round, :never)
+  // means the designer has consciously changed the timing — don't second-guess.
+  const unsafeTiming = timing === 'operate';
   if (!unsafeTiming) return errors;
   const uncoordinated = (state.minors || []).filter(mn => !mn.coordinates || !String(mn.coordinates).trim());
   uncoordinated.forEach(mn => {
     errors.push({
       net: 'home_token_timing',
-      message: `Minor "${mn.abbr || mn.name || '?'}" has no coordinates — HOME_TOKEN_TIMING :${timing} will crash on startup. Set timing to :par, :float, or :never, or add a home coordinate.`,
+      message: `Minor "${mn.abbr || mn.name || '?'}" has no coordinates — HOME_TOKEN_TIMING is still at its default (:operate), which will crash on startup. Set it to :par, :float, or :never, or add a home coordinate.`,
     });
   });
   return errors;
