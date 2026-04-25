@@ -1252,8 +1252,8 @@ function renderEmergencyBuy(m) {
     <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST — default true</p>
     ${toggle('Must issue shares before ebuy (if possible)', 'mustIssueBeforeEbuy', m.mustIssueBeforeEbuy ?? false)}
     <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">MUST_EMERGENCY_ISSUE_BEFORE_EBUY — default false</p>
-    ${toggle('President must help cover shortfall', 'ebuyOwnerMustHelp', m.ebuyOwnerMustHelp ?? false)}
-    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_OWNER_MUST_HELP — default false. President must contribute personal cash toward the purchase.</p>
+    ${toggle('Company-owned corp: surface ownership chain in emergency buy', 'ebuyOwnerMustHelp', m.ebuyOwnerMustHelp ?? false)}
+    <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_OWNER_MUST_HELP — default false. Enable when a <em>company</em> (not a player directly) can own corporations — the 1858/1871 pattern. The emergency buy UI will surface the full ownership chain so players can see that the owning company must first sell its shares, and then the company's player-owner must contribute further. Requires an <code>acting_for_entity</code> override in game.rb. Not needed for standard president-contributes behaviour, which always runs via <code>must_buy_train?</code>.</p>
     ${toggle('President can sell shares during ebuy', 'ebuyCanSellShares', m.ebuyCanSellShares ?? true)}
     <p class="mech-hint" style="margin:2px 0 8px 0;font-size:10px;">EBUY_CAN_SELL_SHARES — default true</p>
     ${toggle('Allow presidency swap during ebuy', 'ebuyPresSwap', m.ebuyPresSwap ?? true)}
