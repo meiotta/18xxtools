@@ -245,9 +245,24 @@
           <div class="file-submenu">
             <button id="loadBtn" class="file-menu-item">All (.json)</button>
             <div class="file-menu-sep"></div>
-            <button id="importEntitiesBtn" class="file-menu-item">Entities (.rb)</button>
-            <button id="importGameBtn"     class="file-menu-item file-menu-stub">Game (.rb) <span class="stub-tag">soon</span></button>
-            <button id="importMapBtn"      class="file-menu-item">Map (.rb)</button>
+            <!-- From File -->
+            <div class="file-menu-parent2" id="importFileMenuParent">
+              <button class="file-menu-item file-menu-parent2-btn">📁 From File <span class="sub-arrow">▶</span></button>
+              <div class="file-submenu2">
+                <button id="importMapBtn"      class="file-menu-item">Map (.rb)</button>
+                <button id="importEntitiesBtn" class="file-menu-item">Entities (.rb)</button>
+                <button id="importGameBtn"     class="file-menu-item">Game (.rb)</button>
+              </div>
+            </div>
+            <!-- From URL -->
+            <div class="file-menu-parent2" id="importUrlMenuParent">
+              <button class="file-menu-item file-menu-parent2-btn">🔗 From URL <span class="sub-arrow">▶</span></button>
+              <div class="file-submenu2">
+                <button id="importMapUrlBtn"      class="file-menu-item">Map (.rb)</button>
+                <button id="importEntitiesUrlBtn" class="file-menu-item">Entities (.rb)</button>
+                <button id="importGameUrlBtn"     class="file-menu-item">Game (.rb)</button>
+              </div>
+            </div>
           </div>
         </div>
         <!-- Export submenu -->
@@ -265,6 +280,7 @@
         </div>
       </div>
     </div>
+    <button id="refreshImportBtn" title="Re-import from URL" class="refresh-import-btn" style="display:none;">↺ Refresh</button>
     <button id="themeToggleBtn" title="Toggle light/dark theme" style="padding:5px 10px;font-size:15px;line-height:1;">☀️</button>
     <button id="helpBtn" title="Show help">? Help</button>
     <input type="file" id="fileInput"          style="display:none;" accept=".json">
@@ -1216,7 +1232,8 @@
 <script src="js/rule-builder.js?v=20260419c"></script>
 <script src="js/setup.js?v=20260419d"></script>
 <script src="js/io.js?v=20260419d"></script>
-<script src="js/import-ruby.js?v=20260423b"></script>
+<script src="js/import-ruby.js?v=20260424a"></script>
+<script src="js/import-url.js?v=20260424a"></script>
 <script src="js/export-ruby.js?v=20260421a"></script>
 <script src="js/export-entities.js?v=20260421a"></script>
 <script src="js/tile-manifest.js?v=20260419c"></script>

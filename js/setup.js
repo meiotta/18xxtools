@@ -206,7 +206,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (_open) {
         _open = false;
         fileMenu.style.display = 'none';
-        document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
+        document.querySelectorAll('.file-menu-parent.sub-open, .file-menu-parent2.sub-open')
+          .forEach(p => p.classList.remove('sub-open'));
       }
     });
 
@@ -218,6 +219,18 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         const isOpen = parent.classList.contains('sub-open');
         document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
+        if (!isOpen) parent.classList.add('sub-open');
+      });
+    });
+
+    // Touch-friendly 3rd-level toggle (From File / From URL inside Import submenu)
+    fileMenu.querySelectorAll('.file-menu-parent2').forEach(parent => {
+      const btn = parent.querySelector('.file-menu-parent2-btn');
+      if (!btn) return;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = parent.classList.contains('sub-open');
+        document.querySelectorAll('.file-menu-parent2.sub-open').forEach(p => p.classList.remove('sub-open'));
         if (!isOpen) parent.classList.add('sub-open');
       });
     });
