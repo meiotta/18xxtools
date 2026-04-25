@@ -199,8 +199,18 @@ document.addEventListener('DOMContentLoaded', () => {
     fileMenuBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       _open = !_open;
-      fileMenu.style.display = _open ? 'block' : 'none';
-      if (!_open) document.querySelectorAll('.file-menu-parent.sub-open').forEach(p => p.classList.remove('sub-open'));
+      if (_open) {
+        // Position with fixed coords so the menu is never clipped by
+        // a parent's overflow or a flex layout's coordinate system.
+        // Right-align to the button's right edge; drop below it by 4px.
+        const r = fileMenuBtn.getBoundingClientRect();
+        fileMenu.style.top   = (r.bottom + 4) + 'px';
+        fileMenu.style.right = (window.innerWidth - r.right) + 'px';
+        fileMenu.style.left  = 'auto';
+        fileMenu.style.display = 'block';
+      } else {
+        fileMenu.style.display = 'none';
+      }
     });
     document.addEventListener('click', () => {
       if (_open) {
