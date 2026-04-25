@@ -2,6 +2,8 @@
 // Initialisation, dimension controls, and resize logic.
 // Load order: TENTH — after companies-panel.js (calls renderCompaniesTable etc.)
 
+console.log('%c18xxtools%c build 20260425b — flat file menu, fixed positioning, opaque animation', 'color:#CFB53B;font-weight:bold;', 'color:#888;');
+
 document.addEventListener('DOMContentLoaded', () => {
   // Help drawer
   const helpBtn = document.getElementById('helpBtn');
