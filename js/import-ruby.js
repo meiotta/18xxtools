@@ -1354,6 +1354,14 @@ function _rbConstStr(src, name) {
   return m ? m[1] : null;
 }
 
+// NAME = %w[A B C].freeze → ['A', 'B', 'C']  (empty array when constant absent or empty)
+// Source: lib/engine/game/g_1822/game.rb:530 (PRIVATE_MAIL_CONTRACTS = %w[P6 P7].freeze)
+function _rbConstWordArray(src, name) {
+  const m = src.match(new RegExp(`^[ \\t]*${name}\\s*=\\s*%w\\[([^\\]]*)\\]`, 'm'));
+  if (!m) return [];
+  return m[1].trim().split(/\s+/).filter(Boolean);
+}
+
 // NAME = { 3 => 100, 4 => 80 }.freeze → { '3': 100, '4': 80 }
 // Handles integer-keyed, integer-value hashes (STARTING_CASH, CERT_LIMIT).
 function _rbConstIntHash(src, name) {
@@ -1649,6 +1657,23 @@ function importGameRb(content) {
   // The entities import wire-up calls _resolveGrantedByNames() after setting
   // state.privates, which covers the game.rb-first workflow.
   _resolveGrantedByNames(trains);
+
+  // ── Step 5: PRIVATE_MAIL_CONTRACTS → priv.mailContract ──────────────────
+  // Source: lib/engine/game/g_1822/game.rb:530
+  //   PRIVATE_MAIL_CONTRACTS = %w[P6 P7].freeze
+  // Source: lib/engine/game/g_1822/game.rb:1831 mail_contract_bonus
+  //   subsidy = (first_stop + last_stop) / 2  → formula: 'first_last_half'
+  // Back-populates state.privates[] so Jenny's panel can display the toggle.
+  // Runs after entities.rb import; no-ops silently if privates not yet loaded.
+  const mailSyms = _rbConstWordArray(src, 'PRIVATE_MAIL_CONTRACTS');
+  if (mailSyms.length && typeof state !== 'undefined' && state.privates) {
+    state.privates.forEach(function(priv) {
+      const sym = priv.sym || priv.abbr || '';
+      if (mailSyms.includes(sym)) {
+        priv.mailContract = { enabled: true, formula: 'first_last_half' };
+      }
+    });
+  }
 
   const mechanics = _rbParseMechanics(src);
 
