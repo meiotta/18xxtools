@@ -419,8 +419,10 @@ const ABILITY_DEFS = {
   close: {
     label: 'Custom Close Condition',
     fields: [
-      { key: 'when', label: 'Closes when', type: 'select', options: ['bought_train', 'sold', 'never', 'operated', 'par'], default: 'bought_train' },
-      { key: 'corporation', label: 'Corporation (if bought_train)', type: 'text', placeholder: 'e.g. B&O — blank = any corp' },
+      { key: 'when',        label: 'Closes when',    type: 'select', options: ['bought_train', 'sold', 'never', 'operated', 'par'], default: 'bought_train' },
+      { key: 'on_phase',    label: 'On phase',        type: 'text',   placeholder: 'e.g. 5 or never (overrides when:)' },
+      { key: 'owner_type',  label: 'Owner type',      type: 'select', options: ['player', 'corporation', 'any'], default: 'player' },
+      { key: 'corporation', label: 'Corporation sym', type: 'text',   placeholder: 'e.g. B&O — blank = any corp' },
     ],
     suggest(a) {
       if (a.when === 'never')       return 'Never auto-closes.';
@@ -671,7 +673,7 @@ function renderPrivatesSection() {
   addBtn.className = 'pc-rail-add';
   addBtn.textContent = '+ Add Private';
   addBtn.addEventListener('click', () => {
-    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [], mailContract: { enabled: false, formula: 'first_last_half', perStopAmount: 10 } });
     _selectedPrivateIdx = state.privates.length - 1;
     renderPrivatesSection();
     autosave();
@@ -700,11 +702,30 @@ function renderPrivatesSection() {
 // Convenience alias so io.js / setup.js / trains-panel.js calls still work
 function renderPrivatesCards() { renderPrivatesSection(); }
 
+// Ensures the mail-contract close ability is present on private idx.
+// Injected automatically when the mail contract toggle is enabled.
+// Schema per tobymao: { type:'close', on_phase:'never', owner_type:'corporation' }
+// (on_phase:'never' means the private never auto-closes while corp-owned.)
+function _ensureMailCloseAbility(idx, el) {
+  const priv = state.privates[idx];
+  if (!priv.abilities) priv.abilities = [];
+  const already = priv.abilities.some(
+    a => a.type === 'close' && a.on_phase === 'never' && a.owner_type === 'corporation'
+  );
+  if (!already) {
+    priv.abilities.push({ type: 'close', on_phase: 'never', owner_type: 'corporation' });
+    const list = el && el.querySelector('.pc-det-ability-list');
+    if (list) list.innerHTML = buildAbilitiesListHTML(priv, idx);
+  }
+}
+
 // ── Detail editor element ─────────────────────────────────────────────────────
 function buildPrivateDetailEl(idx) {
   const p = state.privates[idx];
   if (!p.abilities) p.abilities = [];
   const abCount = p.abilities.length;
+
+  const mc = p.mailContract || { enabled: false, formula: 'first_last_half', perStopAmount: 10 };
 
   const el = document.createElement('div');
   el.className = 'pc-detail-editor';
@@ -747,6 +768,30 @@ function buildPrivateDetailEl(idx) {
           placeholder="—" value="${p.auctionRow != null ? p.auctionRow : ''}"
           title="auction_row: groups companies into tiers (1828-style tiered waterfall). Leave blank for default single-row.">
         <span class="pc-field-hint">Tier / row (tiered waterfall only)</span>
+      </div>
+    </div>
+
+    <div class="pc-det-section pc-mail-section">
+      <div class="pc-mail-toggle-row">
+        <label class="pc-mail-label">
+          <input type="checkbox" class="pc-mail-enabled"${mc.enabled ? ' checked' : ''}>
+          Mail contract
+        </label>
+        <span class="pc-field-hint">Pays a route bonus each OR to the owning corporation</span>
+      </div>
+      <div class="pc-mail-fields"${mc.enabled ? '' : ' style="display:none;"'}>
+        <div class="pc-det-field">
+          <label class="pc-det-label">Formula</label>
+          <select class="pc-mail-formula">
+            <option value="first_last_half"${mc.formula !== 'per_stop' ? ' selected' : ''}>½ × (first + last city value)</option>
+            <option value="per_stop"${mc.formula === 'per_stop' ? ' selected' : ''}>Per stop × amount</option>
+          </select>
+        </div>
+        <div class="pc-mail-perstop"${mc.formula === 'per_stop' ? '' : ' style="display:none;"'}>
+          <label class="pc-det-label">Per-stop $</label>
+          <div class="pc-det-money">$<input type="number" class="pc-mail-per-stop" min="1" value="${mc.perStopAmount || 10}"></div>
+        </div>
+        <p class="pc-mail-hint">Auto-adds <code>close</code> ability with <code>on_phase: 'never'</code> so the private never closes while corporation-owned.</p>
       </div>
     </div>
 
@@ -831,6 +876,28 @@ function buildPrivateDetailEl(idx) {
     autosave();
   });
   el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].ability = e.target.value; autosave(); });
+
+  // ── Mail contract ──────────────────────────────────────────────────────────
+  el.querySelector('.pc-mail-enabled').addEventListener('change', e => {
+    if (!state.privates[idx].mailContract)
+      state.privates[idx].mailContract = { enabled: false, formula: 'first_last_half', perStopAmount: 10 };
+    state.privates[idx].mailContract.enabled = e.target.checked;
+    el.querySelector('.pc-mail-fields').style.display = e.target.checked ? '' : 'none';
+    if (e.target.checked) _ensureMailCloseAbility(idx, el);
+    autosave();
+  });
+  el.querySelector('.pc-mail-formula').addEventListener('change', e => {
+    if (!state.privates[idx].mailContract) return;
+    state.privates[idx].mailContract.formula = e.target.value;
+    el.querySelector('.pc-mail-perstop').style.display = e.target.value === 'per_stop' ? '' : 'none';
+    autosave();
+  });
+  const _perStopInput = el.querySelector('.pc-mail-per-stop');
+  if (_perStopInput) _perStopInput.addEventListener('change', e => {
+    if (!state.privates[idx].mailContract) return;
+    state.privates[idx].mailContract.perStopAmount = parseInt(e.target.value) || 10;
+    autosave();
+  });
 
   // ── Company type toggle (Private | Concession) ─────────────────────────────
   el.querySelectorAll('.pc-type-pill').forEach(btn => {
@@ -1060,7 +1127,7 @@ function renderTerrainCostsTable() {
 }
 
 document.getElementById('addPrivateBtn').addEventListener('click', () => {
-  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [], mailContract: { enabled: false, formula: 'first_last_half', perStopAmount: 10 } });
   _selectedPrivateIdx = state.privates.length - 1;
   renderPrivatesSection();
   autosave();
