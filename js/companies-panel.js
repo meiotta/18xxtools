@@ -673,7 +673,7 @@ function renderPrivatesSection() {
   addBtn.className = 'pc-rail-add';
   addBtn.textContent = '+ Add Private';
   addBtn.addEventListener('click', () => {
-    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [], mailContract: { enabled: false, formula: 'first_last_half', perStopAmount: 10 } });
+    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
     _selectedPrivateIdx = state.privates.length - 1;
     renderPrivatesSection();
     autosave();
@@ -1127,7 +1127,7 @@ function renderTerrainCostsTable() {
 }
 
 document.getElementById('addPrivateBtn').addEventListener('click', () => {
-  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [], mailContract: { enabled: false, formula: 'first_last_half', perStopAmount: 10 } });
+  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
   _selectedPrivateIdx = state.privates.length - 1;
   renderPrivatesSection();
   autosave();
