@@ -2542,6 +2542,15 @@ function buildHexSvg(r, c, hex) {
       // CHARACTER_WIDTH=8, LINE_HEIGHT=15, buffer_x=8, buffer_y=4 (tobymao 100-unit).
       // We use empirical values tuned for our font-size at sz=40 rather than the
       // raw ×0.4 scale (which underestimates our larger relative font).
+      //
+      // ROTATION: ny is the tile-local y offset (matching tobymao's preferred_render_locations
+      // computed in the tile's un-rotated coordinate space).  tobymao renders the location name
+      // INSIDE the tile's rotate group, so it moves with the tile.  We render here in the outer
+      // (non-rotated) hex space, so we must transform (0, ny) by totalDeg to find where that
+      // tile-local point lands in outer space.  Text stays horizontal (only the anchor moves).
+      const _tileDegRad = ((hex?.rotation || 0) * 60 + orientOff) * Math.PI / 180;
+      const _labelCx = -ny * Math.sin(_tileDegRad);
+      const _labelCy =  ny * Math.cos(_tileDegRad);
       const _segs = _nameSegments(locName);
       const _fz   = 7;    // font-size in world units (tobymao ~14×0.4≈5.6 + our larger text)
       const _cw   = 4.2;  // approx char width for Lato at _fz (proportional)
@@ -2551,14 +2560,14 @@ function buildHexSvg(r, c, hex) {
       const _maxC = Math.max(..._segs.map(s => s.length));
       const _bw   = _maxC * _cw + _padX;
       const _bh   = _segs.length * _lh + _padY;
-      // Rect centered on ny (tobymao box_dimensions + render_background_box logic)
-      g += `<rect x="${(-_bw / 2).toFixed(1)}" y="${(ny - _bh / 2).toFixed(1)}" ` +
+      // Rect centered on rotated label anchor
+      g += `<rect x="${(_labelCx - _bw / 2).toFixed(1)}" y="${(_labelCy - _bh / 2).toFixed(1)}" ` +
            `width="${_bw.toFixed(1)}" height="${_bh.toFixed(1)}" ` +
            `fill="white" fill-opacity="0.5" stroke="none"/>`;
-      // Text segments vertically centered around ny, one per line
+      // Text segments vertically centered around rotated label anchor, text remains horizontal
       for (let i = 0; i < _segs.length; i++) {
-        const _ty = ny + (i - (_segs.length - 1) / 2) * _lh;
-        g += `<text x="0" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
+        const _ty = _labelCy + (i - (_segs.length - 1) / 2) * _lh;
+        g += `<text x="${_labelCx.toFixed(1)}" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
              `font-size="${_fz}" font-weight="bold" fill="#111" stroke-width="0.5" ` +
              `text-anchor="middle" dominant-baseline="middle">${escSvg(_segs[i])}</text>`;
       }
