@@ -471,8 +471,9 @@ function parseHexId(id) {
 // True if a hex entry has any non-blank content.
 function hexHasContent(h) {
   if (!h) return false;
-  return !!(h.tile || h.terrain || h.label || h.city || h.town ||
-            h.killed || h.staticType || h.oo || h.dualTown ||
+  return !!(h.tile || h.terrain || h.label ||
+            (h.nodes && h.nodes.length) ||
+            h.killed || h.staticType ||
             (h.icons && h.icons.length) ||
             (h.riverEdges && h.riverEdges.length) ||
             (h.impassableEdges && h.impassableEdges.length));

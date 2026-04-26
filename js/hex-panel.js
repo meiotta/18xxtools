@@ -73,7 +73,6 @@ function updateHexPanel(hexId) {
   const tileCitySection = document.getElementById('tileCityNameSection');
   const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
   const hasCityFeature =
-    !!hex.city || !!hex.oo || !!hex.town ||
     (hex.static && (hex.feature === 'city' || hex.feature === 'town' || hex.feature === 'offboard')) ||
     !!(hex.nodes && hex.nodes.some(n => n.type === 'city' || n.type === 'town'));
   if (tileCitySection) {

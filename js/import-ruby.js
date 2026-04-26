@@ -74,7 +74,7 @@ function matchTileDef(targetEdges, color, hasCityOrOO) {
   if (targetEdges.size === 0) return null;
   for (const [tileNum, tileDef] of Object.entries(TileRegistry.getAllTileDefs())) {
     if (tileDef.color !== color) continue;
-    const tileHasCityOrOO = !!(tileDef.city || tileDef.oo);
+    const tileHasCityOrOO = !!(tileDef.nodes?.some(n => n.type === 'city'));
     if (hasCityOrOO !== tileHasCityOrOO) continue;
     const base = getTileEdges(tileNum);
     if (base.size !== targetEdges.size) continue;
@@ -115,9 +115,9 @@ function parsePhaseRevenue(revStr) {
 }
 
 // ── Parse a single Ruby hex code string (for white/yellow/green) ──────────────
-// Returns: { city, oo, town, dualTown, paths, label, terrain, terrainCost, borders, icons }
+// Returns: { city, town, dualTown, paths, label, terrain, terrainCost, borders, icons }
 function parseHexCode(code) {
-  const result = { city: null, oo: false, town: false, dualTown: false, offboard: false, paths: [], directPaths: [], label: '', terrain: '', terrainHasWater: false, terrainCost: 0, borders: [], icons: [] };
+  const result = { city: null, town: false, dualTown: false, offboard: false, paths: [], directPaths: [], label: '', terrain: '', terrainHasWater: false, terrainCost: 0, borders: [], icons: [] };
   let cityCount = 0, townCount = 0;
   const parts = code.split(';').map(s => s.trim()).filter(Boolean);
   for (const part of parts) {
@@ -193,7 +193,8 @@ function parseHexCode(code) {
     result.city = result.city || { revenue: '0', slots: cityCount };
     result.city.slots = cityCount;
   } else if (cityCount === 2) {
-    result.oo = true;
+    result.city = result.city || { revenue: '0', slots: 2 };
+    result.city.slots = 2;
   }
   if (townCount >= 2) result.dualTown = true;
   if (townCount >= 1) result.town = true;
@@ -944,7 +945,7 @@ function importRubyMap(content) {
       // Hexes with content → DSL rendering via parseDslHex.
       // Blank white hexes (only terrain/cost/borders) → upgradeable blank hex structure.
       const parsed = parseHexCode(code);
-      const hasContent = parsed.city || parsed.oo || parsed.town || parsed.dualTown ||
+      const hasContent = parsed.city || parsed.town || parsed.dualTown ||
         (parsed.paths && parsed.paths.length > 0) ||
         (parsed.directPaths && parsed.directPaths.length > 0) ||
         (parsed.label && parsed.label !== '');

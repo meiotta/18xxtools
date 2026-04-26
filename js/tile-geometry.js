@@ -527,10 +527,10 @@ function townPosition(nodeIdx, nodes, paths, tileExitCount, preferredEdge) {
 //     townAt: { x, y, rot, rw, rh }, revenue: { x, y, v }
 //     // Dual town (tiles 1, 2, 55, 56, 69...):
 //     dualTown: true, townPositions: [{x,y,rot,rw,rh}...], revenues: [{x,y,v}...]
-//     // Single city:
+//     // Single city (1-slot):
 //     city: true, revenue: { x, y, v }
-//     // OO / 2-slot city:
-//     oo: true, cityPositions: [{x,y}...], revenue: { x, y, v }
+//     // Multi-slot or multi-city:
+//     cityPositions: [{x,y}...], revenue: { x, y, v }
 //   }
 function normalizeTileDef(def) {
   // Old-format: no nodes/paths → pass through unchanged
@@ -671,7 +671,6 @@ function normalizeTileDef(def) {
 
   } else if (cityCount === 1 && townCount === 0) {
     if (totalSlots >= 2) {
-      out.oo   = true;
       out.cityPositions = cityPositions;
     } else {
       out.city = true;
@@ -682,8 +681,6 @@ function normalizeTileDef(def) {
 
   } else if (cityCount >= 2 && townCount === 0) {
     // Two (or more) separate city nodes — cityGroups handles rendering.
-    // Keep oo+cityPositions for hasCityFeature checks elsewhere.
-    out.oo = true;
     out.cityPositions = cityPositions;
     // Multiple cities → multiple revenue bubbles; use revenues[] not revenue
     if (revenues.length === 1) out.revenue  = revenues[0];

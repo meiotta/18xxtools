@@ -429,7 +429,6 @@ function showContextMenu(x, y, hexId) {
         ensureHex(hexId);
         const h = state.hexes[hexId];
         h.tile = 0; h.rotation = 0;
-        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
         h.nodes   = [{ type: 'city', slots: 1, flat: 0 }];
         h.paths   = []; h.exits = [];
         h.feature = 'city';
@@ -439,7 +438,6 @@ function showContextMenu(x, y, hexId) {
         ensureHex(hexId);
         const h = state.hexes[hexId];
         h.tile = 0; h.rotation = 0;
-        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
         h.nodes   = [{ type: 'town', flat: 0 }];
         h.paths   = []; h.exits = [];
         h.feature = 'town';
@@ -449,7 +447,6 @@ function showContextMenu(x, y, hexId) {
         ensureHex(hexId);
         const h = state.hexes[hexId];
         h.tile = 0; h.rotation = 0;
-        h.city = null; h.town = null; h.oo = false; h.dualTown = false;
         h.nodes   = [{ type: 'town', flat: 0 }, { type: 'town', flat: 0 }];
         h.paths   = []; h.exits = [];
         h.feature = 'dualTown';
@@ -482,7 +479,7 @@ function showContextMenu(x, y, hexId) {
 
   // ── Clear / Kill ──────────────────────────────────────────────────────────
   addItem('🗑 Clear Hex', () => {
-    state.hexes[hexId] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, oo: false, dualTown: false, ooCityName: '', label: '', icons: [], killed: false };
+    state.hexes[hexId] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, nodes: [], paths: [], label: '', icons: [], killed: false };
     render(); autosave();
   });
   addItem(hex.killed ? '✅ Unkill Hex' : '💀 Kill Hex', () => {
@@ -560,7 +557,7 @@ function showMultiContextMenu(x, y, hexIds) {
   // ── Clear / Kill (multi) ──────────────────────────────────────────────────
   addItem(`🗑 Clear All (${n})`, () => {
     applyToAll(id => {
-      state.hexes[id] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, city: null, town: null, oo: false, dualTown: false, ooCityName: '', label: '', icons: [], killed: false };
+      state.hexes[id] = { terrain: '', terrainCost: 0, tile: 0, rotation: 0, nodes: [], paths: [], label: '', icons: [], killed: false };
     });
   });
   addItem(`💀 Kill All (${n})`, () => {

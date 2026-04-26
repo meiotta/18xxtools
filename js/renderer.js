@@ -390,11 +390,8 @@ function buildTerrainSvg(hex) {
   //   source: city.rb lines 275-296 (single-slot center city uses CENTER)
   // Center town: TownDot CENTER_TOWN / TownRect center path → region_weights: CENTER
   //   source: town_dot.rb lines 29-35, town_location.rb SINGLE_STOP_TWO_EXIT_REGIONS :straight
-  // Static map hexes (hex.feature) are always center stops, never edge stops.
   const CENTER = [7, 8, 9, 14, 15, 16]; // Base::CENTER (base.rb line 19)
-  const hasCenterStop =
-    hex.city || hex.feature === 'city' || hex.feature === 'oo' ||
-    hex.town || hex.feature === 'town' || hex.feature === 'dualTown';
+  const hasCenterStop = hex.nodes?.some(n => n.type === 'city' || n.type === 'town');
   if (hasCenterStop) {
     for (const r of CENTER) ru[r] += 1; // city/town increment_cost occupies CENTER
   }
@@ -1273,24 +1270,7 @@ function hexToSvgInner(hex, tileDef) {
       }
     }
 
-    // Edge-to-edge bypass paths (e.g. Altoona path=a:1,b:4 alongside city)
-    // hex.paths is the canonical source (rendered above in STEP 1 with lane offsets).
-    // When hex.paths is populated, skip BOTH pathPairs and blankPaths — rendering either
-    // would double-draw tracks without lane shifts, producing a doubled/crossed result.
-    // blankPaths / pathPairs are only used as fallbacks for pre-paths[] legacy saves.
-    const hasPaths   = hex.paths && hex.paths.length > 0;
-    const _eeBypass  = hasPaths ? [] : (hex.pathPairs  || []);
-    const _bpFallback = hasPaths ? [] : (hex.blankPaths || []);
-    for (const [ea, eb] of [..._eeBypass, ..._bpFallback]) {
-      const pa = ep(ea), pb = ep(eb);
-      const diff = Math.abs(ea - eb);
-      if (diff === 3 || diff === 0) {
-        svg += `<line x1="${pa.x.toFixed(1)}" y1="${pa.y.toFixed(1)}" x2="${pb.x.toFixed(1)}" y2="${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-      } else {
-        const arc = calcArc(pa.x, pa.y, pb.x, pb.y);
-        svg += `<path d="M ${pa.x.toFixed(1)} ${pa.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${pb.x.toFixed(1)} ${pb.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
-      }
-    }
+    // Edge-to-edge paths alongside nodes are already rendered by STEP 1 above.
 
     // ── STEP 2: Draw nodes — rendered OVER tracks ───────────────────────────
     for (let ni = 0; ni < hex.nodes.length; ni++) {
@@ -1433,13 +1413,8 @@ function hexToSvgInner(hex, tileDef) {
       }
     }
 
-  } else if ((hex.paths && hex.paths.length > 0) || (hex.pathPairs && hex.pathPairs.length > 0) || (hex.blankPaths && hex.blankPaths.length > 0)) {
-    // Pure edge-to-edge path hex (no nodes at all).
-    // hex.paths      — canonical paths model with lane support (from import-ruby.js)
-    // hex.pathPairs  — legacy edge pairs (fallback when hex.paths is empty)
-    // hex.blankPaths — paths drawn manually in the hex builder
-
-    // Render hex.paths with lane offsets (same logic as STEP 1, nodePos unused here).
+  } else if (hex.paths && hex.paths.length > 0) {
+    // Pure edge-to-edge path hex (no nodes, no offboard) — canonical paths only.
     for (const path of (hex.paths || [])) {
       const aL = _parseLane(path.aLane, path.a_lane);
       const bL = _parseLane(path.bLane, path.b_lane);
@@ -1457,25 +1432,6 @@ function hexToSvgInner(hex, tileDef) {
         svg += `<line x1="${posA.x.toFixed(1)}" y1="${posA.y.toFixed(1)}" x2="${posB.x.toFixed(1)}" y2="${posB.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
       }
     }
-
-    // Legacy pathPairs / blankPaths fallback (only when hex.paths is absent — pre-DSL saves).
-    // When hex.paths is populated it is the canonical source; rendering either fallback
-    // would double-draw tracks without lane shifts.
-    const _hasPaths2   = hex.paths && hex.paths.length > 0;
-    const _legacyPairs = _hasPaths2 ? [] : (hex.pathPairs  || []);
-    const _legacyBlank = _hasPaths2 ? [] : (hex.blankPaths || []);
-    const drawSeg = (e1, e2) => {
-      const p1 = ep(e1), p2 = ep(e2);
-      const diff = Math.abs(e1 - e2);
-      if (diff === 3 || diff === 0) {
-        svg += `<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round"/>`;
-      } else {
-        const arc = calcArc(p1.x, p1.y, p2.x, p2.y);
-        svg += `<path d="M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} A ${arc.radius} ${arc.radius} 0 0 ${arc.sweep} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}" stroke="#000" stroke-width="${DSL_TRACK_W}" stroke-linecap="round" fill="none"/>`;
-      }
-    };
-    for (const [ea, eb] of _legacyPairs) drawSeg(ea, eb);
-    for (const [ea, eb] of _legacyBlank) drawSeg(ea, eb);
   }
 
   // ── Stubs — drawn unconditionally, can appear on any hex ───────────────────
@@ -2461,10 +2417,9 @@ function buildHexSvg(r, c, hex) {
   if (!hex?.killed) {
     // Determine whether this hex has a city/town/oo symbol that occupies hex centre.
     // Used to collision-avoid terrain icon placement (see buildTerrainSvg).
-    const hasCityFeature = (tileDef && (tileDef.city || tileDef.oo || tileDef.cities))
-      || !!hex?.city || !!hex?.town
-      || hex?.feature === 'city' || hex?.feature === 'oo'
-      || hex?.feature === 'town' || hex?.feature === 'dualTown';
+    const hasCityFeature =
+      !!(tileDef?.nodes?.some(n => n.type === 'city' || n.type === 'town')) ||
+      !!(hex?.nodes?.some(n => n.type === 'city' || n.type === 'town'));
 
     // Terrain icon (no tile placed) — buildTerrainSvg runs full 24-region
     // collision resolution internally from hex.exits / hex.feature.
@@ -2489,12 +2444,11 @@ function buildHexSvg(r, c, hex) {
     //                            (suppresses pass-through / pure-track hexes).
     //   Blank upgradeable hexes (no nodes) — always show cityName if set; a blank
     //                            hex that carries a city name is always a city hex.
-    //   Legacy hex.city/town   — fall back to the name stored in those objects.
     const locName = !hex || !!hex.tile ? '' :
       (!hex.nodes || hex.nodes.length === 0)
-        ? (hex.cityName || hex.city?.name || hex.town?.name || '')
+        ? (hex.cityName || '')
         : hex.nodes.some(n => n.type === 'city' || n.type === 'town')
-          ? (hex.cityName || hex.city?.name || hex.town?.name || '')
+          ? (hex.cityName || '')
           : '';
     if (locName) {
       // ── tobymao location_name.rb preferred_render_locations ─────────────────
@@ -2520,13 +2474,7 @@ function buildHexSvg(r, c, hex) {
       //     single city 4+ slot  → [l_top, l_bottom]
       //     multi city_towns     → l_center (complex edge logic; center is safe default)
       let ny;
-      if (hex.city && !hex.tile) {
-        // Legacy hex.city model — treat as single 1-slot city
-        ny = sz * 0.40;                              // l_down40
-      } else if (hex.town && !hex.tile) {
-        // Legacy hex.town model — treat as single town
-        ny = -sz * 0.40;                             // l_up40
-      } else {
+      {
         const _nodes  = hex.nodes || [];
         const _cities = _nodes.filter(n => n.type === 'city');
         const _towns  = _nodes.filter(n => n.type === 'town');
@@ -2624,11 +2572,8 @@ function buildHexSvg(r, c, hex) {
     // Tile / DSL geometry
     const hasDslContent = !hex?.tile && hex && (
       (hex.feature && hex.feature !== 'none' && hex.feature !== 'blank') ||
-      (hex.exits      && hex.exits.length      > 0) ||
-      (hex.paths      && hex.paths.length      > 0) ||
-      (hex.pathPairs  && hex.pathPairs.length  > 0) ||
-      (hex.blankPaths && hex.blankPaths.length > 0) ||
-      (hex.exitPairs  && hex.exitPairs.length  > 0) ||
+      (hex.exits  && hex.exits.length  > 0) ||
+      (hex.paths  && hex.paths.length  > 0) ||
       (hex.label  && hex.label !== '')
     );
 
