@@ -72,8 +72,11 @@ function updateHexPanel(hexId) {
   // static hexes with city/town/offboard feature, imported hexes with node data.
   const tileCitySection = document.getElementById('tileCityNameSection');
   const td = hex.tile ? TileRegistry.getTileDef(hex.tile) : null;
+  // td.city / td.oo are legacy properties present only on old-format tiles.
+  // Modern DSL tiles store nodes[] with type:'city'|'town' — check those too.
   const hasCityFeature =
-    (td && (td.city || td.oo)) ||
+    (td && (td.city || td.oo || td.cities ||
+            td.nodes?.some(n => n.type === 'city' || n.type === 'town'))) ||
     !!hex.city || !!hex.oo || !!hex.town ||
     (hex.static && (hex.feature === 'city' || hex.feature === 'town' || hex.feature === 'offboard')) ||
     !!(hex.nodes && hex.nodes.some(n => n.type === 'city' || n.type === 'town'));
