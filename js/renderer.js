@@ -2315,7 +2315,10 @@ function _locNameCost(ru, rw) {
 // Returns SVG <text> string in (sz/100)-scaled space, or '' for empty label.
 // Font: tobymao tile__text (14px × scale(1.5) = 21px effective at 100-unit).
 // Style: fill:black, no bold, no stroke (exact tobymao tile__text CSS).
-function _buildLabelSvg(label, nodes, paths, sz) {
+// totalDeg: rotation (degrees) already applied to the tile's inner SVG.
+// The label position is computed in tile-local (pre-rotation) space; we rotate
+// it by totalDeg so the label anchor follows the tile content.  Text stays horizontal.
+function _buildLabelSvg(label, nodes, paths, sz, totalDeg = 0) {
   if (!label || label === '') return '';
 
   const _cities    = nodes.filter(n => n.type === 'city');
@@ -2377,10 +2380,17 @@ function _buildLabelSvg(label, nodes, paths, sz) {
     if (cost < _best) { _best = cost; _lx = c.x; _ly = c.y; }
   }
 
+  // Rotate the tile-local (lx, ly) position by totalDeg so the label anchor
+  // follows the tile content rotation.  Text glyphs stay horizontal.
+  // Clockwise SVG rotation matrix: lx' = lx·cos θ − ly·sin θ,  ly' = lx·sin θ + ly·cos θ
+  const _rad = totalDeg * Math.PI / 180;
+  const _rlx = _lx * Math.cos(_rad) - _ly * Math.sin(_rad);
+  const _rly = _lx * Math.sin(_rad) + _ly * Math.cos(_rad);
+
   // tobymao 100-unit → output space: × sz/100
   // Font: 14px (tile__text CSS) × scale(1.5) = 21px at 100-unit → × sz/100
   const fz = (21 * sz / 100).toFixed(1);
-  return `<text x="${(_lx * sz / 100).toFixed(1)}" y="${(_ly * sz / 100).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="${fz}" fill="black" text-anchor="middle" dominant-baseline="middle">${escSvg(label)}</text>`;
+  return `<text x="${(_rlx * sz / 100).toFixed(1)}" y="${(_rly * sz / 100).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="${fz}" fill="black" text-anchor="middle" dominant-baseline="middle">${escSvg(label)}</text>`;
 }
 
 // ─── HEX GROUP BUILDER ────────────────────────────────────────────────────────
@@ -2542,15 +2552,6 @@ function buildHexSvg(r, c, hex) {
       // CHARACTER_WIDTH=8, LINE_HEIGHT=15, buffer_x=8, buffer_y=4 (tobymao 100-unit).
       // We use empirical values tuned for our font-size at sz=40 rather than the
       // raw ×0.4 scale (which underestimates our larger relative font).
-      //
-      // ROTATION: ny is the tile-local y offset (matching tobymao's preferred_render_locations
-      // computed in the tile's un-rotated coordinate space).  tobymao renders the location name
-      // INSIDE the tile's rotate group, so it moves with the tile.  We render here in the outer
-      // (non-rotated) hex space, so we must transform (0, ny) by totalDeg to find where that
-      // tile-local point lands in outer space.  Text stays horizontal (only the anchor moves).
-      const _tileDegRad = ((hex?.rotation || 0) * 60 + orientOff) * Math.PI / 180;
-      const _labelCx = -ny * Math.sin(_tileDegRad);
-      const _labelCy =  ny * Math.cos(_tileDegRad);
       const _segs = _nameSegments(locName);
       const _fz   = 7;    // font-size in world units (tobymao ~14×0.4≈5.6 + our larger text)
       const _cw   = 4.2;  // approx char width for Lato at _fz (proportional)
@@ -2560,14 +2561,14 @@ function buildHexSvg(r, c, hex) {
       const _maxC = Math.max(..._segs.map(s => s.length));
       const _bw   = _maxC * _cw + _padX;
       const _bh   = _segs.length * _lh + _padY;
-      // Rect centered on rotated label anchor
-      g += `<rect x="${(_labelCx - _bw / 2).toFixed(1)}" y="${(_labelCy - _bh / 2).toFixed(1)}" ` +
+      // Rect centered on ny (tobymao box_dimensions + render_background_box logic)
+      g += `<rect x="${(-_bw / 2).toFixed(1)}" y="${(ny - _bh / 2).toFixed(1)}" ` +
            `width="${_bw.toFixed(1)}" height="${_bh.toFixed(1)}" ` +
            `fill="white" fill-opacity="0.5" stroke="none"/>`;
-      // Text segments vertically centered around rotated label anchor, text remains horizontal
+      // Text segments vertically centered around ny, one per line
       for (let i = 0; i < _segs.length; i++) {
-        const _ty = _labelCy + (i - (_segs.length - 1) / 2) * _lh;
-        g += `<text x="${_labelCx.toFixed(1)}" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
+        const _ty = ny + (i - (_segs.length - 1) / 2) * _lh;
+        g += `<text x="0" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
              `font-size="${_fz}" font-weight="bold" fill="#111" stroke-width="0.5" ` +
              `text-anchor="middle" dominant-baseline="middle">${escSvg(_segs[i])}</text>`;
       }
@@ -2595,13 +2596,14 @@ function buildHexSvg(r, c, hex) {
       g += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
 
       // Tile label (placed pack/manifest tiles) — canonical via _buildLabelSvg
+      // Pass totalDeg so the label anchor orbits with the tile rotation (text stays horizontal).
       if (tileDef?.tileLabel) {
-        g += _buildLabelSvg(tileDef.tileLabel, tileDef.nodes || [], tileDef.paths || [], sz);
+        g += _buildLabelSvg(tileDef.tileLabel, tileDef.nodes || [], tileDef.paths || [], sz, totalDeg);
       }
 
       // DSL hex label (C, Y, OO, NY, etc.) — canonical via _buildLabelSvg
       if (!tileDef && hex?.label && hex.label !== '') {
-        g += _buildLabelSvg(hex.label, hex.nodes || [], hex.paths || [], sz);
+        g += _buildLabelSvg(hex.label, hex.nodes || [], hex.paths || [], sz, totalDeg);
       }
 
       // DSL phase revenue — for offboards and phase-coloured city nodes (flat=null).
