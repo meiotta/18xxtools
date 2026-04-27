@@ -54,30 +54,34 @@ function hexCorners(cx, cy, size, orientation) {
 function getHexCenter(row, col, size, orientation) {
   let x, y;
   if (orientation === 'pointy') {
-    // Pointy-top: columns spaced by size*√3, rows by size*1.5, some rows stagger right by half column.
+    // Pointy-top: pixel position derives directly from the raw tobymao coordinate
+    // values — no stagger-direction heuristics needed.
     //
-    // pointyStaggerParity (psp) controls which rows get the dx/2 rightward offset:
-    //   psp=0 (default): odd  internal rows stagger right — standard pointy convention
-    //   psp=1:           even internal rows stagger right — used by games like 1822 MX
-    //     where even letter-rows (A,C,E…) use even column-numbers (A2,C4…)
+    //   pixel_x = numPart * (dx/2)   where numPart = 2*col + offset
+    //   pixel_y = row * dy + size
     //
-    // Detection: importRubyMap tallies whether even-letter rows use even or odd numbers;
-    // if even numbers dominate, psp=1 is stored in state.meta.pointyStaggerParity.
+    // offset = pointyEvenOffset for even rows, pointyOddOffset for odd rows.
+    // These are the minimum raw numPart values observed in each row-parity class
+    // during import, so the formula exactly matches tobymao's encoding:
+    //   tobymao: pixel_x = hex.x * (SIZE*√3/2)  where hex.x IS the numPart.
+    //
+    // Examples:
+    //   1824 (G2,G4…/H1,H3…): peo=2, poo=1
+    //     G (row=6, even): x = (2*col+2)*(dx/2) = col*dx + dx  ✓
+    //     H (row=7, odd):  x = (2*col+1)*(dx/2) = col*dx + dx/2 ✓
+    //   18OE (A0,A2…/B1,B3…): peo=0, poo=1
+    //     A (row=0, even): x = (2*col+0)*(dx/2) = col*dx       ✓
+    //     B (row=1, odd):  x = (2*col+1)*(dx/2) = col*dx + dx/2 ✓
+    //   standard psp=0 (A1,A3…/B2,B4…): peo=1, poo=2
+    //     A (row=0, even): x = (2*col+1)*(dx/2) = col*dx + dx/2 ✓
+    //     B (row=1, odd):  x = (2*col+2)*(dx/2) = col*dx + dx  ✓
     const dx = size * Math.sqrt(3);
     const dy = size * 1.5;
-    const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
-    x = col * dx + dx / 2;
+    const peo = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
+    const poo = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
+    const offset = (row % 2 === 0) ? peo : poo;
+    x = (2 * col + offset) * (dx / 2);
     y = row * dy + size;
-    // psp=0: odd  rows stagger RIGHT (+dx/2) — standard pointy convention
-    // psp=1: direction depends on which row-parity has the larger numPart offset.
-    //   pointyEvenOffset > pointyOddOffset (1824, 1822MX: G2,G4 > H1,H3):
-    //     even rows stagger RIGHT (+dx/2) so they sit right of odd rows ✓
-    //   pointyEvenOffset < pointyOddOffset (18OE: A0,A2 < B1,B3):
-    //     even rows stagger LEFT  (-dx/2) — original 18OE behaviour ✓
-    const _peo = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
-    const _poo = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
-    const _staggerDir = (psp === 0) ? 1 : (_peo > _poo ? 1 : -1);
-    if ((row + psp) % 2 === 1) x += _staggerDir * dx / 2;
   } else {
     // Flat-top layout:
     //   Column pitch  = size * 1.5  (3/4 of hex width)
@@ -134,14 +138,13 @@ function pixelToHex(px, py, size, orientation) {
   } else {
     const dx = size * Math.sqrt(3);
     const dy = size * 1.5;
-    const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
+    const peo = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
+    const poo = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
     row = Math.round((py - size) / dy);
-    // Inverse of getHexCenter stagger — same direction as forward pass.
-    const _peo2 = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
-    const _poo2 = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
-    const _staggerDir2 = (psp === 0) ? 1 : (_peo2 > _poo2 ? 1 : -1);
-    const stagger = ((row + psp) % 2 === 1) ? _staggerDir2 * dx / 2 : 0;
-    col = Math.round((px - dx / 2 - stagger) / dx);
+    // Inverse of getHexCenter: pixel_x = (2*col + offset) * (dx/2)
+    // → col = (px / (dx/2) - offset) / 2
+    const offset = (row % 2 === 0) ? peo : poo;
+    col = Math.round((px / (dx / 2) - offset) / 2);
   }
   // Voronoi refinement — check 3×3 neighbourhood, pick nearest center.
   let bestRow = Math.max(0, row), bestCol = Math.max(0, col), bestDist2 = Infinity;

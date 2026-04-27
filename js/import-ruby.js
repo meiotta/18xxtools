@@ -682,32 +682,30 @@ function importRubyMap(content) {
   //   If they mostly use ODD  numbers → standard odd-row stagger → psp=0
   // Run for ALL pointy maps regardless of transposedAxes — pointy+transposed
   // (e.g. 18OEUKFR) still uses letter=row and needs the same parity detection.
-  let _evenRowEven = 0, _evenRowOdd = 0, _minEvenNumPart = Infinity;
+  // Detect pointy-layout column offsets directly from minimum numPart observed
+  // in each row-parity class.  No intermediate stagger-parity heuristic needed:
+  //   pointyEvenOffset = min numPart across all even letterIdx rows
+  //   pointyOddOffset  = min numPart across all odd  letterIdx rows
+  // These encode exactly what tobymao stores as hex.x, so
+  //   pixel_x = (2*col + offset) * (dx/2)
+  // matches tobymao's formula  pixel_x = hex.x * (dx/2)  without ambiguity.
+  let _minEvenNumPart = Infinity, _minOddNumPart = Infinity;
   if (orientation === 'pointy') {
     for (const coord of allCoords) {
       const p = parseCoordParts(coord); if (!p) continue;
-      if (p.letterIdx % 2 === 0) {
-        if (p.numPart % 2 === 0) {
-          _evenRowEven++;
-          _minEvenNumPart = Math.min(_minEvenNumPart, p.numPart);
-        } else _evenRowOdd++;
-      }
+      if (p.letterIdx % 2 === 0) _minEvenNumPart = Math.min(_minEvenNumPart, p.numPart);
+      else                        _minOddNumPart  = Math.min(_minOddNumPart,  p.numPart);
     }
   }
-  const pointyStaggerParity = (orientation === 'pointy' && _evenRowEven > _evenRowOdd) ? 1 : 0;
-  // Detect even-row column base: most psp=1 games start even-row numParts at 2,
-  // but some (e.g. 18OE) start at 0.  This drives coordToGrid's fallback formula
-  // and hexId's inverse, so they must agree.
-  const pointyEvenBase = (pointyStaggerParity === 1 && _minEvenNumPart === 0) ? 0 : 2;
-  console.log(`[importRubyMap] pointyStaggerParity=${pointyStaggerParity} pointyEvenBase=${pointyEvenBase} (evenRowEven=${_evenRowEven} evenRowOdd=${_evenRowOdd})`);
+  const pointyEvenOffset = (_minEvenNumPart < Infinity) ? _minEvenNumPart : 1;
+  const pointyOddOffset  = (_minOddNumPart  < Infinity) ? _minOddNumPart  : 2;
+  // Retain pointyStaggerParity for backward-compat with old save files (hexId fallback).
+  const pointyStaggerParity = (pointyEvenOffset % 2 === 0) ? 1 : 0;
+  console.log(`[importRubyMap] pointyEvenOffset=${pointyEvenOffset} pointyOddOffset=${pointyOddOffset} (psp=${pointyStaggerParity})`);
 
-  // Derive the actual column offsets for even / odd letter-rows.
-  //   psp=1 standard : evenOffset=2 (A2,A4…), oddOffset=1 (B1,B3…)
-  //   psp=1 18OE-style: evenOffset=0 (A0,A2…), oddOffset=1 (B1,B3…)
-  //   psp=0 standard : evenOffset=1 (A1,A3…), oddOffset=2 (B2,B4…)
-  // These are stored in state.meta so hexId() can invert the same formula.
-  const pointyEvenOffset = (pointyStaggerParity === 1) ? pointyEvenBase : 1;
-  const pointyOddOffset  = (pointyStaggerParity === 1) ? 1 : 2;
+  // (comment kept for reference)
+  // psp=1: even letter-rows use even numParts (A2,A4… or A0,A2…)
+  // psp=0: even letter-rows use odd  numParts (A1,A3…)
 
   // ── Eagerly update state.meta so hexId uses the correct keys during build ────
   // hexId() reads state.meta.orientation / coordParity / pointyStaggerParity at
