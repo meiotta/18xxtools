@@ -69,10 +69,15 @@ function getHexCenter(row, col, size, orientation) {
     x = col * dx + dx / 2;
     y = row * dy + size;
     // psp=0: odd  rows stagger RIGHT (+dx/2) — standard pointy convention
-    // psp=1: even rows stagger LEFT  (-dx/2) — 18OE / 1822MX style
-    //   With psp=1: even-row cols are numbered 0,2,4… matching col=numPart/2,
-    //   so the stagger must go LEFT to put odd rows (B1,D3…) between them.
-    if ((row + psp) % 2 === 1) x += (psp === 0 ? 1 : -1) * dx / 2;
+    // psp=1: direction depends on which row-parity has the larger numPart offset.
+    //   pointyEvenOffset > pointyOddOffset (1824, 1822MX: G2,G4 > H1,H3):
+    //     even rows stagger RIGHT (+dx/2) so they sit right of odd rows ✓
+    //   pointyEvenOffset < pointyOddOffset (18OE: A0,A2 < B1,B3):
+    //     even rows stagger LEFT  (-dx/2) — original 18OE behaviour ✓
+    const _peo = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
+    const _poo = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
+    const _staggerDir = (psp === 0) ? 1 : (_peo > _poo ? 1 : -1);
+    if ((row + psp) % 2 === 1) x += _staggerDir * dx / 2;
   } else {
     // Flat-top layout:
     //   Column pitch  = size * 1.5  (3/4 of hex width)
@@ -131,9 +136,11 @@ function pixelToHex(px, py, size, orientation) {
     const dy = size * 1.5;
     const psp = (typeof state !== 'undefined' && state?.meta?.pointyStaggerParity) || 0;
     row = Math.round((py - size) / dy);
-    // Inverse of getHexCenter stagger: psp=0 → subtract dx/2 on odd rows;
-    // psp=1 → add dx/2 on even rows (stagger was leftward, so invert rightward).
-    const stagger = ((row + psp) % 2 === 1) ? (psp === 0 ? 1 : -1) * dx / 2 : 0;
+    // Inverse of getHexCenter stagger — same direction as forward pass.
+    const _peo2 = (typeof state !== 'undefined' ? state?.meta?.pointyEvenOffset : null) ?? 1;
+    const _poo2 = (typeof state !== 'undefined' ? state?.meta?.pointyOddOffset  : null) ?? 2;
+    const _staggerDir2 = (psp === 0) ? 1 : (_peo2 > _poo2 ? 1 : -1);
+    const stagger = ((row + psp) % 2 === 1) ? _staggerDir2 * dx / 2 : 0;
     col = Math.round((px - dx / 2 - stagger) / dx);
   }
   // Voronoi refinement — check 3×3 neighbourhood, pick nearest center.
