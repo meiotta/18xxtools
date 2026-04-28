@@ -18,15 +18,10 @@ function _makeSwatchSvg(id) {
   const registrySvg = makeTileSwatchSvg(id);
   if (registrySvg) return registrySvg;
 
-  // Custom tile — from build-a-hex (ct.hex) or from a game TILES block (ct.code).
+  // Custom builder tile — render directly from the saved hex model.
   const ct = state.customTiles && state.customTiles[id];
-  if (!ct) return '';
-  let model = ct.hex;
-  if (!model && ct.code !== undefined) {
-    // Parse DSL code from TILES block into a renderable hex model.
-    model = parseDslHex(ct.code, ct.color || 'white', '');
-  }
-  if (!model) return '';
+  if (!ct || !ct.hex) return '';
+  const model = ct.hex;
   const color = model.bg === 'gray' ? 'grey' : (model.bg || 'yellow');
   const hexColor = TILE_HEX_COLORS[color] || '#c8a87a';
   let inner = `<polygon points="50,0 25,43.5 -25,43.5 -50,0 -25,-43.5 25,-43.5" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
@@ -46,13 +41,8 @@ const COLOR_ORDER = { white: -1, yellow: 0, green: 1, brown: 2, grey: 3 };
 
 function tileSort(a, b) {
   // Include color from custom builder tiles for correct sort-order placement.
-  const _ctColor = (id) => {
-    const ct = state.customTiles?.[id];
-    if (!ct) return null;
-    return ct.hex ? { color: ct.hex.bg } : (ct.color ? { color: ct.color } : null);
-  };
-  const tdA = TileRegistry.getTileDef(a) || _ctColor(a);
-  const tdB = TileRegistry.getTileDef(b) || _ctColor(b);
+  const tdA = TileRegistry.getTileDef(a) || (state.customTiles?.[a]?.hex ? { color: state.customTiles[a].hex.bg } : null);
+  const tdB = TileRegistry.getTileDef(b) || (state.customTiles?.[b]?.hex ? { color: state.customTiles[b].hex.bg } : null);
   const ca = COLOR_ORDER[tdA?.color] ?? 99;
   const cb = COLOR_ORDER[tdB?.color] ?? 99;
   if (ca !== cb) return ca - cb;
