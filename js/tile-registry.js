@@ -57,10 +57,30 @@ const TileRegistry = (() => {
         typeof ep === 'number'  ? { type: 'edge', n: ep }
         : (ep && 'node' in ep) ? { type: 'node', n: ep.node }
         : ep;
+      // Normalize endpoints
+      const normPaths = raw.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) }));
+      // Expand lanes:N shorthand → N parallel paths with aLane/bLane,
+      // mirroring Path.make_lanes in tobymao and parseDslHex in import-ruby.js.
+      const expandedPaths = [];
+      for (const p of normPaths) {
+        if (p.lanes && p.lanes > 1) {
+          const N = p.lanes;
+          const bothEdge = p.a?.type === 'edge' && p.b?.type === 'edge';
+          for (let i = 0; i < N; i++) {
+            const ep = { ...p };
+            delete ep.lanes;
+            ep.aLane = [N, i];
+            ep.bLane = bothEdge ? [N, N - i - 1] : [N, i];
+            expandedPaths.push(ep);
+          }
+        } else {
+          expandedPaths.push(p);
+        }
+      }
       const tileDef = {
         color: raw.color === 'gray' ? 'grey' : raw.color,
         nodes: raw.nodes,
-        paths: raw.paths.map(p => ({ ...p, a: _ne(p.a), b: _ne(p.b) })),
+        paths: expandedPaths,
       };
       if (raw.label) tileDef.tileLabel = raw.label;
       return tileDef;
