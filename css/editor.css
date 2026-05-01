@@ -1039,11 +1039,24 @@ canvas { display: block; }
   border-radius: 5px; padding: 4px 6px; font-size: 12px; flex: 1; min-width: 0; cursor: pointer;
 }
 .hb-border-row {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 8px;
   font-size: 12px; color: #bbb; padding: 5px 0;
   border-bottom: 1px solid #2a2a2a;
 }
-.hb-border-add-row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.hb-border-row:last-child { border-bottom: none; }
+.hb-border-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,0.25);
+}
+.hb-border-info { flex: 1; min-width: 0; }
+.hb-border-cost-badge { color: #888; }
+.hb-border-add-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+.hb-border-cost-input {
+  width: 56px !important;
+  flex-shrink: 0;
+  padding: 4px 6px !important;
+  font-size: 12px !important;
+}
 .hb-btn-xs {
   background: transparent; border: 1px solid #505050; color: #999;
   border-radius: 4px; cursor: pointer; font-size: 11px;

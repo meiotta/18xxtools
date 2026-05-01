@@ -332,11 +332,21 @@ function _loadFromModel(h) {
 function _toDslHex() {
   // Build nodes[] and paths[] that hexToSvgInner understands.
   // Path endpoint convention: { type:'edge'|'node', n:int }
-  const nodes = _nodes.map(n => ({
-    type:   n.type,
-    slots:  n.slots  || 1,
-    locStr: n.locStr || 'center',
-  }));
+  const nodes = _nodes.map(n => {
+    // Towns at the center snap must NOT carry locStr:'center' — that forces the
+    // preview to (0,0) and bypasses computeTownPos, which picks the arc-midpoint
+    // position from connected edges (gentle/sharp/straight curve).  The DSL emitter
+    // already omits loc: for center towns, so the placed tile is always computed
+    // correctly; the preview should match.  Omitting the key entirely (not setting
+    // it to undefined) is the correct form — matching what parseDSL produces when
+    // there is no loc: in the DSL string.
+    // Cities keep locStr (including 'center') — a center city genuinely means
+    // "pin to origin", and edge cities carry an explicit numeric locStr.
+    const ls = (n.type === 'town' && n.locStr === 'center') ? null : (n.locStr || 'center');
+    const node = { type: n.type, slots: n.slots ?? 1 };
+    if (ls) node.locStr = ls;
+    return node;
+  });
 
   const paths = [];
 
@@ -452,7 +462,8 @@ function _toDslHex() {
   // 'offboard' is the only feature value the renderer and exporter branch on.
   const feature = _nodes.some(n => n.type === 'offboard') ? 'offboard' : 'none';
 
-  return { nodes, paths, exits, blankPaths, feature, bg: _bg };
+  return { nodes, paths, exits, blankPaths, feature, bg: _bg,
+           terrain: _terrain || undefined, terrainCost: _terrainCost || undefined };
 }
 
 // ── Final model builder ───────────────────────────────────────────────────────
@@ -478,7 +489,7 @@ function _buildFinalModel() {
     const isPhase = n.phaseMode || n.type === 'offboard';
     return {
       type:         n.type,
-      slots:        n.slots  || 1,
+      slots:        n.slots  ?? 1,
       locStr:       n.locStr || 'center',
       flat:         isPhase ? null : (n.revenue || 0),
       phaseRevenue: isPhase
@@ -632,12 +643,21 @@ function _bgHexColor() {
 }
 
 function _bordersHtml() {
-  if (!_borders.length) return '<div class="hb-hint">No borders</div>';
-  return _borders.map((b, i) => `
+  if (!_borders.length) return '<div class="hb-hint">No borders defined</div>';
+  return _borders.map((b, i) => {
+    const col   = b.type === 'water'    ? '#3399ff'
+                : b.type === 'province' ? '#ff8800'
+                :                         '#d32020';
+    const label = b.type === 'water'    ? 'Water'
+                : b.type === 'province' ? 'Province'
+                :                         'Impassable';
+    return `
     <div class="hb-border-row">
-      <span>Edge ${b.edge} — ${b.type || 'impassable'}${b.cost ? ', cost ' + b.cost : ''}</span>
+      <span class="hb-border-dot" style="background:${col};"></span>
+      <span class="hb-border-info">Edge ${b.edge} — ${label}${b.cost ? ` <span class="hb-border-cost-badge">+$${b.cost}</span>` : ''}</span>
       <button class="hb-btn-xs hb-btn-danger" data-remove-border="${i}" title="Remove">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function _panelHtml() {
@@ -699,14 +719,16 @@ function _panelHtml() {
           <div class="hb-section-label">Borders</div>
           <div id="hbBorderList">${_bordersHtml()}</div>
           <div class="hb-border-add-row">
-            <select id="hbBorderEdge" class="hb-select-sm">
+            <select id="hbBorderEdge" class="hb-select-sm" style="max-width:76px;">
               ${[0,1,2,3,4,5].map(e => `<option value="${e}">Edge ${e}</option>`).join('')}
             </select>
             <select id="hbBorderType" class="hb-select-sm">
               <option value="impassable">Impassable</option>
-              <option value="water">Water Crossing</option>
-              <option value="province">Zone Boundary</option>
+              <option value="water">Water</option>
+              <option value="province">Province</option>
             </select>
+            <input type="number" id="hbBorderCost" class="hb-num-input hb-border-cost-input"
+                   min="0" step="10" placeholder="$" title="Crossing cost (optional)">
             <button class="hb-btn-secondary hb-btn-xs" id="hbAddBorder">+ Add</button>
           </div>
         </div>
@@ -828,7 +850,7 @@ function _nodeConfigHtml() {
     html += `<div class="hb-field">
       <div class="hb-field-label">Slots</div>
       <div class="hb-slot-btns">
-        ${[1, 2, 3, 4].map(s => `<button class="hb-slot-btn${(node.slots || 1) === s ? ' active' : ''}" data-slots="${s}">${s}</button>`).join('')}
+        ${[0, 1, 2, 3, 4].map(s => `<button class="hb-slot-btn${(node.slots ?? 1) === s ? ' active' : ''}" data-slots="${s}">${s === 0 ? '0 (port)' : s}</button>`).join('')}
       </div>
     </div>`;
   }
@@ -1123,6 +1145,29 @@ function _renderCanvas() {
     }
   }
 
+  // ── Border lines ──────────────────────────────────────────────────────────
+  // Drawn last so they appear on top of the hex face, just like tobymao's border
+  // pass renders after track. Color encodes border type; cost badge at midpoint.
+  for (const border of _borders) {
+    const e = border.edge;
+    const [x1, y1] = CORNERS[(e + 1) % 6];
+    const [x2, y2] = CORNERS[(e + 2) % 6];
+    const col = border.type === 'water'    ? '#3399ff'
+              : border.type === 'province' ? '#ff8800'
+              :                              '#d32020';   // impassable
+    s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}"
+               x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"
+               stroke="${col}" stroke-width="7" stroke-linecap="round"
+               opacity="0.88" pointer-events="none"/>`;
+    if (border.cost) {
+      const [mx, my] = EMP[e];
+      s += `<text x="${mx.toFixed(1)}" y="${(my + 4.5).toFixed(1)}"
+               text-anchor="middle" font-size="11" font-weight="bold"
+               fill="${col}" stroke="#fff" stroke-width="3" paint-order="stroke"
+               pointer-events="none">${border.cost}</text>`;
+    }
+  }
+
   s += `</g>`; // close rotate group
   svg.innerHTML = s;
 }
@@ -1230,25 +1275,31 @@ function _bindPanel() {
   // Terrain cost
   const costInput = document.getElementById('hbTerrainCost');
   if (costInput) costInput.addEventListener('input', e => {
+    const prev = _terrainCost;
     _terrainCost = parseInt(e.target.value) || 0;
+    window.HBD?.log('state', `Terrain cost: ${prev} → ${_terrainCost}`);
     _updateDslPreview();
   });
 
   // Terrain type
   const terrainSel = document.getElementById('hbTerrain');
   if (terrainSel) terrainSel.addEventListener('change', e => {
+    const prev = _terrain;
     _terrain = e.target.value;
+    window.HBD?.log('state', `Terrain type: '${prev}' → '${_terrain}'`);
     _updateDslPreview();
   });
 
-  // Borders list (delegation — remove buttons + future additions)
+  // Borders list (delegation — remove buttons)
   const borderList = document.getElementById('hbBorderList');
   if (borderList) borderList.addEventListener('click', e => {
     const btn = e.target.closest('[data-remove-border]');
     if (!btn) return;
     const idx = parseInt(btn.dataset.removeBorder, 10);
+    window.HBD?.log('state', `Border removed: edge ${_borders[idx]?.edge}`);
     _borders.splice(idx, 1);
     borderList.innerHTML = _bordersHtml();
+    _renderCanvas();
     _updateDslPreview();
   });
 
@@ -1257,14 +1308,19 @@ function _bindPanel() {
   if (addBorderBtn) addBorderBtn.addEventListener('click', () => {
     const edgeSel  = document.getElementById('hbBorderEdge');
     const typeSel  = document.getElementById('hbBorderType');
+    const costEl   = document.getElementById('hbBorderCost');
     const edge = parseInt(edgeSel?.value ?? 0, 10);
     const type = typeSel?.value || 'impassable';
+    const cost = parseInt(costEl?.value || '0', 10) || 0;
     if (!_borders.some(b => b.edge === edge)) {
       const nb = { edge, type };
+      if (cost) nb.cost = cost;
       if (type === 'province') nb.color = 'black';
       _borders.push(nb);
+      window.HBD?.log('state', `Border added: edge ${edge}, type ${type}${cost ? ', cost ' + cost : ''}`);
       const bl = document.getElementById('hbBorderList');
       if (bl) bl.innerHTML = _bordersHtml();
+      _renderCanvas();
       _updateDslPreview();
     }
   });
@@ -1872,6 +1928,8 @@ function _placeNode(locStr) {
 
 
 function _removeNode(nodeId) {
+  // Capture edges before deletion so we can reclaim lane cursors below.
+  const freedEdges = (_nodeEdges[nodeId] || []).slice();
   _nodes = _nodes.filter(n => n.id !== nodeId);
   delete _nodeEdges[nodeId];
   delete _nodeEdgeLane[nodeId];
@@ -1879,6 +1937,13 @@ function _removeNode(nodeId) {
   _nodePaths = _nodePaths.filter(np => np.nodeAId !== nodeId && np.nodeBId !== nodeId);
   if (_selectedNodeId === nodeId) _selectedNodeId = null;
   if (_pendingNode === nodeId) _pendingNode = null;
+  // Reset lane cursor for any edge that now has NO track at all
+  // (no remaining node stubs and no bypass segments).
+  for (const e of freedEdges) {
+    const stillUsed = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e))
+                   || _segments.some(s => s.ea === e || s.eb === e);
+    if (!stillUsed) _edgeLane[e] = 0;
+  }
   _refreshNodeConfig();
   _renderCanvas();
   _updateDslPreview();
@@ -1886,11 +1951,13 @@ function _removeNode(nodeId) {
 
 function _handleErase(mx, my) {
   const p = _unrotate(mx, my);
+
   // Check for node click (in canvas space, nodes render at snap positions)
   for (const node of _nodes) {
     const snap = SNAP_POSITIONS.find(s => s.locStr === node.locStr);
     if (!snap) continue;
     if (Math.hypot(p.x - snap.x, p.y - snap.y) <= 20 * SC) {
+      window.HBD?.log('hit', `ERASE node=${node.id} (${node.type} @ ${node.locStr})`);
       _removeNode(node.id);
       return;
     }
@@ -1902,7 +1969,14 @@ function _handleErase(mx, my) {
     const [bx, by] = EMP[seg.eb];
     const mx2 = (ax + bx) / 2, my2 = (ay + by) / 2;
     if (Math.hypot(p.x - mx2, p.y - my2) <= 18) {
+      window.HBD?.log('hit', `ERASE seg=${seg.ea}↔${seg.eb}`);
       _segments = _segments.filter(s => s.id !== seg.id);
+      // Reset lane cursor for each endpoint that now has no remaining track.
+      for (const e of [seg.ea, seg.eb]) {
+        const stillUsed = _nodes.some(n => (_nodeEdges[n.id] || []).includes(e))
+                       || _segments.some(s => s.ea === e || s.eb === e);
+        if (!stillUsed) _edgeLane[e] = 0;
+      }
       _renderCanvas();
       _updateDslPreview();
       return;
@@ -1919,12 +1993,15 @@ function _handleErase(mx, my) {
     if (!sA || !sB) continue;
     const mx2 = (sA.x + sB.x) / 2, my2 = (sA.y + sB.y) / 2;
     if (Math.hypot(p.x - mx2, p.y - my2) <= 18) {
+      window.HBD?.log('hit', `ERASE nodePath=${np.nodeAId}↔${np.nodeBId}`);
       _nodePaths = _nodePaths.filter(n => n.id !== np.id);
       _renderCanvas();
       _updateDslPreview();
       return;
     }
   }
+
+  window.HBD?.log('hit', 'ERASE no hit');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1970,7 +2047,8 @@ window.staticHexCode = function staticHexCode(hex) {
   // ── Node directives ───────────────────────────────────────────────────────
   savedNodes.forEach(node => {
     const locAttr  = (node.locStr && node.locStr !== 'center') ? `,loc:${node.locStr}` : '';
-    const slotAttr = (node.slots  || 1) > 1 ? `,slots:${node.slots}` : '';
+    const slots    = node.slots ?? 1;
+    const slotAttr = slots !== 1 ? `,slots:${slots}` : ''; // emits slots:0 for port cities, slots:N for multi-slot
     const termAttr = node.terminal ? ',terminal:1' : '';
     const rev      = nodeRevStr(node);
     const origType = node.originalType || node.type;

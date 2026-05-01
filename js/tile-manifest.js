@@ -27,10 +27,51 @@ function _makeSwatchSvg(id) {
     const color = model.bg === 'gray' ? 'grey' : (model.bg || ct.color || 'yellow');
     const hexColor = TILE_HEX_COLORS[color] || '#c8a87a';
     let inner = `<polygon points="50,0 25,43.5 -25,43.5 -50,0 -25,-43.5 25,-43.5" fill="${hexColor}" stroke="#999" stroke-width="1.5"/>`;
-    inner += hexToSvgInner(null, model);
-    const revHex = { nodes: model.nodes || [], paths: model.paths || [], exits: _exitsFromPaths(model.paths || []) };
-    if (revHex.nodes.length > 0) inner += _buildDslRevenueSvg(revHex, 0, 1);
-    if (model.label) inner += _buildLabelSvg(model.label, model.nodes || [], model.paths || [], 50);
+
+    // Step 1-6: geometry (tracks, nodes, stubs, upgrade badge) — same as map render.
+    inner += hexToSvgInner(model, null);
+
+    // Step 10: phase revenue — mirrors map render loop (renderer.js ~line 2755).
+    // model.phaseRevenue + model.activePhases set by parseDslHex from the primary node.
+    // Only fires when node.flat===null (phase-only revenue, e.g. P1 yellow_30|green_40).
+    const _hasFlatNodeRev = !!(model.nodes?.some(
+      n => (n.type === 'city' || n.type === 'town') && n.flat !== null && n.flat !== undefined && n.flat !== 0));
+    if (!_hasFlatNodeRev && model.phaseRevenue) {
+      const phaseKeys = ['yellow', 'green', 'brown', 'gray'];
+      const activeP = phaseKeys.filter(p => model.activePhases && model.activePhases[p]);
+      if (activeP.length > 0) {
+        const revVals = activeP.map(p => model.phaseRevenue[p] || 0);
+        const allSame = revVals.every(v => v === revVals[0]);
+        const loc = _rrgPickFlat(_rrgBuildUse(model));
+        // Positions from _rrgPickFlat are in tobymao 100-unit; ÷2 → 50-unit swatch space.
+        const cx = loc.x / 2, cy = loc.y / 2;
+        if (allSame && revVals[0] > 0) {
+          inner += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="9.5" fill="white" stroke="#777" stroke-width="1"/>` +
+                   `<text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="10" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${revVals[0]}</text>`;
+        } else if (!allSame) {
+          const bw = 16, bh = 11, gap = 1;
+          const tw = activeP.length * bw + (activeP.length - 1) * gap;
+          let bx = cx - tw / 2;
+          const byp = cy - bh / 2;
+          for (const ph of activeP) {
+            const fc = TILE_HEX_COLORS[ph] || '#ccc';
+            inner += `<rect x="${bx.toFixed(1)}" y="${byp.toFixed(1)}" width="${bw}" height="${bh}" fill="${fc}" stroke="rgba(0,0,0,0.35)" stroke-width="0.5"/>`;
+            inner += `<text x="${(bx + bw / 2).toFixed(1)}" y="${cy.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="8" font-weight="bold" fill="#111" text-anchor="middle" dominant-baseline="middle">${model.phaseRevenue[ph] || 0}</text>`;
+            bx += bw + gap;
+          }
+        }
+      }
+    }
+
+    // Step 11: flat revenue — mirrors _buildDslRevenueSvg call in map render loop.
+    // sc=1 because swatch is already in 50-unit space (viewBox="-50 -50 100 100").
+    if (model.nodes && model.nodes.length > 0)
+      inner += _buildDslRevenueSvg(model, 0, 1);
+
+    // Step 12: tile label — mirrors _buildLabelSvg call in map render loop.
+    if (model.label)
+      inner += _buildLabelSvg(model.label, model.nodes || [], model.paths || [], 50);
+
     const numBadge = `<text x="46" y="44" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="end" dominant-baseline="auto">#${id}</text>`;
     const isPointy = state.meta && state.meta.orientation === 'pointy';
     const hexGroup = isPointy ? `<g transform="rotate(30)">${inner}</g>` : inner;

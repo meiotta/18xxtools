@@ -240,6 +240,7 @@ function parseDslHex(code, bg, locationName) {
     label: '',
     terrain: '',
     terrainCost: 0,
+    upgradeCost: 0,
     killed: false,
     borders: [],   // [{ edge, type, cost }] — imported for export fidelity
     icons: [],     // [{ image }]
@@ -359,7 +360,19 @@ function parseDslHex(code, bg, locationName) {
 
     } else if (part.startsWith('label=')) {
       hex.label = part.slice(6).trim();
+    } else if (part.startsWith('upgrade=')) {
+      // upgrade= must be checked BEFORE the generic terrain: check because
+      // upgrade=cost:N,terrain:mountain contains 'terrain:' and would otherwise
+      // be swallowed by the terrain branch — losing the upgradeCost.
+      const c = (part.match(/cost:(\d+)/) || [])[1];
+      if (c) { hex.upgradeCost = parseInt(c); hex.terrainCost = parseInt(c); }
+      const tm = part.match(/terrain:([a-z|]+)/);
+      if (tm) {
+        const types = tm[1].split('|');
+        hex.terrain = types.find(t => t !== 'water') || types[0];
+      }
     } else if (part.includes('terrain:')) {
+      // bare terrain= (or hill=, mountain=) part — no upgrade= prefix
       const m = part.match(/terrain:([a-z|]+)/);
       if (m) {
         const types = m[1].split('|');
@@ -377,9 +390,6 @@ function parseDslHex(code, bg, locationName) {
         hex.stubs.push({ edge, track: trackM ? trackM[1] : 'broad' });
         exitSet.add(edge);
       }
-    } else if (part.startsWith('upgrade=')) {
-      const c = (part.match(/cost:(\d+)/) || [])[1];
-      if (c) hex.terrainCost = parseInt(c);
     } else if (part.startsWith('border=')) {
       const edgeM = part.match(/edge:(\d+)/);
       const typeM = part.match(/type:(\w+)/);
@@ -1871,6 +1881,7 @@ function applyMapImport(content, sourceName) {
     syncDimInputs();
     panX = 0; panY = 0; zoom = 1;
     render();
+    if (typeof buildManifestView === 'function') buildManifestView();
     autosave();
     const staticCount = Object.values(result.hexes).filter(h => h.static).length;
     const tileCount   = Object.keys(result.manifest).length;

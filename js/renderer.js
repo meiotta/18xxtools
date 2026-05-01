@@ -1295,7 +1295,11 @@ function hexToSvgInner(hex, tileDef) {
       const pos  = nodePos[ni];
 
       if (node.type === 'city') {
-        if (node.slots >= 2) {
+        // tobymao City: @num_slots = args[:slots] || 1 — absent slots means 1, not 0.
+        // slots:0 (port) is an explicit zero and must NOT be defaulted.
+        // Use ?? (null-coalescing) so explicit 0 is preserved but undefined/null → 1.
+        const _slots = node.slots ?? 1;
+        if (_slots >= 2) {
           // Multi-slot city.
           // source: tobymao city.rb CITY_SLOT_POSITION + BOX_ATTRS.
           //
@@ -1304,7 +1308,7 @@ function hexToSvgInner(hex, tileDef) {
             1: [0, 0], 2: [-12.5, 0], 3: [0, -14.5], 4: [-12.5, -12.5],
             5: [0, -21.5], 6: [0, -25], 7: [0, -26], 8: [0, -27], 9: [0, -27.5],
           };
-          const slots = node.slots;
+          const slots = _slots;
           let [bx, by] = CITY_SLOT_POS[slots] || [0, 0];
 
           // For pointy-top maps the inner <g> is rotated +30°.  City slot positions
@@ -1360,10 +1364,12 @@ function hexToSvgInner(hex, tileDef) {
           for (const off of offsets) {
             svg += `<circle cx="${(pos.x + off.x).toFixed(1)}" cy="${(pos.y + off.y).toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
           }
-        } else {
-          // Single-slot city circle
+        } else if (_slots === 1) {
+          // Single-slot city circle — tobymao city.rb: slots array has one CitySlot element.
+          // slots:0 falls through here to nothing, matching tobymao's empty children array.
           svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
         }
+        // slots === 0: no visual — tobymao (0..(num_slots-1)) produces empty range → no children.
 
       } else if (node.type === 'town') {
         // tobymao town.rb: rect? = @style ? (@style == :rect) : (!paths.empty? && paths.size < 3)
@@ -1461,10 +1467,15 @@ function hexToSvgInner(hex, tileDef) {
     svg += `<path d="M 0 43.5 L 0 32.5" transform="rotate(${stub.edge * 60})" stroke="#000" stroke-width="${DSL_TRACK_W_BLACK}" stroke-linecap="butt" fill="none"/>`;
   }
 
-  // ── Upgrade cost — tobymao upgrade.rb renders cost as a number at (30,-60) ──
-  // 100-unit → 50-unit: (15, -30).  No terrain icon in the tile SVG itself;
-  // tobymao just shows the number (e.g. tile 438: "80" at translate(30,-60)).
-  if (hex.upgradeCost) {
+  // ── Upgrade badge — tobymao upgrade.rb renders terrain icon + cost together ──
+  // When the upgrade= part has a terrain type (e.g. upgrade=cost:75,terrain:mountain),
+  // buildTerrainSvg handles both the icon and the cost badge via the 24-region
+  // preferred_render_locations algorithm — same as blank hexes.
+  // When there is only a cost (e.g. upgrade=cost:20 on X20/X21/X22), render the
+  // cost number alone at the tobymao position (30,-60) → (15,-30) in 50-unit space.
+  if (hex.terrain) {
+    svg += buildTerrainSvg(hex); // uses hex.terrain + hex.terrainCost (= hex.upgradeCost)
+  } else if (hex.upgradeCost) {
     svg += `<text x="15" y="-30" font-family="Lato,Arial,sans-serif" font-size="10" font-weight="bold" fill="#000" text-anchor="middle" dominant-baseline="middle">${hex.upgradeCost}</text>`;
   }
 
@@ -2536,12 +2547,6 @@ function buildHexSvg(r, c, hex) {
       !!(tileDef?.nodes?.some(n => n.type === 'city' || n.type === 'town')) ||
       !!(hex?.nodes?.some(n => n.type === 'city' || n.type === 'town'));
 
-    // Terrain icon (no tile placed) — buildTerrainSvg runs full 24-region
-    // collision resolution internally from hex.exits / hex.feature.
-    if (hex?.terrain && hex.terrain !== '' && !hex?.tile) {
-      g += buildTerrainSvg(hex);
-    }
-
     // City name — only when a tile is actually placed (hex.tile is truthy).
     // Unplaced / static hexes get their name via the locName path below, which
     // uses tobymao location_name.rb positioning.  Guarding on hex.tile prevents
@@ -2716,6 +2721,14 @@ function buildHexSvg(r, c, hex) {
       (hex.feature === 'offboard') ||
       (hex.label  && hex.label !== '')
     );
+
+    // Terrain icon — only for blank static hexes with NO DSL content and NO placed tile.
+    // When hasDslContent is true, hexToSvgInner() is called below and handles terrain
+    // internally via buildTerrainSvg (line ~1472), so firing it here too would duplicate.
+    // When tileDef is set a player tile covers the hex; terrain is suppressed.
+    if (hex?.terrain && hex.terrain !== '' && !hex?.tile && !tileDef && !hasDslContent) {
+      g += buildTerrainSvg(hex);
+    }
 
     if (tileDef || hasDslContent) {
       const tileDeg  = (hex?.rotation || 0) * 60;
