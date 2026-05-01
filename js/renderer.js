@@ -1344,19 +1344,25 @@ function hexToSvgInner(hex, tileDef) {
           //   4: rect  2×SLOT_DIAMETER × 2×SLOT_DIAMETER at (−SLOT_DIAMETER, −SLOT_DIAMETER) rx=SLOT_RADIUS → 50×50 at (−25,−25) rx=12.5
           //   5: circle r = 1.36 × SLOT_DIAMETER → r = 34
           //   6–9: circle r = 1.5 × SLOT_DIAMETER → r = 37.5
-          // Rect backdrops (slots 2 and 4) are wrapped in rotate(-30) for pointy maps
-          // so the outer +30° inner-group rotation leaves them screen-axis-aligned.
-          const bWrap  = isPointy ? `<g transform="rotate(-30)">` : '';
-          const bWrapZ = isPointy ? `</g>` : '';
+          //
+          // Rects (slots 2 and 4) must rotate WITH the city's pos.angle — tobymao renders
+          // them inside a <g transform="translate(rx,ry) rotate(angle)"> city group.
+          // Without rotation the rect stays axis-aligned while the circles are diagonal
+          // (visible as dark corners on colored hexes).  We use a translate+rotate wrapper
+          // in tile space; the outer orientation group handles flat→pointy uniformly for
+          // everything including this rect, so no separate pointy counter-rotation is needed.
           const SD = 2 * DSL_SLOT_R;  // SLOT_DIAMETER in our scale = 25
+          // Rotate-group helper for rect backdrops
+          const _rg  = `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)}) rotate(${(pos.angle || 0).toFixed(0)})">`;
+          const _rgZ = `</g>`;
           if (slots === 2) {
-            svg += bWrap + `<rect x="${(pos.x - DSL_SLOT_R).toFixed(1)}" y="${(pos.y - DSL_SLOT_R).toFixed(1)}" width="${SD.toFixed(1)}" height="${SD.toFixed(1)}" fill="white" stroke="none"/>` + bWrapZ;
+            svg += _rg + `<rect x="-${DSL_SLOT_R}" y="-${DSL_SLOT_R}" width="${SD.toFixed(1)}" height="${SD.toFixed(1)}" fill="white" stroke="none"/>` + _rgZ;
           } else if (slots === 3) {
             svg += `<g transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})">` +
                    `<polygon points="22.9,0 11.45,-19.923 -11.45,-19.923 -22.9,0 -11.45,19.923 11.45,19.923" fill="white" stroke="none"/>` +
                    `</g>`;
           } else if (slots === 4) {
-            svg += bWrap + `<rect x="${(pos.x - SD).toFixed(1)}" y="${(pos.y - SD).toFixed(1)}" width="${(SD * 2).toFixed(1)}" height="${(SD * 2).toFixed(1)}" rx="${DSL_SLOT_R.toFixed(1)}" fill="white" stroke="none"/>` + bWrapZ;
+            svg += _rg + `<rect x="-${SD}" y="-${SD}" width="${(SD * 2).toFixed(1)}" height="${(SD * 2).toFixed(1)}" rx="${DSL_SLOT_R.toFixed(1)}" fill="white" stroke="none"/>` + _rgZ;
           } else {
             const r = ((slots === 5 ? 1.36 : 1.5) * SD).toFixed(1);
             svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${r}" fill="white" stroke="none"/>`;
@@ -2122,13 +2128,13 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
       const slots = node.slots || 1;
       // Displacement (tobymao 100-unit); clamp index, treat 0 as 42 fallback.
       const rawDisp = _REV_DISP_FLAT[Math.min(slots, _REV_DISP_FLAT.length - 1)];
-      const dispT   = (!rawDisp || rawDisp === 0) ? 42 : rawDisp;
+      let dispT     = (!rawDisp || rawDisp === 0) ? 42 : rawDisp;
 
-      let revRotation; // degrees (SVG bearing, 0=rightward, +CW)
+      let revRotation = 0; // degrees in city-local frame (tobymao: "rotation")
 
       if (numCTs === 1) {
-        // Single stop on tile: revenue goes in city's "right" direction.
-        // angle_for_layout=0 for flat layout → rotation=0 → just cityAngle rotation.
+        // Single stop on tile: revenue along city's x-axis.
+        // angle_for_layout = 0 for flat → rotation = 0.
         revRotation = 0;
 
       } else if (edge !== null && edge !== undefined && slots === 1) {
@@ -2138,10 +2144,13 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
         revRotation = candidates ? candidates[0].a : 0;
 
       } else if (edge !== null && edge !== undefined /* && slots > 1 */) {
-        // OO / multi-slot edge city: OO_REVENUE_REGIONS path.
-        // Rare and complex (negative displacement, etc.).
-        // Fallback: skip; phase block handles OO cities that carry phaseRevenue.
-        continue;
+        // OO / multi-slot edge city: OO_REVENUE_REGIONS.
+        // source: city.rb OO_REVENUE_REGIONS — [regions, negative_displacement] by edge:
+        //   edge 0:[true] 1:[true] 2:[false] 3:[true] 4:[true] 5:[false]
+        // rotation stays 0; displacement negated for edges 0,1,3,4.
+        const _OO_NEG = [true, true, false, true, true, false];
+        if (_OO_NEG[Math.round(edge)]) dispT = -dispT;
+        revRotation = 0;
 
       } else {
         // Center city in multi-stop tile: CENTER_REVENUE_EDGE_PRIORITY.
@@ -2159,7 +2168,11 @@ function _buildDslRevenueSvg(hex, totalDeg, sc) {
         revRotation = 60 * revenueEdge + 120;
       }
 
-      // Revenue vector in city-local space: rotate(revRotation) × (dispT, 0).
+      // Revenue vector in city-local space.
+      // source: city.rb render_revenue:
+      //   h(:g, rotate(revRotation)) { h(:g, translate(displacement, 0) rotate(-revert)) }
+      // Revenue center = (dispT·cos(revRotation), dispT·sin(revRotation)) in city-local.
+      // Note: no CITY_SLOT_POSITION offset — tobymao uses pure translate(displacement, 0).
       const rrRad = revRotation * Math.PI / 180;
       const dX    = dispT * Math.cos(rrRad);
       const dY    = dispT * Math.sin(rrRad);
