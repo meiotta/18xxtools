@@ -42,10 +42,10 @@ function _rbColor(c) {
 }
 function _rbWhen(w) {
   if (w == null) return null;
-  if (Array.isArray(w)) return _rbStrArr(w);
+  if (Array.isArray(w)) return _grbStrArr(w);
   return _rbStr(w);
 }
-function _rbStrArr(arr) {
+function _grbStrArr(arr) {
   if (!arr || !arr.length) return '[]';
   if (arr.every(s => /^[^\s'"]+$/.test(String(s)))) return '%w[' + arr.join(' ') + ']';
   return '[' + arr.map(_rbStr).join(', ') + ']';
@@ -93,8 +93,8 @@ function _rbAbility(ab) {
   if (ab.owner_type)  p('owner_type', _rbStr(ab.owner_type));
   const wen = _rbWhen(ab.when);
   if (wen)            p('when', wen);
-  if (ab.hexes?.length)        p('hexes',        _rbStrArr(ab.hexes));
-  if (ab.corporations?.length) p('corporations', _rbStrArr(ab.corporations));
+  if (ab.hexes?.length)        p('hexes',        _grbStrArr(ab.hexes));
+  if (ab.corporations?.length) p('corporations', _grbStrArr(ab.corporations));
   if (ab.count        != null) p('count',        String(ab.count));
   if (ab.count_per_or != null) p('count_per_or', String(ab.count_per_or));
   if (ab.cost         != null) p('cost',         String(ab.cost));
@@ -102,11 +102,11 @@ function _rbAbility(ab) {
   if (ab.amount       != null) p('amount',       String(ab.amount));
   if (ab.price        != null) p('price',        String(ab.price));
   if (ab.from != null)
-    p('from', Array.isArray(ab.from) ? _rbStrArr(ab.from) : _rbStr(ab.from));
+    p('from', Array.isArray(ab.from) ? _grbStrArr(ab.from) : _rbStr(ab.from));
   if (ab.terrain)              p('terrain',      _rbStr(ab.terrain));
-  if (ab.tiles?.length)        p('tiles',        _rbStrArr(ab.tiles));
+  if (ab.tiles?.length)        p('tiles',        _grbStrArr(ab.tiles));
   if (ab.corporation)          p('corporation',  _rbStr(ab.corporation));
-  if (ab.shares != null)       p('shares', Array.isArray(ab.shares) ? _rbStrArr(ab.shares) : _rbStr(ab.shares));
+  if (ab.shares != null)       p('shares', Array.isArray(ab.shares) ? _grbStrArr(ab.shares) : _rbStr(ab.shares));
   if (ab.description)          p('description',  _rbStr(ab.description));
   if (ab.on_phase)             p('on_phase',     _rbStr(ab.on_phase));
   if (ab.closed_when_used_up != null)
