@@ -77,7 +77,15 @@ const state = {
     locks: {} // coordinates of fixed prices { "0,5": 90 }
   },
   phase: 'setup',
-  enabledPacks: null
+  enabledPacks: null,
+  // mechanics — populated by importGameRb; functionMap is the cross-agent ref registry.
+  // Design A: each agent owns its own state slice; other agents reference via ref pointers.
+  // Evan owns functionMap; Jenny registers COMPANIES here so game.rb export can locate privates.
+  mechanics: {
+    functionMap: {
+      COMPANIES: { type: 'ref', agent: 'jenny', stateKey: 'privates', serializer: 'privates' },
+    },
+  },
 };
 
 let activeTool = null;

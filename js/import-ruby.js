@@ -1061,6 +1061,78 @@ function _rbTokens(str) {
   return m[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
 }
 
+// Extracts a Ruby boolean (true/false) for key. Returns true|false|null.
+function _rbBool(str, key) {
+  const m = str.match(new RegExp('\\b' + key + ':\\s*(true|false)'));
+  return m ? m[1] === 'true' : null;
+}
+
+// Parses a single ability hash string into a JS object.
+// Covers all fields defined across lib/engine/ability/*.rb (tobymao).
+// Field types sourced directly from each ability class's setup() signature.
+// Reference: lib/engine/ability/base.rb, tile_lay.rb, token.rb, close.rb,
+//   blocks_hexes.rb, exchange.rb, shares.rb, tile_income.rb, etc.
+function _rbParseAbilityHash(h) {
+  const ab = {};
+
+  // String scalars — base.rb: type, owner_type, description, desc_detail, remove,
+  //   on_phase, after_phase; subclasses: from (exchange), terrain (tile_lay/tile_income),
+  //   partition_type (blocks_partition), corporation (close), shares (shares ability),
+  //   hex (reservation — singular, not hexes)
+  for (const k of [
+    'type', 'owner_type', 'from', 'description', 'desc_detail', 'remove',
+    'on_phase', 'after_phase', 'terrain', 'partition_type', 'corporation',
+    'shares', 'hex',
+  ]) {
+    const v = _rbStr(h, k);
+    if (v !== null) ab[k] = v;
+  }
+
+  // Integer scalars — base.rb: count, count_per_or; token.rb: price, teleport_price,
+  //   discount, city; tile_lay.rb: discount, cost, lay_count, upgrade_count;
+  //   tile_income.rb: income; reservation: slot, city
+  for (const k of [
+    'count', 'count_per_or', 'discount', 'price', 'teleport_price',
+    'lay_count', 'upgrade_count', 'cost', 'income', 'slot', 'city',
+  ]) {
+    const v = _rbNum(h, k);
+    if (v !== null) ab[k] = v;
+  }
+
+  // Booleans — tile_lay.rb: free, special, connect, reachable, must_lay_together,
+  //   closed_when_used_up, consume_tile_lay, must_lay_all, blocks;
+  //   token.rb: extra_action, from_owner, special_only, extra_slot, neutral,
+  //   check_tokenable, connected, same_hex_allowed; base.rb: passive, use_across_ors;
+  //   blocks_hexes.rb: hidden
+  for (const k of [
+    'free', 'special', 'connect', 'reachable', 'must_lay_together',
+    'closed_when_used_up', 'consume_tile_lay', 'must_lay_all', 'blocks',
+    'extra_action', 'from_owner', 'special_only', 'extra_slot', 'neutral',
+    'check_tokenable', 'connected', 'same_hex_allowed',
+    'passive', 'use_across_ors', 'hidden',
+  ]) {
+    const v = _rbBool(h, k);
+    if (v !== null) ab[k] = v;
+  }
+
+  // String arrays — tile_lay.rb: tiles, hexes, combo_entities;
+  //   token/exchange/tile_lay: hexes, corporations
+  for (const k of ['hexes', 'tiles', 'corporations', 'combo_entities']) {
+    const v = _rbStrArr(h, k);
+    if (v.length) ab[k] = v;
+  }
+
+  // when: — base.rb stores as Array(when).map(&:to_s), so it can be a single
+  // quoted string (when: 'track') or a %w[] array (when: %w[track special_track]).
+  // Store as string if single value, array if multiple (matches ABILITY_DEFS usage).
+  const whenArr = _rbStrArr(h, 'when');
+  if (whenArr.length > 1)      ab.when = whenArr;
+  else if (whenArr.length === 1) ab.when = whenArr[0];
+  else { const ws = _rbStr(h, 'when'); if (ws !== null) ab.when = ws; }
+
+  return ab;
+}
+
 function _rbAbilities(hashStr) {
   const abIdx = hashStr.indexOf('abilities:');
   if (abIdx === -1) return [];
@@ -1072,27 +1144,24 @@ function _rbAbilities(hashStr) {
     else if (hashStr[i] === ']') { depth--; if (depth === 0) break; }
     i++;
   }
-  return _rbSplitHashes(hashStr.slice(start + 1, i)).map(h => {
-    const ab = {};
-    const type = _rbStr(h, 'type');       if (type)  ab.type        = type;
-    const from = _rbStr(h, 'from');       if (from)  ab.from        = from;
-    const otype = _rbStr(h, 'owner_type');if (otype) ab.owner_type  = otype;
-    const desc = _rbStr(h, 'description');if (desc)  ab.description = desc;
-    const corps = _rbStrArr(h, 'corporations'); if (corps.length) ab.corporations = corps;
-    const hexes = _rbStrArr(h, 'hexes');        if (hexes.length) ab.hexes        = hexes;
-    const disc  = _rbNum(h, 'discount');  if (disc !== null) ab.discount = disc;
-    return ab;
-  });
+  return _rbSplitHashes(hashStr.slice(start + 1, i)).map(h => _rbParseAbilityHash(h));
 }
 
 function _rbParseCompany(hashStr) {
-  const sym      = _rbStr(hashStr, 'sym')        || '';
-  const name     = _rbStr(hashStr, 'name')       || '';
-  const value    = _rbNum(hashStr, 'value')      || 0;
-  const revenue  = _rbNum(hashStr, 'revenue')    || 0;
-  const color    = _rbStr(hashStr, 'color')      || '#666666';
-  const textColor= _rbStr(hashStr, 'text_color') || '#ffffff';
-  const abilities= _rbAbilities(hashStr);
+  const sym        = _rbStr(hashStr, 'sym')        || '';
+  const name       = _rbStr(hashStr, 'name')       || '';
+  const value      = _rbNum(hashStr, 'value')      || 0;
+  const revenue    = _rbNum(hashStr, 'revenue')    || 0;
+  const color      = _rbStr(hashStr, 'color')      || '#666666';
+  const textColor  = _rbStr(hashStr, 'text_color') || '#ffffff';
+  // company.rb: @discount = opts[:discount] || 0; @min_auction_price = -@discount
+  // A negative top-level discount raises the floor bid above $0.
+  const discount   = _rbNum(hashStr, 'discount');      // null if absent
+  // min_players: integer — company only enters auction in ≥N-player games (1889)
+  const minPlayers = _rbNum(hashStr, 'min_players');   // null if absent
+  // coordinates: home hex for token placement (privates that place a token on the map)
+  const coordinates = _rbStr(hashStr, 'coordinates');  // null if absent
+  const abilities  = _rbAbilities(hashStr);
 
   const exchAb  = abilities.find(a => a.type === 'exchange' && a.from === 'par');
   const isConc  = !!exchAb;
@@ -1114,6 +1183,10 @@ function _rbParseCompany(hashStr) {
       ? abilities.filter(a => a.type !== 'exchange' && a.type !== 'blocks_hexes_consent' && a.type !== 'blocks_hexes')
       : abilities,
   };
+  // Only add optional fields when present (don't pollute schema for games that lack them)
+  if (discount   !== null) priv.discount    = discount;
+  if (minPlayers !== null) priv.minPlayers  = minPlayers;
+  if (coordinates !== null) priv.coordinates = coordinates;
 
   if (isConc) {
     priv.linkedMajor  = (exchAb.corporations || [])[0] || '';
@@ -1960,7 +2033,15 @@ function applyGameImport(content, sourceName) {
   state.phases = phases;
   if (mechanics && Object.keys(mechanics).length) {
     if (!state.mechanics) state.mechanics = (typeof defaultMechanics === 'function') ? defaultMechanics() : {};
+    // Merge mechanics fields — preserve functionMap so Jenny's COMPANIES ref and any
+    // other agent registrations are not overwritten by a game.rb import.
+    const existingFunctionMap = state.mechanics.functionMap;
     Object.assign(state.mechanics, mechanics);
+    if (existingFunctionMap && !mechanics.functionMap) {
+      state.mechanics.functionMap = existingFunctionMap;
+    } else if (existingFunctionMap && mechanics.functionMap) {
+      state.mechanics.functionMap = Object.assign({}, existingFunctionMap, mechanics.functionMap);
+    }
   }
   if (typeof renderTrainsTable    === 'function') renderTrainsTable();
   if (typeof renderPhasesTable    === 'function') renderPhasesTable();
