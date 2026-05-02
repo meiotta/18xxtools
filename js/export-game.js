@@ -1,4 +1,4 @@
-// js/export-game.js  v20260502a
+// js/export-game.js  v20260502b
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -411,21 +411,16 @@ const _GRB_MODULES = [
     id: 'corp_rules',
     emit(state) {
       const m = state.mechanics || {};
-      const lines = [];
-      if ((m.capitalization || 'full') !== 'full')
-        lines.push(`CAPITALIZATION = :${m.capitalization}`);
       // FLOAT_PERCENT is not a real engine constant — float_percent is per-corp in entities.rb.
-      if ((m.homeTokenTiming || 'operate') !== 'operate')
-        lines.push(`HOME_TOKEN_TIMING = :${m.homeTokenTiming}`);
-      if ((m.marketShareLimit ?? 50) !== 50)
-        lines.push(`MARKET_SHARE_LIMIT = ${m.marketShareLimit}`);
-      if ((m.trackRestriction || 'semi_restrictive') !== 'semi_restrictive')
-        lines.push(`TRACK_RESTRICTION = :${m.trackRestriction}`);
-      if (!(m.bankruptcyAllowed ?? true))
-        lines.push(`BANKRUPTCY_ALLOWED = false`);
-      if ((m.bankruptcyEndsGameAfter || 'one') !== 'one')
-        lines.push(`BANKRUPTCY_ENDS_GAME_AFTER = :${m.bankruptcyEndsGameAfter}`);
-      return lines.length ? { corp_rules: lines.join('\n') } : null;
+      const lines = [
+        `CAPITALIZATION = :${m.capitalization || 'full'}`,
+        `HOME_TOKEN_TIMING = :${m.homeTokenTiming || 'operate'}`,
+        `MARKET_SHARE_LIMIT = ${m.marketShareLimit ?? 50}`,
+        `TRACK_RESTRICTION = :${m.trackRestriction || 'semi_restrictive'}`,
+        `BANKRUPTCY_ALLOWED = ${m.bankruptcyAllowed ?? true}`,
+        `BANKRUPTCY_ENDS_GAME_AFTER = :${m.bankruptcyEndsGameAfter || 'one'}`,
+      ];
+      return { corp_rules: lines.join('\n') };
     },
   },
 
@@ -434,20 +429,17 @@ const _GRB_MODULES = [
     id: 'stock_round',
     emit(state) {
       const m = state.mechanics || {};
-      const lines = [];
-      if ((m.sellBuyOrder || 'sell_buy_or_buy_sell') !== 'sell_buy_or_buy_sell')
-        lines.push(`SELL_BUY_ORDER = :${m.sellBuyOrder}`);
-      if ((m.sellMovement || 'down_share') !== 'down_share')
-        lines.push(`SELL_MOVEMENT = :${m.sellMovement}`);
-      if ((m.poolShareDrop || 'none') !== 'none')
-        lines.push(`POOL_SHARE_DROP = :${m.poolShareDrop}`);
-      if (m.mustSellInBlocks)
-        lines.push(`MUST_SELL_IN_BLOCKS = true`);
-      if ((m.sellAfter || 'first') !== 'first')
-        lines.push(`SELL_AFTER = :${m.sellAfter}`);
+      const lines = [
+        `SELL_BUY_ORDER = :${m.sellBuyOrder || 'sell_buy_or_buy_sell'}`,
+        `SELL_MOVEMENT = :${m.sellMovement || 'down_share'}`,
+        `POOL_SHARE_DROP = :${m.poolShareDrop || 'none'}`,
+        `MUST_SELL_IN_BLOCKS = ${m.mustSellInBlocks ?? false}`,
+        `SELL_AFTER = :${m.sellAfter || 'first'}`,
+      ];
+      // SOLD_OUT_TOP_ROW_MOVEMENT has no panel framework item — keep conditional
       if ((m.soldOutTopRowMovement || 'none') !== 'none')
         lines.push(`SOLD_OUT_TOP_ROW_MOVEMENT = :${m.soldOutTopRowMovement}`);
-      return lines.length ? { stock_round: lines.join('\n') } : null;
+      return { stock_round: lines.join('\n') };
     },
   },
 
@@ -456,41 +448,30 @@ const _GRB_MODULES = [
     id: 'or_rules',
     emit(state) {
       const m = state.mechanics || {};
-      const lines = [];
-      if ((m.mustBuyTrain || 'route') !== 'route')
-        lines.push(`MUST_BUY_TRAIN = :${m.mustBuyTrain}`);
-      if (m.allowRemovingTowns)
-        lines.push(`ALLOW_REMOVING_TOWNS = true`);
-      if ((m.ebuyFromOthers || 'value') !== 'value')
-        lines.push(`EBUY_FROM_OTHERS = :${m.ebuyFromOthers}`);
-      if (!(m.ebuyDepotCheapest ?? true))
-        lines.push(`EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST = false`);
-      if (m.mustIssueBeforeEbuy)
-        lines.push(`MUST_EMERGENCY_ISSUE_BEFORE_EBUY = true`);
-      if (m.ebuyOwnerMustHelp)
-        lines.push(`EBUY_OWNER_MUST_HELP = true`);
-      if (!(m.ebuyCanSellShares ?? true))
-        lines.push(`EBUY_CAN_SELL_SHARES = false`);
-      if (!(m.ebuyPresSwap ?? true))
-        lines.push(`EBUY_PRES_SWAP = false`);
-      if (m.ebuyCanTakePlayerLoan && m.ebuyCanTakePlayerLoan !== 'false') {
-        lines.push(`EBUY_CAN_TAKE_PLAYER_LOAN = :${m.ebuyCanTakePlayerLoan}`);
-        if ((m.playerLoanInterestRate ?? 50) !== 50)
-          lines.push(`PLAYER_LOAN_INTEREST_RATE = ${m.playerLoanInterestRate}`);
-        if ((m.playerLoanEndgamePenalty ?? 0) !== 0)
-          lines.push(`PLAYER_LOAN_ENDGAME_PENALTY = ${m.playerLoanEndgamePenalty}`);
+      const loan = m.ebuyCanTakePlayerLoan;
+      const loanOn = loan && loan !== 'false' && loan !== false;
+      const lines = [
+        `MUST_BUY_TRAIN = :${m.mustBuyTrain || 'route'}`,
+        `ALLOW_REMOVING_TOWNS = ${m.allowRemovingTowns ?? false}`,
+        `EBUY_FROM_OTHERS = :${m.ebuyFromOthers || 'value'}`,
+        `EBUY_DEPOT_TRAIN_MUST_BE_CHEAPEST = ${m.ebuyDepotCheapest ?? true}`,
+        `MUST_EMERGENCY_ISSUE_BEFORE_EBUY = ${m.mustIssueBeforeEbuy ?? false}`,
+        `EBUY_OWNER_MUST_HELP = ${m.ebuyOwnerMustHelp ?? false}`,
+        `EBUY_CAN_SELL_SHARES = ${m.ebuyCanSellShares ?? true}`,
+        `EBUY_PRES_SWAP = ${m.ebuyPresSwap ?? true}`,
+        `EBUY_CAN_TAKE_PLAYER_LOAN = ${loanOn ? ':' + loan : false}`,
+      ];
+      if (loanOn) {
+        lines.push(`PLAYER_LOAN_INTEREST_RATE = ${m.playerLoanInterestRate ?? 50}`);
+        lines.push(`PLAYER_LOAN_ENDGAME_PENALTY = ${m.playerLoanEndgamePenalty ?? 0}`);
       }
+      lines.push('');
       const defSlots = m.tileLays?.default || [_GRB_DEFAULT_TILE_LAY];
       lines.push(`TILE_LAYS = [${defSlots.map(_rbTileSlot).join(', ')}].freeze`);
-      if (m.tileLays?.byType?.major) {
-        lines.push('');
+      if (m.tileLays?.byType?.major)
         lines.push(`MAJOR_TILE_LAYS = [${m.tileLays.byType.major.map(_rbTileSlot).join(', ')}].freeze`);
-      }
-      if (m.tileLays?.byType?.minor) {
-        lines.push('');
+      if (m.tileLays?.byType?.minor)
         lines.push(`MINOR_TILE_LAYS = [${m.tileLays.byType.minor.map(_rbTileSlot).join(', ')}].freeze`);
-      }
-      // Always emit TILE_LAYS (required by engine)
       return { or_rules: lines.join('\n') };
     },
   },
