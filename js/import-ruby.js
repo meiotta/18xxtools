@@ -1516,7 +1516,9 @@ function importGameRb(content) {
     const tr = _rbParseTrain(hashStr);
     if (tr.label) trains.push(tr);
 
-    // Expand variants as sibling trains (e.g. 1822 L-train → 2-variant)
+    // Expand variants as sibling trains (e.g. 1822 L-train → 2-variant).
+    // isVariant + parentId allow the exporter to re-nest them under the parent
+    // train's variants: array when generating TRAINS = [...].
     const vi = hashStr.indexOf('variants:');
     if (vi === -1) return;
     let bi = hashStr.indexOf('[', vi + 9);
@@ -1529,7 +1531,10 @@ function importGameRb(content) {
     }
     _rbSplitHashes(hashStr.slice(bi + 1, ei)).forEach(vh => {
       const vtr = _rbParseTrain(vh);
-      if (vtr.label) trains.push(vtr);
+      if (!vtr.label) return;
+      vtr.isVariant = true;
+      vtr.parentId  = tr.id;
+      trains.push(vtr);
     });
   });
 
@@ -1928,6 +1933,13 @@ function applyGameImport(content, sourceName) {
     if (!state.mechanics) state.mechanics = (typeof defaultMechanics === 'function') ? defaultMechanics() : {};
     Object.assign(state.mechanics, mechanics);
   }
+  // Wire TRAINS and PHASES into Evan's functionMap as ref entries.
+  // Schema per Anthony's brief: { type: 'ref', agent, stateKey, serializer }
+  if (!state.mechanics) state.mechanics = {};
+  if (!state.mechanics.functionMap) state.mechanics.functionMap = {};
+  state.mechanics.functionMap.TRAINS = { type: 'ref', agent: 'farrah', stateKey: 'trains',  serializer: 'trains'  };
+  state.mechanics.functionMap.PHASES = { type: 'ref', agent: 'farrah', stateKey: 'phases',  serializer: 'phases'  };
+
   if (typeof renderTrainsTable    === 'function') renderTrainsTable();
   if (typeof renderPhasesTable    === 'function') renderPhasesTable();
   if (typeof renderMechanicsLeft  === 'function') renderMechanicsLeft();

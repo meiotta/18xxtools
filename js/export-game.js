@@ -13,8 +13,8 @@
 // and substitutes it in.  Multiple modules contributing to the same slot are
 // joined with a blank line.
 //
-// game.rb slots:   bank  corp_rules  stock_round  or_rules  game_flow
-//                  game_end  special  methods
+// game.rb slots:   trains  phases  bank  corp_rules  stock_round  or_rules
+//                  game_flow  game_end  special  methods
 // entities.rb slots:  companies  corporations  minors
 //
 // Load order: after mechanics-panel.js (uses state).
@@ -198,12 +198,185 @@ function _rbCorp(co, pack, gameCap) {
   return lines.join('\n');
 }
 
+// ── Train/Phase serialisation helpers ────────────────────────────────────────
+
+// Ruby `distance:` literal for a train object.
+// Sources consulted before writing:
+//   g_1830/game.rb (scalar distance)
+//   g_1822/game.rb (nm array — city+town nodes)
+//   g_1846/game.rb (xy array — city+offboard pay/visit split)
+function _grbDistance(tr) {
+  switch (tr.distType) {
+    case 'nm':
+      // City + town node array (1822 L-train pattern)
+      return (
+        `[\n` +
+        `  { 'nodes' => ['city'], 'pay' => ${tr.n || 1}, 'visit' => ${tr.n || 1} },\n` +
+        `  { 'nodes' => ['town'], 'pay' => ${tr.m || 1}, 'visit' => ${tr.m || 1} }\n` +
+        `]`
+      );
+    case 'xy':
+      // Pay X stops, visit Y stops — 1846-style split train (e.g. 3/5, 4/6)
+      // TODO (Evan Q1): confirm node types — 1846 uses %w[city offboard];
+      //   some games use %w[city town], check before extending to non-1846 games.
+      return `[{ 'nodes' => %w[city offboard], 'pay' => ${tr.x || 2}, 'visit' => ${tr.y || 4} }]`;
+    case 'u':
+      // Unlimited/diesel — distance: 999 (g_1830 D-train convention)
+      return '999';
+    case 'h':
+      // Hex-distance trains — TODO: identify tobymao Ruby format (no confirmed pattern)
+      return String(tr.h || 4);
+    default: // 'n'
+      return String(tr.n || 2);
+  }
+}
+
+// Ruby hash literal for a single TRAINS entry.
+// variants: flat array of already-resolved sibling variant train objects (may be empty).
+function _grbTrainHash(tr, variants, state) {
+  const allTrains = (state && state.trains) || [];
+  const label = (typeof calculateTrainLabel === 'function')
+    ? calculateTrainLabel(tr) : (tr.label || '?');
+
+  const kv = [];
+  kv.push(`name: ${_rbStr(label)}`);
+  kv.push(`distance: ${_grbDistance(tr)}`);
+  if (tr.cost != null)   kv.push(`price: ${tr.cost}`);
+  // count: null → unlimited → num: 99 (tobymao convention: >= 99 treated as unlimited)
+  if (tr.count === null) kv.push('num: 99');
+  else if (tr.count != null) kv.push(`num: ${tr.count}`);
+
+  if (tr.rusts && tr.rustsOn) {
+    const tgt = allTrains.find(t => t.id === tr.rustsOn);
+    if (tgt) {
+      const tgtLabel = (typeof calculateTrainLabel === 'function')
+        ? calculateTrainLabel(tgt) : (tgt.label || '');
+      kv.push(`rusts_on: ${_rbStr(tgtLabel)}`);
+    }
+  }
+
+  if (tr.events && tr.events.length) {
+    const evStr = tr.events.map(ev => `{ 'type' => '${ev.type}' }`).join(', ');
+    kv.push(`events: [${evStr}]`);
+  }
+
+  if (variants && variants.length) {
+    const varLines = variants.map(vtr => {
+      const vLabel = (typeof calculateTrainLabel === 'function')
+        ? calculateTrainLabel(vtr) : (vtr.label || '?');
+      const vKv = [`name: ${_rbStr(vLabel)}`, `distance: ${_grbDistance(vtr)}`];
+      if (vtr.cost != null) vKv.push(`price: ${vtr.cost}`);
+      if (vtr.rusts && vtr.rustsOn) {
+        const vtgt = allTrains.find(t => t.id === vtr.rustsOn);
+        if (vtgt) {
+          const vtLabel = (typeof calculateTrainLabel === 'function')
+            ? calculateTrainLabel(vtgt) : (vtgt.label || '');
+          vKv.push(`rusts_on: ${_rbStr(vtLabel)}`);
+        }
+      }
+      return `    { ${vKv.join(', ')} }`;
+    });
+    kv.push(`variants: [\n${varLines.join(',\n')}\n  ]`);
+  }
+
+  // Single-line if ≤4 flat fields; multi-line otherwise
+  const hasNL = kv.some(s => s.includes('\n'));
+  if (!hasNL && kv.length <= 4) return `  { ${kv.join(', ')} }`;
+  return '  {\n' + kv.map(s => {
+    const ind = s.includes('\n')
+      ? s.split('\n').map((l, i) => (i === 0 ? '    ' + l : '  ' + l)).join('\n')
+      : '    ' + s;
+    return ind;
+  }).join(',\n') + ',\n  }';
+}
+
+// Ruby hash literal for a single PHASES entry.
+function _grbPhaseHash(ph, state) {
+  const allTrains = (state && state.trains) || [];
+  const kv = [];
+  kv.push(`name: ${_rbStr(ph.name || '')}`);
+
+  if (ph.onTrain) {
+    const trig = allTrains.find(t => t.id === ph.onTrain);
+    if (trig) {
+      const tLabel = (typeof calculateTrainLabel === 'function')
+        ? calculateTrainLabel(trig) : (trig.label || '');
+      kv.push(`on: ${_rbStr(tLabel)}`);
+    }
+  }
+
+  kv.push(`train_limit: ${ph.limit || 4}`);
+
+  // Tiles: cumulative progression — ph.tiles stores highest accessible color.
+  // Source: g_1830/game.rb PHASES (each phase includes all lower colors).
+  const TILE_PROG = {
+    yellow: ['yellow'],
+    green:  ['yellow', 'green'],
+    brown:  ['yellow', 'green', 'brown'],
+    grey:   ['yellow', 'green', 'brown', 'grey'],
+    gray:   ['yellow', 'green', 'brown', 'grey'],
+  };
+  const colors = TILE_PROG[ph.tiles] || ['yellow'];
+  kv.push(colors.length === 1
+    ? `tiles: [:${colors[0]}]`
+    : `tiles: %i[${colors.join(' ')}]`
+  );
+
+  kv.push(`operating_rounds: ${ph.ors || 2}`);
+
+  // status: string array — tobymao uses %w[...], not %i[...].
+  // Source: g_1830/game.rb PHASES, g_1822/game.rb PHASES — confirmed %w usage.
+  // TODO (Evan Q3): if any game uses symbol status keys (%i[...]), update here.
+  if (ph.status && ph.status.length) {
+    kv.push(`status: %w[${ph.status.join(' ')}]`);
+  }
+
+  return '  {\n' + kv.map(s => '    ' + s).join(',\n') + ',\n  }';
+}
+
 // ── Module registry ───────────────────────────────────────────────────────────
 // Each module: { id: string, emit(state) → { slotName: string, … } | null }
 // A module returning { bank: '...', methods: '...' } contributes to two slots.
 // Multiple modules targeting the same slot are joined with \n\n.
 
 const _GRB_MODULES = [
+
+  // ── Trains ───────────────────────────────────────────────────────────────────
+  // Emits TRAINS = [...].freeze from state.trains[].
+  // Variants (flagged isVariant: true on import) are re-nested under their parent.
+  // Private/granted trains (privateOnly) are still emitted in TRAINS — the engine
+  // requires them there even when they're pre-allocated via @company_trains in setup.
+  {
+    id: 'trains',
+    emit(state) {
+      const trains = state.trains || [];
+      const topLevel = trains.filter(tr => !tr.isVariant);
+      if (!topLevel.length) return null;
+      const lines = ['TRAINS = ['];
+      topLevel.forEach((tr, i) => {
+        const variants = trains.filter(v => v.isVariant && v.parentId === tr.id);
+        lines.push(_grbTrainHash(tr, variants, state) + (i < topLevel.length - 1 ? ',' : ''));
+      });
+      lines.push('].freeze');
+      return { trains: lines.join('\n') };
+    },
+  },
+
+  // ── Phases ───────────────────────────────────────────────────────────────────
+  // Emits PHASES = [...].freeze from state.phases[].
+  {
+    id: 'phases',
+    emit(state) {
+      const phases = state.phases || [];
+      if (!phases.length) return null;
+      const lines = ['PHASES = ['];
+      phases.forEach((ph, i) => {
+        lines.push(_grbPhaseHash(ph, state) + (i < phases.length - 1 ? ',' : ''));
+      });
+      lines.push('].freeze');
+      return { phases: lines.join('\n') };
+    },
+  },
 
   // ── Bank & Players ──────────────────────────────────────────────────────────
   {
@@ -556,6 +729,12 @@ module Engine
       class Game < Engine::Game::Base
         include Entities
         include Map
+
+        # ── Trains ───────────────────────────────────────────────────────────
+{{SLOT_TRAINS}}
+
+        # ── Phases ───────────────────────────────────────────────────────────
+{{SLOT_PHASES}}
 
         # ── Bank & Players ────────────────────────────────────────────────────
 {{SLOT_BANK}}
