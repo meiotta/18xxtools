@@ -286,6 +286,11 @@ function initMechanicsState() {
   if (typeof state === 'undefined') return;
   if (state.mechanics) return;
   state.mechanics = {
+    // ── Function map — populated by import-game.js on game.rb import ──────────
+    // Typed representation of every constant and method in game.rb.
+    // { [rubyName]: { type: 'const'|'ref'|'method'|'raw', ... } }
+    functionMap: {},
+
     // ── Game Flow ──
     initialRound:      'waterfall_auction',
     stockRoundsPerSet: 1,
