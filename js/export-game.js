@@ -409,6 +409,212 @@ function _grbStepOptsHash(opts) {
   return '{ ' + pairs.join(', ') + ' }';
 }
 
+// ── Round-method helpers (Tim PR1a) ──────────────────────────────────────────
+// Default round factories from tobymao base.rb (lib/engine/game/base.rb).
+// Every Ruby literal emitted below traces to a specific source line:
+//   init_round                base.rb:2626-2628  (returns new_auction_round)
+//   new_auction_round         base.rb:3170-3175  ([CompanyPendingPar, WaterfallAuction])
+//   stock_round               base.rb:3183-3190  ([DiscardTrain, Exchange, SpecialTrack,
+//                                                  BuySellParShares])
+//   operating_round(round_num) base.rb:3198-3212 ([Bankrupt, Exchange, SpecialTrack,
+//                                                  BuyCompany, Track, Token, Route,
+//                                                  Dividend, DiscardTrain, BuyTrain,
+//                                                  [BuyCompany, {blocks: true}]])
+//   next_round!               base.rb:2921-2943  (Stock → OR×N → Stock; init_round.class
+//                                                  fallthrough)
+// Round subclasses (lib/engine/round/):
+//   auction.rb     select_entities = @game.players,        short_name 'ISR'
+//   stock.rb       select_entities = @game.players.reject(&:bankrupt)
+//   operating.rb   select_entities = @game.operating_order
+//   draft.rb       opts: reverse_order, snake_order, rotating_order
+//   merger.rb      round_name raises NotImplementedError (ABSTRACT — must subclass)
+//   choices.rb     no select_entities default — effectively abstract
+
+// Initial-round class registry — designer choice → engine class.
+const _GRB_INITIAL_CLASS = {
+  auction:      'Engine::Round::Auction',
+  draft:        'Engine::Round::Draft',
+  stock_direct: null,                     // delegate to stock_round
+  choices:      'Engine::Round::Choices',
+};
+
+// Format draft opts hash literal (round/draft.rb:11-15).
+function _grbRoundOpts(opts) {
+  if (!opts) return '';
+  const pairs = [];
+  if (opts.reverse_order)  pairs.push('reverse_order: true');
+  if (opts.snake_order)    pairs.push('snake_order: true');
+  if (opts.rotating_order) pairs.push('rotating_order: true');
+  return pairs.join(', ');
+}
+
+// Wrap method body in `def name(args)\n  body\nend`. body is multi-line raw Ruby.
+function _grbWrapMethod(name, args, body) {
+  const head = args ? `def ${name}(${args})` : `def ${name}`;
+  const indented = body.split('\n').map(l => l ? '  ' + l : l).join('\n');
+  return head + '\n' + indented + '\nend';
+}
+
+// init_round — emit only when departing from base.rb:2626 default (which
+// returns new_auction_round with [CompanyPendingPar, WaterfallAuction]).
+function _grbInitRoundBody(rounds) {
+  const r        = rounds.initial || {};
+  const cls      = r.class || 'auction';
+  const steps    = r.steps || [];
+  const optsStr  = _grbRoundOpts(r.opts);
+  const subclass = r.subclass;
+  const customized = steps.length > 0 || optsStr || subclass || cls !== 'auction';
+  if (!customized) return null;
+
+  // No-auction games delegate to stock_round (1822 pattern, g_1822/game.rb:1055-1057).
+  if (cls === 'stock_direct') return 'stock_round';
+
+  const className = (subclass && subclass.name) || _GRB_INITIAL_CLASS[cls];
+  if (!className) return `# TODO: unknown initial round class '${cls}'`;
+
+  const parts = [_grbStepArrayLiteral(steps)];
+  if (optsStr) parts.push(optsStr);
+  return `${className}.new(self, ${parts.join(', ')})`;
+}
+
+// stock_round — emit only when steps non-empty or subclass set.
+function _grbStockRoundBody(rounds) {
+  const r        = rounds.stock || {};
+  const steps    = r.steps || [];
+  const subclass = r.subclass;
+  if (steps.length === 0 && !subclass) return null;
+  const className = (subclass && subclass.name) || 'Engine::Round::Stock';
+  return `${className}.new(self, ${_grbStepArrayLiteral(steps)})`;
+}
+
+// operating_round(round_num) — emit only when steps non-empty or subclass set.
+function _grbOperatingRoundBody(rounds) {
+  const r        = rounds.operating || {};
+  const steps    = r.steps || [];
+  const subclass = r.subclass;
+  if (steps.length === 0 && !subclass) return null;
+  const className = (subclass && subclass.name) || 'Engine::Round::Operating';
+  return `${className}.new(self, ${_grbStepArrayLiteral(steps)}, round_num: round_num)`;
+}
+
+// new_merger_round — required when merger.enabled. Round::Merger is abstract
+// (round/merger.rb:13), so we always reference the named subclass.
+function _grbMergerRoundBody(merger) {
+  const className = (merger.subclass && merger.subclass.name) || merger.name || 'Merger';
+  return `${className}.new(self, ${_grbStepArrayLiteral(merger.steps || [])}, round_num: round_num)`;
+}
+
+// next_round! — emit only when departing from base.rb:2921-2943. Triggers:
+// merger enabled (must splice merger round into the loop) or customNextRound
+// override. For auction/draft/stock_direct/choices initial rounds, base's
+// next_round! works as-is (init_round.class fallthrough at L2938 covers them).
+function _grbNextRoundBody(rounds) {
+  if (rounds.customNextRound && typeof rounds.customNextRound === 'string' && rounds.customNextRound.trim()) {
+    return rounds.customNextRound;
+  }
+  if (!rounds.merger || !rounds.merger.enabled) return null;
+
+  const merger     = rounds.merger;
+  const mergerCls  = (merger.subclass && merger.subclass.name) || merger.name || 'Merger';
+  const branches   = [];
+
+  // SR → start OR set (mirrors base.rb:2924-2927).
+  branches.push(`when Engine::Round::Stock`);
+  branches.push(`  @operating_rounds = @phase.operating_rounds`);
+  branches.push(`  reorder_players`);
+  branches.push(`  new_operating_round`);
+
+  // OR → next OR / merger / SR — branch on merger position+trigger.
+  branches.push(`when Engine::Round::Operating`);
+  if (merger.position === 'between_ors') {
+    // 1817 (always) / 1867 (phase_in) pattern. g_1867/game.rb:905-911.
+    branches.push(`  or_round_finished`);
+    if (merger.trigger === 'phase_in' && merger.triggerCondition && merger.triggerCondition.phases && merger.triggerCondition.phases.length) {
+      const phaseList = merger.triggerCondition.phases.map(p => `'${String(p).replace(/'/g, "\\'")}'`).join(', ');
+      branches.push(`  if [${phaseList}].include?(phase.name)`);
+      branches.push(`    new_merger_round(@round.round_num)`);
+      branches.push(`  elsif @round.round_num < @operating_rounds`);
+      branches.push(`    new_operating_round(@round.round_num + 1)`);
+      branches.push(`  else`);
+      branches.push(`    @turn += 1`);
+      branches.push(`    or_set_finished`);
+      branches.push(`    new_stock_round`);
+      branches.push(`  end`);
+    } else {
+      // 1817-style — always splice merger after every OR.
+      branches.push(`  new_merger_round(@round.round_num)`);
+    }
+  } else {
+    // after_or_set / before_sr — merger fires once before next SR.
+    branches.push(`  or_round_finished`);
+    branches.push(`  if @round.round_num < @operating_rounds`);
+    branches.push(`    new_operating_round(@round.round_num + 1)`);
+    branches.push(`  else`);
+    branches.push(`    or_set_finished`);
+    branches.push(`    new_merger_round`);
+    branches.push(`  end`);
+  }
+
+  // Merger → return to OR loop or advance to SR.
+  branches.push(`when ${mergerCls}`);
+  if (merger.position === 'between_ors') {
+    branches.push(`  if @round.round_num < @operating_rounds`);
+    branches.push(`    new_operating_round(@round.round_num + 1)`);
+    branches.push(`  else`);
+    branches.push(`    @turn += 1`);
+    branches.push(`    or_set_finished`);
+    branches.push(`    new_stock_round`);
+    branches.push(`  end`);
+  } else {
+    branches.push(`  @turn += 1`);
+    branches.push(`  new_stock_round`);
+  }
+
+  // init_round.class fallthrough (base.rb:2938-2941) — covers
+  // Auction/Draft/Choices first-round-only transition into SR.
+  branches.push(`when init_round.class`);
+  branches.push(`  init_round_finished`);
+  branches.push(`  reorder_players`);
+  branches.push(`  new_stock_round`);
+
+  return `@round =\n  case @round\n  ${branches.join('\n  ')}\n  end`;
+}
+
+// Custom subclass class definitions — emitted into round_methods slot before
+// the factory methods so the classes are defined when the factories reference
+// them. Bodies are user-provided raw Ruby; for merger, an automatic
+// `self.round_name` override is supplied if the user didn't include one.
+function _grbCustomSubclasses(rounds) {
+  const blocks = [];
+  const candidates = [
+    { key: 'initial',   parent: _GRB_INITIAL_CLASS[(rounds.initial && rounds.initial.class) || 'auction'] || 'Engine::Round::Auction' },
+    { key: 'stock',     parent: 'Engine::Round::Stock' },
+    { key: 'operating', parent: 'Engine::Round::Operating' },
+  ];
+  candidates.forEach(({ key, parent }) => {
+    const r = rounds[key];
+    if (!r || !r.subclass || !r.subclass.body) return;
+    const name = r.subclass.name || `Custom${key.charAt(0).toUpperCase() + key.slice(1)}`;
+    const body = _grbIndent(2, r.subclass.body);
+    blocks.push(`# Custom ${key}-round subclass.\nclass ${name} < ${parent}\n${body}\nend`);
+  });
+  if (rounds.merger && rounds.merger.enabled) {
+    const m = rounds.merger;
+    const name = (m.subclass && m.subclass.name) || m.name || 'Merger';
+    let body = (m.subclass && m.subclass.body) || '';
+    // Merger is abstract — round_name MUST be defined. If user didn't include
+    // it, supply the default from m.name.
+    if (!/def\s+self\.round_name/.test(body)) {
+      const roundName = (m.name || 'Merger').replace(/'/g, "\\'");
+      const auto = `def self.round_name\n  '${roundName}'\nend`;
+      body = body.trim() ? body.trim() + '\n\n' + auto : auto;
+    }
+    body = _grbIndent(2, body);
+    blocks.push(`# Merger round subclass — Engine::Round::Merger is abstract\n# (round/merger.rb:13 raises NotImplementedError on round_name).\nclass ${name} < Engine::Round::Merger\n${body}\nend`);
+  }
+  return blocks.length ? blocks.join('\n\n') : null;
+}
+
 // ── Module registry ───────────────────────────────────────────────────────────
 // Each module: { id: string, emit(state) → { slotName: string, … } | null }
 // A module returning { bank: '...', methods: '...' } contributes to two slots.
@@ -717,6 +923,42 @@ const _GRB_MODULES = [
       entries.forEach(({ co, pack }) => lines.push(_rbCorp(co, pack, gameCap)));
       lines.push('].freeze');
       return { corporations: lines.join('\n') };
+    },
+  },
+
+  // ── Round Methods (Tim PR1a) ─────────────────────────────────────────────────
+  // Emits def init_round / def stock_round / def operating_round / def next_round!
+  // and custom round subclass definitions into {{SLOT_ROUND_METHODS}}. Emit only
+  // when the user has actively customized a round — empty step lists, vanilla
+  // class, no subclass, no merger = no Ruby produced (1830-vanilla case).
+  {
+    id: 'round_methods',
+    emit(state) {
+      const rounds = (state.mechanics && state.mechanics.rounds) || {};
+      const out = [];
+
+      const subclasses = _grbCustomSubclasses(rounds);
+      if (subclasses) out.push(subclasses);
+
+      const initBody = _grbInitRoundBody(rounds);
+      if (initBody !== null) out.push(_grbWrapMethod('init_round', null, initBody));
+
+      const stockBody = _grbStockRoundBody(rounds);
+      if (stockBody !== null) out.push(_grbWrapMethod('stock_round', null, stockBody));
+
+      const orBody = _grbOperatingRoundBody(rounds);
+      if (orBody !== null) out.push(_grbWrapMethod('operating_round', 'round_num', orBody));
+
+      if (rounds.merger && rounds.merger.enabled) {
+        const mergerBody = _grbMergerRoundBody(rounds.merger);
+        out.push(_grbWrapMethod('new_merger_round', 'round_num = 1', mergerBody));
+      }
+
+      const nextBody = _grbNextRoundBody(rounds);
+      if (nextBody !== null) out.push(_grbWrapMethod('next_round!', null, nextBody));
+
+      if (!out.length) return null;
+      return { round_methods: out.join('\n\n') };
     },
   },
 
