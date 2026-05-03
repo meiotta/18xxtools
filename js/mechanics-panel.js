@@ -355,6 +355,16 @@ function initMechanicsState() {
       reservationHexes: [],
     },
 
+    // ── Rounds — populated by rounds-panel.js ──
+    rounds: {
+      initial:         {},
+      stock:           {},
+      operating:       {},
+      merger:          null,
+      loop:            null,
+      customNextRound: false,
+    },
+
     // ── Game End ──
     gameEndCheck: {
       bank:         { enabled: true,  timing: 'full_or' },
