@@ -908,6 +908,10 @@ function renderMechanicsRight() {
   el.querySelectorAll('[data-rounds-tab]').forEach(btn => {
     if (typeof onRoundsTabClick === 'function') btn.addEventListener('click', onRoundsTabClick);
   });
+  // Rounds steps actions (rounds-panel.js — Addy PR1c): add/remove/reorder/toggle-blocks
+  el.querySelectorAll('[data-skey]').forEach(btn => {
+    if (typeof onRoundsStepAction === 'function') btn.addEventListener('click', onRoundsStepAction);
+  });
   el.querySelectorAll('[data-orkey]').forEach(cb => {
     cb.addEventListener('change', e => {
       state.mechanics.orSteps[e.target.dataset.orkey] = e.target.checked;

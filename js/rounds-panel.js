@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260503a
+// js/rounds-panel.js  v20260503b
 // Rounds panel — round class selection and step list editing.
 //
 // Co-owned: Tim (round-system) + Addy (step-system).
@@ -359,51 +359,93 @@ const _BASE_RB_DEFAULTS = {
 };
 
 function _renderRoundStepsSection(roundType, r) {
-  const userSteps    = (r && r.steps) || [];
-  const defaults     = _BASE_RB_DEFAULTS[roundType] || [];
-  const inheriting   = userSteps.length === 0 && defaults.length > 0;
-  const methodName   = _stepsRoundMethodName(roundType);
+  const userSteps  = (r && Array.isArray(r.steps)) ? r.steps : [];
+  const defaults   = _BASE_RB_DEFAULTS[roundType] || [];
+  const methodName = _stepsRoundMethodName(roundType);
+  const matches    = _stepsMatchDefaults(userSteps, defaults);
 
   const lines = [];
   lines.push(`<div class="rounds-steps-section" data-round-type="${roundType}">`);
   lines.push(`  <h4 class="rounds-section-title">Steps</h4>`);
 
-  if (inheriting) {
-    lines.push(`  <p class="mech-hint">Inherits base.rb default (${defaults.length} step${defaults.length === 1 ? '' : 's'}). <code>def ${methodName}</code> will be omitted from the export.</p>`);
-    lines.push(`  <ol class="rounds-steps-list rounds-steps-inherited">`);
-    defaults.forEach(s => lines.push('    ' + _renderStepCardInherited(s)));
-    lines.push(`  </ol>`);
+  // Inheritance hint — if the array exactly matches base.rb defaults, the
+  // emitter omits the round method entirely (silent inherit). Lets the designer
+  // know they're on the canonical path.
+  if (matches) {
+    lines.push(`  <p class="mech-hint">Matches base.rb default — <code>def ${methodName}</code> will be omitted from the export.</p>`);
+  } else if (userSteps.length === 0 && roundType === 'merger') {
+    lines.push(`  <p class="mech-hint">Merger rounds have no engine default. Add at least one step.</p>`);
   } else if (userSteps.length === 0) {
-    lines.push(`  <p class="mech-hint">No steps configured. ${roundType === 'merger' ? 'Merger rounds have no engine default — add at least one step.' : ''}</p>`);
+    lines.push(`  <p class="mech-hint" style="font-style:italic;">No steps. Use the picker below to add one.</p>`);
   } else {
+    lines.push(`  <p class="mech-hint">Diverges from base.rb default — <code>def ${methodName}</code> will be emitted with this list.</p>`);
+  }
+
+  // Editable step list — always editable. Cards render with up/down/blocks/×.
+  if (userSteps.length > 0) {
     lines.push(`  <ol class="rounds-steps-list">`);
-    userSteps.forEach((s, i) => lines.push('    ' + _renderStepCardEditable(s, i)));
+    userSteps.forEach((s, i) => lines.push('    ' + _renderStepCardEditable(s, i, roundType, userSteps.length)));
     lines.push(`  </ol>`);
   }
 
-  // Add-step button: palette + add wiring lands in PR1c. Disabled stub here so
-  // the visual placeholder is in place without behavior coupling.
-  lines.push(`  <button class="mech-btn-small" disabled title="Step palette + add wiring lands in PR1c">+ Add step</button>`);
+  // Add-step picker: <select> populated from _STEP_CATALOG + "+ Add" button.
+  // Same class can be selected twice (BuyCompany twice in 1830 OR pattern).
+  lines.push('  <div class="rounds-steps-picker">');
+  lines.push('    <select data-step-picker>');
+  lines.push('      <option value="">Select a step…</option>');
+  Object.keys(_STEP_CATALOG).sort().forEach(cls => {
+    const short = _stepShortName(cls);
+    const desc  = _STEP_CATALOG[cls];
+    lines.push(`      <option value="${cls}">${short} — ${desc}</option>`);
+  });
+  lines.push('    </select>');
+  lines.push(`    <button class="mech-btn-small" data-skey="add" data-round-type="${roundType}">+ Add step</button>`);
+  lines.push('  </div>');
 
   lines.push(`</div>`);
   return lines.join('\n');
 }
 
-// One step card rendered as an inherited default (dimmed, no controls).
-function _renderStepCardInherited(stepEntry) {
-  const name    = _stepShortName(stepEntry.class);
-  const desc    = _STEP_CATALOG[stepEntry.class] || '';
-  const optsStr = _formatStepOptsInline(stepEntry.opts);
-  return `<li class="rounds-step-card rounds-step-inherited"><span class="rounds-step-name">${name}</span>${desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : ''}${optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : ''}</li>`;
+// One step card rendered as an editable entry. Controls (left → right):
+//   ▲▼ reorder | name + desc | { opts } | blocks toggle | × remove
+// All buttons carry data-skey + data-round-type + data-step-index for the
+// onRoundsStepAction dispatcher (in the shared section below).
+function _renderStepCardEditable(stepEntry, index, roundType, total) {
+  const name     = _stepShortName(stepEntry.class);
+  const desc     = _STEP_CATALOG[stepEntry.class] || '';
+  const optsStr  = _formatStepOptsInline(stepEntry.opts);
+  const blocksOn = !!(stepEntry.opts && stepEntry.opts.blocks);
+  const isFirst  = index === 0;
+  const isLast   = index === total - 1;
+
+  return `<li class="rounds-step-card" data-step-index="${index}">` +
+    `<span class="rounds-step-reorder">` +
+      `<button class="rounds-step-up" data-skey="move-up" data-round-type="${roundType}" data-step-index="${index}"${isFirst ? ' disabled' : ''} title="Move up">▲</button>` +
+      `<button class="rounds-step-down" data-skey="move-down" data-round-type="${roundType}" data-step-index="${index}"${isLast ? ' disabled' : ''} title="Move down">▼</button>` +
+    `</span>` +
+    `<span class="rounds-step-name">${name}</span>` +
+    (desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : '') +
+    (optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : '') +
+    `<button class="rounds-step-blocks${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${index}" title="Toggle { blocks: true } — gates round progression on explicit pass (e.g. 1830 OR's trailing BuyCompany)">${blocksOn ? 'blocks ✓' : 'blocks'}</button>` +
+    `<button class="rounds-step-remove" data-skey="remove" data-round-type="${roundType}" data-step-index="${index}" title="Remove">×</button>` +
+  `</li>`;
 }
 
-// One step card rendered as a user-editable entry (drag handle, remove button).
-// Drag-reorder and remove handlers wire in PR1c — buttons are visual stubs.
-function _renderStepCardEditable(stepEntry, index) {
-  const name    = _stepShortName(stepEntry.class);
-  const desc    = _STEP_CATALOG[stepEntry.class] || '';
-  const optsStr = _formatStepOptsInline(stepEntry.opts);
-  return `<li class="rounds-step-card" data-step-index="${index}"><span class="rounds-step-drag" title="Drag to reorder (PR1c)">⋮⋮</span><span class="rounds-step-name">${name}</span>${desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : ''}${optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : ''}<button class="rounds-step-remove" disabled title="Remove (PR1c)">×</button></li>`;
+// Compares two step arrays for content equality. Used to decide whether the
+// user has diverged from base.rb defaults (controls the inheritance hint).
+// Treats { opts: undefined } and { opts: {} } as equivalent (canonical form).
+function _stepsMatchDefaults(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].class !== b[i].class) return false;
+    const ao = a[i].opts || {};
+    const bo = b[i].opts || {};
+    const ak = Object.keys(ao);
+    const bk = Object.keys(bo);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (ao[k] !== bo[k]) return false;
+  }
+  return true;
 }
 
 // 'Engine::Step::BuyCompany' → 'BuyCompany'   (vanilla — strip namespace)
@@ -424,6 +466,92 @@ function _formatStepOptsInline(opts) {
 // Used in the "will be omitted" hint and (later) by the export module.
 function _stepsRoundMethodName(roundType) {
   return roundType === 'initial' ? 'init_round' : `${roundType}_round`;
+}
+
+// ── Step-action dispatcher (wired by mechanics-panel.js after each render) ───
+// Fires on click of any [data-skey] button in the rounds-steps-section. Reads
+// data-skey (action name), data-round-type (which slot), data-step-index (when
+// relevant). Mutates state.mechanics.rounds[roundType].steps in place, then
+// triggers re-render + preview refresh + autosave — same surface as Tim's
+// onRoundsInputChange handler in the shared region below.
+function onRoundsStepAction(e) {
+  const btn = e.currentTarget;
+  if (!btn || !btn.dataset) return;
+  const action    = btn.dataset.skey;
+  const roundType = btn.dataset.roundType;
+  if (!action || !roundType) return;
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  if (!state.mechanics.rounds) return;
+
+  const slot = state.mechanics.rounds[roundType];
+  if (!slot) return;
+  if (!Array.isArray(slot.steps)) slot.steps = [];
+
+  const idx = btn.dataset.stepIndex != null ? parseInt(btn.dataset.stepIndex, 10) : -1;
+
+  switch (action) {
+    case 'add': {
+      // Picker is the data-step-picker <select> sibling inside the same .rounds-steps-picker.
+      const picker = btn.parentElement && btn.parentElement.querySelector('[data-step-picker]');
+      const cls    = picker && picker.value;
+      if (!cls) return;  // no selection — silent no-op
+      slot.steps.push({ class: cls });
+      break;
+    }
+    case 'remove': {
+      if (Number.isNaN(idx) || idx < 0 || idx >= slot.steps.length) return;
+      slot.steps.splice(idx, 1);
+      break;
+    }
+    case 'move-up': {
+      if (Number.isNaN(idx) || idx <= 0 || idx >= slot.steps.length) return;
+      const tmp = slot.steps[idx - 1];
+      slot.steps[idx - 1] = slot.steps[idx];
+      slot.steps[idx] = tmp;
+      break;
+    }
+    case 'move-down': {
+      if (Number.isNaN(idx) || idx < 0 || idx >= slot.steps.length - 1) return;
+      const tmp = slot.steps[idx + 1];
+      slot.steps[idx + 1] = slot.steps[idx];
+      slot.steps[idx] = tmp;
+      break;
+    }
+    case 'toggle-blocks': {
+      if (Number.isNaN(idx) || idx < 0 || idx >= slot.steps.length) return;
+      const entry = slot.steps[idx];
+      const opts  = Object.assign({}, entry.opts || {});
+      if (opts.blocks) {
+        delete opts.blocks;
+        if (Object.keys(opts).length === 0) delete entry.opts;
+        else entry.opts = opts;
+      } else {
+        opts.blocks = true;
+        entry.opts = opts;
+      }
+      break;
+    }
+    default:
+      return;  // unknown action — no-op rather than throw
+  }
+
+  if (typeof autosave              === 'function') autosave();
+  if (typeof renderMechanicsRight  === 'function') renderMechanicsRight();
+  if (typeof renderMechanicsLeft   === 'function') renderMechanicsLeft();
+  if (typeof _refreshRbPreviewIfOpen === 'function') _refreshRbPreviewIfOpen();
+}
+
+// Re-renders the game.rb preview overlay if it's currently open. Safe no-op
+// otherwise. Lets step mutations show up live in the preview without forcing
+// a re-open. Reads the same DOM ids showRbPreview() writes (mechanics-panel.js).
+function _refreshRbPreviewIfOpen() {
+  const overlay = document.getElementById('mechRbOverlay');
+  const code    = document.getElementById('mechRbCode');
+  if (!overlay || !code) return;
+  if (overlay.style.display !== 'flex') return;
+  code.textContent = (typeof renderGameRb === 'function')
+    ? renderGameRb()
+    : '# export-game.js not loaded yet.\n';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
