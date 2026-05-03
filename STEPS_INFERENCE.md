@@ -15,6 +15,22 @@ The realization: **most of the operating-round / stock-round / init-round step l
 
 This document is the spec for that inference, the cross-panel feedback contract, and the override surface.
 
+> Tim: Worth surfacing a three-tier framing in §2's preamble so users picking
+> a 1822 or 1828 don't expect the inference to "figure it out from concessions":
+>
+> 1. **Vanilla.** Base.rb default. No inference needed.
+> 2. **Single-step swaps inside a vanilla round structure.** The clean slice
+>    the inference handles — most of §2's table.
+> 3. **Different-shape games** (1822 bidbox-in-SR, 1846 draft loop, 1828 cert
+>    selection, 1817 merger+acquisition, variant starting packets). These need
+>    *presets* that pre-populate `state.mechanics.rounds.*` to a known-good
+>    shape. The inference engine handles only deltas from the preset.
+>
+> Open question: do we ship a preset system before, alongside, or after the
+> inference engine? My weak preference is *alongside* — presets ground the
+> deltas the inference is computing. Without presets, users hit tier (3) and
+> the panel can't do anything sensible from the trigger predicates alone.
+
 ---
 
 ## 1. The two-tier model
@@ -62,12 +78,62 @@ This is the v0 mapping. Every entry must be reviewed by the upstream panel's own
 
 **Game-specific entries that the inference cannot derive** and must be hand-added by the user with provenance `'manual'`: per-game custom steps like `G1822::Step::FirstTurnHousekeeping`, `G1822::Step::AcquireCompany`, etc.
 
+### Tim's row-by-row annotations
+
+> **Row 10 (ConcessionAuction):** Pull from v0. My first take ("keep
+> independent with `class === 'auction'` precondition") was too clean. Two
+> reasons:
+>
+> - 1822-shaped games don't use `Round::Auction` at all. `g_1822/game.rb:1055-1057`
+>   returns `stock_round` directly from `init_round`. What 1822 calls
+>   "concessions" are bid on inside the SR via a bidbox in `G1822::Round::Stock`.
+>   So the trigger "any private with `no_buy` or concession-with-exchange"
+>   can't reliably drive a ConcessionAuction step swap — in 1822 it implies
+>   a deeper structural change (custom SR subclass + custom init flow), not a
+>   step swap.
+> - "Concession" isn't one ability tag. In Jenny's data it's `companyType:
+>   'concession'` plus an `exchange` ability with `from: 'par'` plus a
+>   relationship to a linked major. None alone identifies a concession reliably.
+>
+> Replace with §6/§8 wizard suggestion: when concessions exist in Jenny's
+> panel and the Initial round is still vanilla auction, surface *"You have N
+> concessions. The standard handling is the 1822 bidbox inside the Stock
+> Round. [Apply 1822-style preset] or [Keep current]."* User decides; we don't
+> auto-mutate. Variant-packet drafts ("player 1 gets X, player 2 gets Y +
+> $50") are a similar shape — not inferable; lives in the custom-subclass
+> body editor (PR1a escape hatch).
+
+> **Row 11 (merger sub-tab):** Schema correction. The path is
+> `state.mechanics.rounds.merger`, not `state.mechanics.merger`. Use
+> `state.mechanics.rounds.merger != null` as the canonical predicate.
+>
+> Behaviorally `rounds.merger != null` and `rounds.merger?.enabled === true`
+> are equivalent given the toggle handler in `rounds-panel.js`:
+>   - Off → On: creates the merger object AND sets `enabled: true`.
+>   - On → Off: sets `rounds.merger = null`.
+> The `.enabled` field is a UI-binding artifact (data-rkey path is
+> `merger.enabled`). Use `rounds.merger != null` in the inference engine —
+> survives any future schema cleanup where we drop the `.enabled` field.
+
+> **Row 14 (player loans):** Confirm. Game-specific subclass (`G<game>::Step::Loan`,
+> `PostConversionLoans`) is my surface — the custom-subclass body editor I
+> shipped in PR1a is the escape hatch. Inference fires the suggestion + sets
+> a placeholder; user fills in the Ruby.
+
 ### Open questions for the table
 
 - **Q1 (Jenny):** Do you have a canonical list of ability `type:` values your panel emits? If new ability types appear that aren't in this table, the inference will silently drop them.
 - **Q2 (Farrah):** Is there a single canonical map of phase-status string → engine-step-class? I've inferred a partial one above; please verify and extend.
 - **Q3 (Evan):** ~~Several entries reference `state.mechanics.orSteps` toggles (issueShares, etc.) — are those still the source of truth, or do they get migrated into `state.mechanics.rounds.<type>.steps` directly during PR-migration?~~ → **Answered** — see annotation on row 8 above.
 - **Q4 (Tim):** For row 10 (`ConcessionAuction` replaces `WaterfallAuction`), this also drives the Initial round-class choice in your section. Want to fold this into a single inference, or keep the round-class and step-list inferences independent?
+
+> Tim (answers Q4): Pull row 10 from v0 — see annotation above. The class-vs-step
+> entanglement was a red herring on my part. The pattern that survives in the
+> table is *single-trigger, single-step swaps inside an already-chosen round
+> structure* — Bankrupt, Special{Track,Token}, Exchange, HomeToken,
+> BuyCompany (early), IssueShares, SingleDepotTrainBuy, DiscardTrain, EndGame
+> are all clean and stay in. Structural-shape choices live in presets, not
+> inference.
 
 ---
 
@@ -93,6 +159,23 @@ In 1830 and many other games the OR step list ends with `[Engine::Step::BuyCompa
 - **(b)** Drive it from a separate flag like `state.mechanics.lastChanceBuyCompany: boolean` (default true).
 
 Recommendation: **(a)** — it's part of the engine default and shouldn't require a separate toggle.
+
+> Tim: Confirm (a). Reasoning:
+>
+> - It IS in base.rb:3210 as the canonical OR step list trailer.
+> - My emit's `_grbStepsMatchDefault` (PR1a follow-up, `5eb1b34`) already
+>   treats it as part of the default — silent inherit unless the user removes
+>   it.
+> - The trailing BuyCompany's *activeness* is already phase-gated at runtime
+>   by `step/buy_company.rb` looking at `phase.status.include?('can_buy_companies')`.
+>   Absent the status, the step is inert. So it's "always there as default,
+>   phase-gated to actually fire."
+> - Adding `state.mechanics.lastChanceBuyCompany` would create two ways to
+>   express the same intent → drift.
+>
+> Note: the early non-blocking BuyCompany (row 7) IS phase-status-driven.
+> Both BuyCompanies coexist in 1830 — inference adds the early one when phase
+> trigger fires; trailing one is in the seeded default list.
 
 ---
 
@@ -126,6 +209,37 @@ SourceTag =
 - When a user manually removes an entry whose source is `auto`, it gets converted to `removed` in a parallel set, and the inference engine respects that (won't re-add on the next tick).
 - When a user manually adds an entry that the inference would *also* have produced, the entry's `source` is upgraded from `auto` to `manual` so it survives upstream removal.
 
+> Tim: Two integration notes.
+>
+> **(1) Existing-save migration.** Saves in the wild have step entries
+> without `source` tags. Migration needs to add them on first read. Default
+> rule:
+>
+>   - any step that exactly matches a `_BASE_RB_DEFAULTS[type]` entry →
+>     `source: 'default'`
+>   - everything else → `source: 'manual'`
+>
+> Conservative — we'd rather not auto-remove a user's hand-edit. I can write
+> the migration helper as part of the inference-engine PR; it slots into
+> `initRoundsState()` in `rounds-panel.js` (right after the seed step that
+> already exists in PR1a follow-up).
+>
+> **(2) `removedDefaults` / `removedAuto` set placement.** Goes on the round
+> slot, keyed by round type:
+>
+> ```js
+> state.mechanics.rounds.<type> = {
+>   ...,
+>   steps: [...],
+>   removedDefaults: ['Engine::Step::BuyCompany', ...],   // class identifiers
+>   removedAuto:     ['Engine::Step::SpecialTrack', ...],
+> };
+> ```
+>
+> Same module, written by the inference engine and the UI's remove handler.
+> The merger slot can hold these too if/when we decide a default merger
+> step list exists (currently empty).
+
 ---
 
 ## 6. Cross-panel feedback contract
@@ -147,6 +261,20 @@ For the panel to be trustworthy, the upstream panels must surface to their user 
 | Tim — Round classes | Picks a non-vanilla round class | "→ Step list semantics may differ from `Round::Operating`; review the picker after switching." |
 
 Implementation note: the feedback is one-way for now (upstream → user-facing message). The panels do not call into each other directly. The inference engine is the central reader; each panel just emits standardized messages from a shared `_inferenceFeedbackFor(action)` helper.
+
+> Tim: One row to add for the row-10 reframe — the wizard handles concessions
+> instead of inference. Add to the table:
+>
+> | Jenny — Companies / Privates | Adds `companyType: 'concession'` or `no_buy` ability while Initial round is vanilla auction | "→ The standard concession handling is the 1822 bidbox inside the Stock Round. [Apply 1822-style preset] or [Keep current]." |
+>
+> I can scaffold the `_inferenceFeedbackFor(action)` helper — it's a small
+> registry keyed by upstream-mutation tag. Goes alongside the inference
+> engine PR; happy to write it as part of that.
+>
+> Also: row "Tim — Round classes" (last entry in the table) — when a user
+> picks a non-vanilla round class, the feedback should specifically reference
+> what step semantics differ. I'll provide a class → "what to know" map as
+> part of the round-class registry I'm lifting from PR1a.
 
 ---
 
@@ -217,6 +345,28 @@ The wizard's text content is its own deliverable — needs round-by-round 18xx-d
 
 CSS / color audit is a hard prerequisite — the previous attempt invented class names with no styling. v1 must use the existing conventions from Companies/Trains/Mechanics panels.
 
+> Tim: Three notes on the "Round class:" line at the top.
+>
+> **(1) Reuse, don't rewrite.** My `_renderRoundClassSection(roundType, r)` in
+> `js/rounds-panel.js` (Tim section, between dividers, lines ~161+) already
+> renders the class selector + opts + custom-subclass body editor for each
+> round type. It's writing through to state via `data-rkey`-named inputs;
+> `onRoundsInputChange` (shared region) handles the listener. All wired and
+> intact in source — just unreachable from the UI per PR1d's rip-out.
+>
+> **(2) Lift into the new layout.** When the new editor goes live, the layout
+> sketch's "Round class:" line is where `_renderRoundClassSection(activeTab,
+> state.mechanics.rounds[activeTab])` slots in. Small surgery — the function
+> is self-contained and writes through `data-rkey` listeners I already wrote.
+> The existing Tim/Addy file boundary in `rounds-panel.js` survives.
+>
+> **(3) The custom-subclass body editor handles tier-3 escape.** The
+> three-tier model from §1's preamble: tier-3 games (1822-bidbox, variant
+> packets, etc.) need custom Ruby. My body editor (PR1a) emits the user's
+> raw Ruby into the subclass body. Inference doesn't try to model these;
+> the wizard suggests "use a preset," and if the user instead writes
+> custom Ruby, my editor accepts it.
+
 ---
 
 ## 10. Out of scope for v0
@@ -241,6 +391,29 @@ Once this doc is signed off:
 6. **Wire it all together**, pull the placeholder out of `#stepsView`, ship.
 
 No code lands on the panel between today and step 3.
+
+> Tim: Confirmed sequencing. Ownership split for step 4 (provenance + inference):
+>
+> - **Existing-save migration helper** (mine) — adds `source` tags to step
+>   entries on first read. Slots into `initRoundsState()` in `rounds-panel.js`,
+>   right after the seed step that PR1a follow-up already added.
+> - **`removedDefaults` / `removedAuto` schema** (mine) — adds the parallel
+>   sets to each round slot. Joint-edit territory but the change is small and
+>   I'll handle it.
+> - **Inference engine** (Addy) — pure functions in `rounds-panel.js` (or a
+>   sibling file if size warrants). Reads state, returns a tagged step list
+>   per round type. No UI coupling.
+> - **`_inferenceFeedbackFor(action)` helper** (joint, I scaffold) — the
+>   shared message registry referenced in §6. Small.
+> - **Round-class registry lift** (mine) — `_renderRoundClassSection` from
+>   PR1a moves into the new layout's "Round class:" line per §9.
+> - **Cross-class semantic map** (mine) — class → "what to know" hints for
+>   the §6 feedback row, used when a user picks a non-vanilla round class.
+>
+> Open ask back to you: should the **preset system** (tier-3 from §1's
+> preamble) ship before or alongside step 4? My weak preference is alongside.
+> If we ship inference without presets, users hit tier-3 games and get nothing
+> useful. Worth a sync before step 4 starts.
 
 ---
 
