@@ -1,4 +1,4 @@
-// js/export-game.js  v20260502b
+// js/export-game.js  v20260502c
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -335,6 +335,78 @@ function _grbPhaseHash(ph, state) {
   }
 
   return '  {\n' + kv.map(s => '    ' + s).join(',\n') + ',\n  }';
+}
+
+// ── Step-array Ruby literal (Addy, PR1b) ─────────────────────────────────────
+// Serializes an ordered array of StepEntry objects into a Ruby array literal,
+// matching tobymao formatting verified against:
+//   lib/engine/game/g_1830/game.rb:177-202   (operating + stock)
+//   lib/engine/game/g_1822/game.rb:1086-1106 (operating)
+//   lib/engine/game/g_1822/game.rb:1302-1307 (stock)
+//
+// StepEntry = { class: string, opts?: object }
+//   class: full Ruby class path, e.g. 'Engine::Step::Track' or
+//          'G1830::Step::BuySellParShares'. Pass through verbatim — no <game>
+//          substitution; caller resolves the game module first.
+//   opts:  optional per-entry kwargs hash. Renders as `{ key: value, … }`.
+//          Value types: boolean → true/false; number → as-is; string → 'quoted'.
+//          For symbols/etc. callers must pre-stringify (e.g. ':foo' as a string).
+//
+// Returns a multi-line array literal. Entries indented `innerIndent` spaces
+// (default 2 — tobymao convention). Trailing comma after every entry. Empty
+// input → '[]' (single-line).
+//
+// Caller owns outer indentation. Typical embed:
+//
+//   const lit = _grbStepArrayLiteral(rounds.operating.steps);
+//   return `def operating_round(round_num)\n` +
+//          `  Engine::Round::Operating.new(self, ${lit.replace(/\n/g, '\n  ')}, round_num: round_num)\n` +
+//          `end`;
+//
+// Examples (verified by hand against tobymao output):
+//   []
+//     → '[]'
+//   [{class: 'Engine::Step::Track'}]
+//     → '[\n  Engine::Step::Track,\n]'
+//   [{class: 'Engine::Step::BuyCompany'},
+//    {class: 'Engine::Step::BuyCompany', opts: {blocks: true}}]
+//     → '[\n  Engine::Step::BuyCompany,\n' +
+//       '  [Engine::Step::BuyCompany, { blocks: true }],\n]'
+//   [{class: 'G1822::Step::PendingToken'},
+//    {class: 'G1822::Step::PendingToken'}]
+//     → '[\n  G1822::Step::PendingToken,\n  G1822::Step::PendingToken,\n]'
+//     (duplicates preserved positionally — 1822 OR has PendingToken twice)
+function _grbStepArrayLiteral(steps, innerIndent) {
+  if (!Array.isArray(steps) || steps.length === 0) return '[]';
+  const ind = ' '.repeat(innerIndent != null ? innerIndent : 2);
+  const lines = ['['];
+  steps.forEach(entry => {
+    const cls  = entry.class || '';
+    const opts = entry.opts;
+    if (opts && Object.keys(opts).length > 0) {
+      lines.push(ind + '[' + cls + ', ' + _grbStepOptsHash(opts) + '],');
+    } else {
+      lines.push(ind + cls + ',');
+    }
+  });
+  lines.push(']');
+  return lines.join('\n');
+}
+
+// Per-entry opts hash → `{ key: value, … }`. Single-line by tobymao convention
+// (only `{ blocks: true }` appears in real games; no multi-line entry-opts hash
+// has been observed). Spaces after `{`, before `}`, and after each `:` match
+// the canonical formatting in g_1830 and base.rb.
+function _grbStepOptsHash(opts) {
+  const pairs = Object.entries(opts).map(([k, v]) => {
+    let rb;
+    if (typeof v === 'boolean')      rb = v ? 'true' : 'false';
+    else if (typeof v === 'number')  rb = String(v);
+    else if (typeof v === 'string')  rb = _rbStr(v);
+    else                             rb = String(v);  // fallback; symbols pre-stringified
+    return k + ': ' + rb;
+  });
+  return '{ ' + pairs.join(', ') + ' }';
 }
 
 // ── Module registry ───────────────────────────────────────────────────────────
