@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260502e
+// js/rounds-panel.js  v20260503a
 // Rounds panel — round class selection and step list editing.
 //
 // Co-owned: Tim (round-system) + Addy (step-system).
@@ -31,8 +31,13 @@
 // ── State init / migration ──────────────────────────────────────────────────
 // state.mechanics.rounds is seeded by Evan's initMechanicsState() for fresh
 // states. For existing saves that predate the rounds schema, we seed defaults
-// here on first access. Legacy-field migration (initialRound, stockRoundsPerSet,
-// mergerRound, orSteps → rounds.*) lands in PR1a/PR1b.
+// here on first access. Step arrays are also seeded from _BASE_RB_DEFAULTS
+// (Addy's catalog, defined later in this file — same module scope, so it's
+// accessible at call time even though declared below) so her step-list
+// renderer can be purely reactive against state without re-deriving defaults.
+//
+// Legacy-field migration (initialRound, stockRoundsPerSet, mergerRound,
+// orSteps → rounds.*) lands in PR1a/PR1b.
 function initRoundsState() {
   if (typeof state === 'undefined' || !state.mechanics) return;
   if (!state.mechanics.rounds) {
@@ -45,9 +50,32 @@ function initRoundsState() {
       customNextRound: false,
     };
   }
-  // TODO (Tim + Addy, PR1a/PR1b): migrate legacy state.mechanics.{initialRound,
+
+  // Seed step arrays from _BASE_RB_DEFAULTS (declared in Addy's section below).
+  // Same-file module scope — `const _BASE_RB_DEFAULTS` is hoisted at evaluation
+  // time and resolves at runtime; only fails inside the temporal dead zone,
+  // which doesn't apply here (initRoundsState is called after module load).
+  // Defensive deep-copy each entry so user edits don't mutate the catalog.
+  if (typeof _BASE_RB_DEFAULTS !== 'undefined') {
+    ['initial', 'stock', 'operating'].forEach(type => {
+      const slot = state.mechanics.rounds[type] || (state.mechanics.rounds[type] = {});
+      if (!Array.isArray(slot.steps)) {
+        slot.steps = (_BASE_RB_DEFAULTS[type] || []).map(s => ({
+          class: s.class,
+          ...(s.opts ? { opts: { ...s.opts } } : {}),
+        }));
+      }
+    });
+    // merger: no engine default (always game-custom). Initialize as empty array
+    // so Addy's renderer can iterate without null-checks.
+    if (state.mechanics.rounds.merger && !Array.isArray(state.mechanics.rounds.merger.steps)) {
+      state.mechanics.rounds.merger.steps = [];
+    }
+  }
+
+  // TODO (Tim + Addy, PR1c): migrate legacy state.mechanics.{initialRound,
   // stockRoundsPerSet, mergerRound, orSteps} into state.mechanics.rounds.* and
-  // remove the legacy keys. Out of scope for PR0/PR1a.
+  // remove the legacy keys.
 }
 
 // ── Top-level panel renderer ────────────────────────────────────────────────

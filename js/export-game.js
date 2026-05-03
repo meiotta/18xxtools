@@ -430,6 +430,26 @@ function _grbStepOptsHash(opts) {
 //   merger.rb      round_name raises NotImplementedError (ABSTRACT — must subclass)
 //   choices.rb     no select_entities default — effectively abstract
 
+// Deep-compare a steps array against the base.rb default for a round type.
+// Used so that pre-seeded step arrays (Addy's initRoundsState) still inherit
+// silently from base.rb when the user hasn't modified them. Compares class
+// strings positionally and opts hashes shallowly (sufficient since real
+// engine steps use only `{ blocks: true }`-shaped opts).
+function _grbStepsMatchDefault(steps, defaults) {
+  if (!Array.isArray(steps) || !Array.isArray(defaults)) return false;
+  if (steps.length !== defaults.length) return false;
+  return steps.every((s, i) => {
+    const d = defaults[i];
+    if (s.class !== d.class) return false;
+    const sOpts = s.opts || {};
+    const dOpts = d.opts || {};
+    const sKeys = Object.keys(sOpts);
+    const dKeys = Object.keys(dOpts);
+    if (sKeys.length !== dKeys.length) return false;
+    return sKeys.every(k => sOpts[k] === dOpts[k]);
+  });
+}
+
 // Initial-round class registry — designer choice → engine class.
 const _GRB_INITIAL_CLASS = {
   auction:      'Engine::Round::Auction',
@@ -455,6 +475,16 @@ function _grbWrapMethod(name, args, body) {
   return head + '\n' + indented + '\nend';
 }
 
+// Inherit-from-base check. Steps arrays are now pre-seeded by initRoundsState
+// from _BASE_RB_DEFAULTS (Addy's catalog) so her renderer is reactive against
+// state, not synthesizing defaults at render time. To preserve the "vanilla =
+// no Ruby emitted" promise, the emit helpers compare against the same defaults
+// and return null when state matches them exactly.
+function _grbInheritsBaseDefault(roundType, steps) {
+  if (typeof _BASE_RB_DEFAULTS === 'undefined') return false;
+  return _grbStepsMatchDefault(steps, _BASE_RB_DEFAULTS[roundType] || []);
+}
+
 // init_round — emit only when departing from base.rb:2626 default (which
 // returns new_auction_round with [CompanyPendingPar, WaterfallAuction]).
 function _grbInitRoundBody(rounds) {
@@ -463,8 +493,13 @@ function _grbInitRoundBody(rounds) {
   const steps    = r.steps || [];
   const optsStr  = _grbRoundOpts(r.opts);
   const subclass = r.subclass;
-  const customized = steps.length > 0 || optsStr || subclass || cls !== 'auction';
-  if (!customized) return null;
+
+  // Vanilla auction with no opts/subclass and steps either empty or matching
+  // the base.rb default → inherit silently.
+  if (cls === 'auction' && !optsStr && !subclass &&
+      (steps.length === 0 || _grbInheritsBaseDefault('initial', steps))) {
+    return null;
+  }
 
   // No-auction games delegate to stock_round (1822 pattern, g_1822/game.rb:1055-1057).
   if (cls === 'stock_direct') return 'stock_round';
@@ -477,22 +512,23 @@ function _grbInitRoundBody(rounds) {
   return `${className}.new(self, ${parts.join(', ')})`;
 }
 
-// stock_round — emit only when steps non-empty or subclass set.
+// stock_round — emit only when subclass set or steps differ from base.rb:3183.
 function _grbStockRoundBody(rounds) {
   const r        = rounds.stock || {};
   const steps    = r.steps || [];
   const subclass = r.subclass;
-  if (steps.length === 0 && !subclass) return null;
+  if (!subclass && (steps.length === 0 || _grbInheritsBaseDefault('stock', steps))) return null;
   const className = (subclass && subclass.name) || 'Engine::Round::Stock';
   return `${className}.new(self, ${_grbStepArrayLiteral(steps)})`;
 }
 
-// operating_round(round_num) — emit only when steps non-empty or subclass set.
+// operating_round(round_num) — emit only when subclass set or steps differ
+// from base.rb:3198-3211.
 function _grbOperatingRoundBody(rounds) {
   const r        = rounds.operating || {};
   const steps    = r.steps || [];
   const subclass = r.subclass;
-  if (steps.length === 0 && !subclass) return null;
+  if (!subclass && (steps.length === 0 || _grbInheritsBaseDefault('operating', steps))) return null;
   const className = (subclass && subclass.name) || 'Engine::Round::Operating';
   return `${className}.new(self, ${_grbStepArrayLiteral(steps)}, round_num: round_num)`;
 }
