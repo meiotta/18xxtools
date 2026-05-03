@@ -486,7 +486,7 @@ function validateAbilityCorporation() {
 }
 function validateExchangeTokenCorps() {
   const errors = [];
-  if (!state.mechanics || !state.mechanics.exchangeTokens.enabled) return errors;
+  if (!state.mechanics || !state.mechanics.exchangeTokens || !state.mechanics.exchangeTokens.enabled) return errors;
   const majors = majorCorpSyms();
   Object.keys(state.mechanics.exchangeTokens.counts).forEach(sym => {
     if (!majors.has(sym))
@@ -562,6 +562,16 @@ function buildFramework() {
         { id: 'initial_round', label: 'Initial Round',       value: formatInitialRound(m.initialRound), status: m.initialRound ? 'green' : 'red' },
         { id: 'stock_rounds',  label: 'Stock Rounds per set', value: String(m.stockRoundsPerSet || 1),   status: 'green' },
         { id: 'or_sequence',   label: 'OR Sequence',          value: orStr || 'from phases',             status: phases.length ? 'green' : 'amber' },
+      ],
+    },
+
+    // ── ROUNDS (Tim + Addy) ────────────────────────────────────────────────
+    // Opens the rounds-panel.js sub-tabbed editor (round class + step list).
+    // Will subsume the legacy Game Flow items above once migration lands.
+    {
+      id: 'rounds', label: 'Rounds',
+      items: [
+        { id: 'rounds_panel', label: 'Round structure', value: _summariseRounds(m), status: 'green' },
       ],
     },
 
@@ -891,6 +901,13 @@ function renderMechanicsRight() {
   el.querySelectorAll('[data-mkey]').forEach(input => {
     input.addEventListener('change', onMechanicsInputChange);
   });
+  // Rounds panel writers (rounds-panel.js — Tim PR1a)
+  el.querySelectorAll('[data-rkey]').forEach(input => {
+    if (typeof onRoundsInputChange === 'function') input.addEventListener('change', onRoundsInputChange);
+  });
+  el.querySelectorAll('[data-rounds-tab]').forEach(btn => {
+    if (typeof onRoundsTabClick === 'function') btn.addEventListener('click', onRoundsTabClick);
+  });
   el.querySelectorAll('[data-orkey]').forEach(cb => {
     cb.addEventListener('change', e => {
       state.mechanics.orSteps[e.target.dataset.orkey] = e.target.checked;
@@ -1007,9 +1024,33 @@ function renderMechanicsRight() {
   });
 }
 
+// One-line summary of state.mechanics.rounds for the left-panel item value.
+// "Vanilla" = no customizations; otherwise lists the customized round types.
+function _summariseRounds(m) {
+  const r = (m && m.rounds) || {};
+  const custom = [];
+  const isCustom = (slot, defaultClass) => {
+    if (!slot || typeof slot !== 'object') return false;
+    if (slot.subclass) return true;
+    if (slot.steps && slot.steps.length) return true;
+    if (slot.opts && Object.keys(slot.opts).length) return true;
+    if (slot.class && defaultClass !== undefined && slot.class !== defaultClass) return true;
+    return false;
+  };
+  if (isCustom(r.initial,   'auction')) custom.push('initial');
+  if (isCustom(r.stock,     'vanilla')) custom.push('stock');
+  if (isCustom(r.operating, 'vanilla')) custom.push('operating');
+  if (r.merger && r.merger.enabled)     custom.push('merger');
+  return custom.length ? `custom: ${custom.join(', ')}` : 'vanilla — base.rb defaults';
+}
+
 function renderEditorFor(itemId) {
   const m = state.mechanics || {};
   const back = `<button class="mech-editor-back" id="mechEditorBack">← Overview</button>`;
+
+  // ── Rounds (Tim + Addy) ──
+  if (itemId === 'rounds_panel')
+    return wrap(back, 'Rounds', typeof renderRoundsPanel === 'function' ? renderRoundsPanel() : '<p>rounds-panel.js not loaded</p>');
 
   // ── Game Flow ──
   if (['initial_round','stock_rounds','or_sequence'].includes(itemId))
