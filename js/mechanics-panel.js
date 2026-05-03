@@ -565,16 +565,6 @@ function buildFramework() {
       ],
     },
 
-    // ── ROUNDS (Tim + Addy) ────────────────────────────────────────────────
-    // Opens the rounds-panel.js sub-tabbed editor (round class + step list).
-    // Will subsume the legacy Game Flow items above once migration lands.
-    {
-      id: 'rounds', label: 'Rounds',
-      items: [
-        { id: 'rounds_panel', label: 'Round structure', value: _summariseRounds(m), status: 'green' },
-      ],
-    },
-
     // ── BANK & PLAYERS ─────────────────────────────────────────────────────
     {
       id: 'bank_players', label: 'Bank & Players',
@@ -1052,9 +1042,9 @@ function renderEditorFor(itemId) {
   const m = state.mechanics || {};
   const back = `<button class="mech-editor-back" id="mechEditorBack">← Overview</button>`;
 
-  // ── Rounds (Tim + Addy) ──
-  if (itemId === 'rounds_panel')
-    return wrap(back, 'Rounds', typeof renderRoundsPanel === 'function' ? renderRoundsPanel() : '<p>rounds-panel.js not loaded</p>');
+  // (Rounds editor moved to its own top-level STEPS panel — see rounds-panel.js
+  //  and the [data-lsec="steps"] nav button. Redesign in progress per Anthony's
+  //  spec; see STEPS_INFERENCE.md.)
 
   // ── Game Flow ──
   if (['initial_round','stock_rounds','or_sequence'].includes(itemId))
@@ -1954,7 +1944,7 @@ function wireMechanicsPanel() {
     if (toggleRightBtn) toggleRightBtn.style.display  = 'none';
 
     // Hide every other main view
-    ['canvasContainer','marketView','corpView','trainsView'].forEach(id => {
+    ['canvasContainer','marketView','corpView','trainsView','stepsView'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
