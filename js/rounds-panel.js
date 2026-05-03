@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260503b
+// js/rounds-panel.js  v20260503c
 // Rounds panel — round class selection and step list editing.
 //
 // Co-owned: Tim (round-system) + Addy (step-system).
@@ -557,6 +557,63 @@ function _refreshRbPreviewIfOpen() {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Shared (both must agree to edit) ────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Top-level STEPS panel wiring ────────────────────────────────────────────
+// The Rounds editor lived inside Mechanics through PR1c. Per Anthony's spec,
+// it now gets its own top-level icon in the left rail (data-lsec="steps") and
+// its own view container (#stepsView in index.html). The panel is currently a
+// placeholder ("Redesign in progress") while the inference-driven redesign is
+// drafted in STEPS_INFERENCE.md.
+//
+// Pattern mirrors wireMechanicsPanel: when STEPS is clicked, hide every other
+// main view and show #stepsView. When any other nav button is clicked, hide
+// #stepsView so the next view can take over cleanly.
+function wireStepsPanel() {
+  const navBtn = document.querySelector('[data-lsec="steps"]');
+  if (!navBtn) return;
+
+  navBtn.addEventListener('click', () => {
+    // setup.js's nav-rail handler runs first and falls through to
+    // showMainView('canvas'). Undo that here so #stepsView can take over.
+    const navContentEl   = document.getElementById('navContent');
+    const toggleLeftBtn  = document.getElementById('toggleLeftPanelBtn');
+    const rightPanel     = document.getElementById('rightPanel');
+    const toggleRightBtn = document.getElementById('toggleRightPanelBtn');
+
+    if (navContentEl)   navContentEl.style.display   = 'none';
+    if (toggleLeftBtn)  toggleLeftBtn.style.display  = 'none';
+    if (rightPanel)     rightPanel.style.display     = 'none';
+    if (toggleRightBtn) toggleRightBtn.style.display = 'none';
+
+    ['canvasContainer','marketView','corpView','trainsView','mechanicsView'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    document.querySelectorAll('.nav-rail-btn').forEach(b => b.classList.remove('active'));
+    navBtn.classList.add('active');
+
+    const view = document.getElementById('stepsView');
+    if (view) view.style.display = 'flex';
+  });
+
+  // Other nav buttons should hide stepsView the same way they hide mechanicsView.
+  document.querySelectorAll('.nav-rail-btn[data-lsec]:not([data-lsec="steps"])').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = document.getElementById('stepsView');
+      if (view) view.style.display = 'none';
+    });
+  });
+}
+
+// Auto-wire on DOMContentLoaded (matches the pattern other panels use).
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireStepsPanel);
+  } else {
+    wireStepsPanel();
+  }
+}
 
 // Listener handlers — attached by mechanics-panel.js after each renderRight.
 // Tim wires data-rkey writers + sub-tab clicks here in PR1a; Addy will add a
