@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260502c
+// js/rounds-panel.js  v20260502d
 // Rounds panel — round class selection and step list editing.
 //
 // Co-owned: Tim (round-system) + Addy (step-system).
@@ -97,12 +97,134 @@ function _renderRoundClassSection(roundType, _r) {
 // not modify; ping if a change is needed at the boundary.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _renderRoundStepsSection(roundType, _r) {
-  // TODO PR1b: ordered step list editor with per-entry opts. Allows duplicates
-  // (BuyCompany twice in 1830 OR). Seeded with engine defaults from
-  // base.rb:3198-3212 for OR, base.rb stock_round for SR. Uses Engine::Step::*
-  // catalog; emits a custom step stub when the chosen step name isn't engine.
-  return '<!-- Addy PR1b: ' + roundType + ' steps section -->';
+// Catalog of vanilla Engine::Step::* classes — full class name → short
+// description (matches each step's `description` method in lib/engine/step/*.rb).
+// Used for inline labels in step cards. Custom G<game>::Step::* names fall
+// through and render with no description (full namespace shown instead).
+const _STEP_CATALOG = {
+  'Engine::Step::Bankrupt':            'Declare bankruptcy',
+  'Engine::Step::BuyCompany':          'Buy a private company',
+  'Engine::Step::BuySellParShares':    'Buy / sell / par shares',
+  'Engine::Step::BuyTrain':            'Buy trains',
+  'Engine::Step::CompanyPendingPar':   'Resolve pending par from company',
+  'Engine::Step::ConcessionAuction':   'Bid on selected concession',
+  'Engine::Step::DiscardTrain':        'Discard over-limit trains',
+  'Engine::Step::Dividend':            'Pay or withhold dividends',
+  'Engine::Step::EndGame':             'Manual end-game declaration',
+  'Engine::Step::Exchange':            'Exchange company for share',
+  'Engine::Step::HomeToken':           'Place pending home token',
+  'Engine::Step::IssueShares':         'Issue or redeem shares',
+  'Engine::Step::Route':               'Run trains',
+  'Engine::Step::SimpleDraft':         'Draft one company per turn',
+  'Engine::Step::SpecialToken':        'Place private-granted token',
+  'Engine::Step::SpecialTrack':        'Lay private-granted track',
+  'Engine::Step::Token':               'Place a station token',
+  'Engine::Step::Track':               'Lay or upgrade tile',
+  'Engine::Step::TrackAndToken':       'Lay tile or place token',
+  'Engine::Step::WaterfallAuction':    'Bid on cheapest company',
+};
+
+// Default step arrays from tobymao base.rb — the silent-inherit baseline. When
+// state.mechanics.rounds.<type>.steps is empty, the export omits the round
+// method entirely and the engine inherits these. Verified against:
+//   init_round    → base.rb:3170 (new_auction_round)
+//   stock_round   → base.rb:3183
+//   operating     → base.rb:3198-3211 (NB: SpecialToken/HomeToken NOT in base
+//                   default — those are added by g_1830/game.rb's override)
+//   merger        → no engine default; merger rounds are always game-custom
+const _BASE_RB_DEFAULTS = {
+  initial: [
+    { class: 'Engine::Step::CompanyPendingPar' },
+    { class: 'Engine::Step::WaterfallAuction' },
+  ],
+  stock: [
+    { class: 'Engine::Step::DiscardTrain' },
+    { class: 'Engine::Step::Exchange' },
+    { class: 'Engine::Step::SpecialTrack' },
+    { class: 'Engine::Step::BuySellParShares' },
+  ],
+  operating: [
+    { class: 'Engine::Step::Bankrupt' },
+    { class: 'Engine::Step::Exchange' },
+    { class: 'Engine::Step::SpecialTrack' },
+    { class: 'Engine::Step::BuyCompany' },
+    { class: 'Engine::Step::Track' },
+    { class: 'Engine::Step::Token' },
+    { class: 'Engine::Step::Route' },
+    { class: 'Engine::Step::Dividend' },
+    { class: 'Engine::Step::DiscardTrain' },
+    { class: 'Engine::Step::BuyTrain' },
+    { class: 'Engine::Step::BuyCompany', opts: { blocks: true } },
+  ],
+  merger: [],
+};
+
+function _renderRoundStepsSection(roundType, r) {
+  const userSteps    = (r && r.steps) || [];
+  const defaults     = _BASE_RB_DEFAULTS[roundType] || [];
+  const inheriting   = userSteps.length === 0 && defaults.length > 0;
+  const methodName   = _stepsRoundMethodName(roundType);
+
+  const lines = [];
+  lines.push(`<div class="rounds-steps-section" data-round-type="${roundType}">`);
+  lines.push(`  <h4 class="rounds-section-title">Steps</h4>`);
+
+  if (inheriting) {
+    lines.push(`  <p class="mech-hint">Inherits base.rb default (${defaults.length} step${defaults.length === 1 ? '' : 's'}). <code>def ${methodName}</code> will be omitted from the export.</p>`);
+    lines.push(`  <ol class="rounds-steps-list rounds-steps-inherited">`);
+    defaults.forEach(s => lines.push('    ' + _renderStepCardInherited(s)));
+    lines.push(`  </ol>`);
+  } else if (userSteps.length === 0) {
+    lines.push(`  <p class="mech-hint">No steps configured. ${roundType === 'merger' ? 'Merger rounds have no engine default — add at least one step.' : ''}</p>`);
+  } else {
+    lines.push(`  <ol class="rounds-steps-list">`);
+    userSteps.forEach((s, i) => lines.push('    ' + _renderStepCardEditable(s, i)));
+    lines.push(`  </ol>`);
+  }
+
+  // Add-step button: palette + add wiring lands in PR1c. Disabled stub here so
+  // the visual placeholder is in place without behavior coupling.
+  lines.push(`  <button class="mech-btn-small" disabled title="Step palette + add wiring lands in PR1c">+ Add step</button>`);
+
+  lines.push(`</div>`);
+  return lines.join('\n');
+}
+
+// One step card rendered as an inherited default (dimmed, no controls).
+function _renderStepCardInherited(stepEntry) {
+  const name    = _stepShortName(stepEntry.class);
+  const desc    = _STEP_CATALOG[stepEntry.class] || '';
+  const optsStr = _formatStepOptsInline(stepEntry.opts);
+  return `<li class="rounds-step-card rounds-step-inherited"><span class="rounds-step-name">${name}</span>${desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : ''}${optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : ''}</li>`;
+}
+
+// One step card rendered as a user-editable entry (drag handle, remove button).
+// Drag-reorder and remove handlers wire in PR1c — buttons are visual stubs.
+function _renderStepCardEditable(stepEntry, index) {
+  const name    = _stepShortName(stepEntry.class);
+  const desc    = _STEP_CATALOG[stepEntry.class] || '';
+  const optsStr = _formatStepOptsInline(stepEntry.opts);
+  return `<li class="rounds-step-card" data-step-index="${index}"><span class="rounds-step-drag" title="Drag to reorder (PR1c)">⋮⋮</span><span class="rounds-step-name">${name}</span>${desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : ''}${optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : ''}<button class="rounds-step-remove" disabled title="Remove (PR1c)">×</button></li>`;
+}
+
+// 'Engine::Step::BuyCompany' → 'BuyCompany'   (vanilla — strip namespace)
+// 'G18Foo::Step::Bar'        → 'G18Foo::Step::Bar'   (custom — keep full name)
+function _stepShortName(fullName) {
+  if (!fullName) return '';
+  const VANILLA_PREFIX = 'Engine::Step::';
+  return fullName.startsWith(VANILLA_PREFIX) ? fullName.slice(VANILLA_PREFIX.length) : fullName;
+}
+
+// { blocks: true, foo: 5 } → 'blocks: true, foo: 5'
+function _formatStepOptsInline(opts) {
+  if (!opts || Object.keys(opts).length === 0) return '';
+  return Object.entries(opts).map(([k, v]) => `${k}: ${v}`).join(', ');
+}
+
+// 'initial' → 'init_round'; 'stock' → 'stock_round'; 'operating' → 'operating_round'.
+// Used in the "will be omitted" hint and (later) by the export module.
+function _stepsRoundMethodName(roundType) {
+  return roundType === 'initial' ? 'init_round' : `${roundType}_round`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
