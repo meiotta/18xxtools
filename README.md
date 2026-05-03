@@ -1,70 +1,34 @@
 # 18xx Game Designer
 
-A browser-based map editor for designing custom 18xx-family board games. Works offline with no build step — just open `index.html`.
+A browser-based designer for creating 18xx-family board games compatible with the [18xx.games](https://18xx.games) engine (tobymao). No build step — open `index.html` directly. Design from scratch or import an existing game's `.rb` source files; every UI change writes to the same export pipeline, so import and export are the same lossless round-trip.
 
-## Features
+## What it does
 
-- **Hex grid editor** — flat-top hexagonal grid, configurable size (up to 26 cols × unlimited rows)
-- **Terrain tools** — paint terrain types (mountain, hill, water, swamp, forest, desert, pass, offmap) with per-hex cost labels
-- **Tile placement** — place and rotate standard 18xx track tiles (yellow/green/brown/grey) from the tile palette
-- **City & town tools** — single city, OO city (dual station), town, dual-town (dit×2), with river edge marking
-- **Right-click context menu** — add city/town, terrain submenu, copy/paste/clear/kill hex
-- **Companies panel** — define railroad companies with colors, home hexes, par values, token counts
-- **Trains panel** — define train types with costs, distances, rust/obsolete conditions, counts
-- **Privates panel** — define private companies
-- **Config panel** — per-terrain cost overrides
-- **Import Ruby map** — parse 18xx.games `.rb` source files to pre-populate the map (white/yellow/green hexes, LOCATION_NAMES, AXES detection)
-- **Export ZIP** — export map, tiles, game, and companies as separate JSON files
-- **Autosave** — session saved to localStorage automatically
+The tool covers the full surface of a tobymao game.rb / entities.rb definition across five panels:
 
-## AI Session Protocol
+**Map** — hex grid editor (flat-top, configurable size). Paint terrain with cost labels, place and rotate standard 18xx track tiles (yellow/green/brown/grey), add cities, OO cities, towns, and dual-town dits. Right-click context menu for all hex operations. Tile rendering is ported from tobymao source (`assets/app/view/game/part/`) — every rendering decision traces to a specific Ruby source line.
 
-**RCA requirement (active):** Every bug fix must be preceded by a root cause analysis explaining what was wrong and which tobymao source file was not consulted. This stays in effect until the user lifts it.
+**Companies** — define private companies with face value, revenue, abilities (all ~50 tobymao ability fields parsed and editable), auction tier, and mail-contract flag. Define corporations (majors, minors) with color, home token hex, par value, token count, and full ability set. Import from entities.rb — all 8 target games (1822, 1822PNW, 1830, 1846, 1889, 1882, 1822MX, 1870) round-trip cleanly.
+
+**Trains & Phases** — define train types (distance, cost, count, rust conditions, variants, event triggers) and phases (train trigger, operating rounds, tile colors, status flags, events). Phase status tags drawn from a catalog of 50+ tobymao status strings. Import from game.rb. Export emits valid `TRAINS` and `PHASES` Ruby constants.
+
+**Mechanics** — game-wide constants: bank cash, player range, starting cash, cert limits, stock-round rules (sell order, movement, blocking), operating-round rules (tile lays, train requirements, emergency buy), game-end conditions, event triggers. Every green-dot field emits to the rb preview unconditionally — what the panel says is set, the rb states. Import from game.rb builds a `functionMap` with four entry types: `const` (known constant), `ref` (pointer to another panel's state), `method` (recognized method body), and `raw` (opaque Ruby for anything not yet editable).
+
+**Rounds** — define the round structure: initial round class (waterfall auction, draft, stock-direct), stock-round and operating-round step lists (ordered, with per-step options like `{ blocks: true }`, duplicates supported), merger round configuration. Emit-only-when-customized — a 1830-vanilla game produces no round Ruby at all and inherits from base.rb. The rb preview updates live.
+
+## Import / Export
+
+**Import game.rb** — parses `TRAINS`, `PHASES`, `BANK_CASH`, `STARTING_CASH`, `CERT_LIMIT`, `PLAYERS_RANGE`, all stock/OR rule constants, and game-end checks into editable state. Unrepresentable Ruby becomes a `raw` functionMap entry shown in the panel but not editable.
+
+**Import entities.rb** — parses `COMPANIES` (all ~50 ability fields) and `CORPORATIONS`/`MINORS`. Import order is independent — game.rb-first or entities-first both resolve correctly via deferred name linking.
+
+**Export game.rb** — the Preview button in Mechanics shows a live game.rb. All panels write to the same pipeline: trains, phases, companies, corporations, and mechanics all emit into named slots in the `_GAME_RB_SKELETON`. Round factory methods (`def init_round`, `def stock_round`, `def operating_round`, `def next_round!`) emit only when the designer departs from base.rb defaults.
+
+**Export entities.rb** — companies and corporations export to a separate entities.rb. Round-trip verified against all 8 target games.
 
 ## Usage
 
 1. Open `index.html` in any modern browser (Chrome, Firefox, Safari, Edge)
-2. Configure your game on the Setup screen, or pick a base game preset
-3. Use the left panel to select terrain/tile tools, or right-click any hex for the context menu
-4. Click any hex with a tile to rotate it 60°
-5. Ctrl/Cmd + scroll to zoom; scroll to pan; Shift + scroll to pan horizontally
-6. Use **Save JSON** to save your session; **Load JSON** to restore it
-7. Use **Export ZIP** for a multi-file export suitable for further development
-
-## Tile Reference
-
-Tiles are numbered per the [18xx tile database](https://www.18xx.games). Custom tiles used in this project are prefixed with `X`:
-
-| Tile | Color  | Type      | Description |
-|------|--------|-----------|-------------|
-| 55   | Yellow | Dual-town | 3-exit dual dit (bottom, top, upper-left) |
-| 56   | Yellow | Dual-town | 4-exit dual dit (bottom+upper-left, upper-left+top) |
-| 69   | Yellow | Dual-town | 4-exit dual dit (bottom+top, upper-left+upper-right) |
-| 94   | Yellow | OO        | 2-exit OO, 30/30 |
-| X3   | Green  | OO        | Curved 4-exit OO |
-| X4   | Green  | OO        | Fork 4-exit OO |
-| X5   | Green  | OO        | Curved 4-exit OO (mirror of X3) |
-| X7   | Brown  | OO        | 5-exit OO to center |
-
-## File Structure
-
-```
-index.html          — HTML shell + tile swatch markup
-css/
-  editor.css        — all styles
-js/
-  constants.js      — HEX_SIZE, TERRAIN_COLORS, EDGE_MIDPOINTS, TILE_HEX_COLORS, TILE_DEFS
-  state.js          — mutable app state + UI variable declarations
-  hex-geometry.js   — hexCorners, getHexCenter, pixelToHex, hexId, trackPath
-  renderer.js       — drawHex, render, resizeCanvas
-  canvas-input.js   — canvas event listeners, applyTool, ensureHex
-  context-menu.js   — showContextMenu, removeContextMenu
-  palette.js        — buildPalette, updateStatus, left-panel listeners
-  hex-panel.js      — updateHexPanel, hex tab field listeners
-  companies-panel.js— renderCompaniesTable, trains, privates, config, tab listeners
-  setup.js          — showSetup/hideSetup, loadPreset, setup screen listeners
-  io.js             — toolbar handlers, autosave, localStorage restore
-  import-ruby.js    — importRubyMap and all Ruby parsing helpers
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a deeper technical reference.
+2. Use the left rail icons to switch between Map, Companies, Trains & Phases, Mechanics, and Rounds
+3. Import an existing game: File → Import game.rb and/or Import entities.rb
+4. Design 
