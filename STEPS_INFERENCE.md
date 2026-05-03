@@ -51,6 +51,8 @@ This is the v0 mapping. Every entry must be reviewed by the upstream panel's own
 | 6 | Any reserved hex on the map AND owning corp has `coordinates` set to it                   | `Engine::Step::HomeToken`                                       | B     | OR       | Max (map) + Jenny | Also queues `pending_tokens` per `base.rb:1685`. |
 | 7 | Any phase has `status: ['can_buy_companies']` OR `'can_buy_companies_from_other_players'`| `Engine::Step::BuyCompany` (early, non-blocking)                | A     | OR       | Farrah           | The trailing `[BuyCompany, {blocks:true}]` is separate — see §4. |
 | 8 | `state.mechanics.orSteps.issueShares === true` (or replacement flag once migrated)        | `Engine::Step::IssueShares`                                     | A     | OR       | Evan             | Used by 18Chesapeake, 1846, 1817. |
+
+> [Evan]: `orSteps.*` are permanent source-of-truth — do not migrate the data into `rounds.<type>.steps`. The rounds array is a projection: the inference engine reads `orSteps.issueShares` and materialises a step entry with `source: { auto: 'evan.mechanics.orSteps.issueShares' }`. When the toggle is off, the inference removes the entry. The toggle itself never goes away. The §10 "migration shim" Tim + Addy own is a lazy display-initialisation pass only — first time the Steps panel opens, if `rounds.operating.steps` is empty, walk `orSteps.*` and pre-populate auto-sourced entries. Nothing is deleted or deprecated. Remove "or replacement flag once migrated" from this cell — it implies a data restructuring that isn't happening. Forward note: `orSteps.homeToken` and `orSteps.specialToken` may eventually be superseded by Jenny's corp/ability inference (rows 5, 3); if so, those two flags become redundant. That's a future deprecation decision, not v0.
 | 9 | Any phase declares `status: ['limited_train_buy']`                                       | `Engine::Step::SingleDepotTrainBuy` (replaces `BuyTrain`)       | B     | OR       | Farrah           | Mutually exclusive with default `BuyTrain`. |
 | 10 | Any private with `abilities[].type === 'no_buy'` OR concession-with-exchange present     | `Engine::Step::ConcessionAuction` instead of `WaterfallAuction` | A     | Initial  | Jenny            | Drives the Initial round class choice too — Tim's surface. |
 | 11 | `state.mechanics.merger.enabled === true` (or `state.mechanics.rounds.merger != null`)   | Merger sub-tab unlocks; specific `Step::Merge*` entries appear  | B     | Merger   | Evan + Tim       | Custom round class required (`G<game>::Round::Merger`); see Tim's PR1a. |
@@ -64,7 +66,7 @@ This is the v0 mapping. Every entry must be reviewed by the upstream panel's own
 
 - **Q1 (Jenny):** Do you have a canonical list of ability `type:` values your panel emits? If new ability types appear that aren't in this table, the inference will silently drop them.
 - **Q2 (Farrah):** Is there a single canonical map of phase-status string → engine-step-class? I've inferred a partial one above; please verify and extend.
-- **Q3 (Evan):** Several entries reference `state.mechanics.orSteps` toggles (issueShares, etc.) — are those still the source of truth, or do they get migrated into `state.mechanics.rounds.<type>.steps` directly during PR-migration?
+- **Q3 (Evan):** ~~Several entries reference `state.mechanics.orSteps` toggles (issueShares, etc.) — are those still the source of truth, or do they get migrated into `state.mechanics.rounds.<type>.steps` directly during PR-migration?~~ → **Answered** — see annotation on row 8 above.
 - **Q4 (Tim):** For row 10 (`ConcessionAuction` replaces `WaterfallAuction`), this also drives the Initial round-class choice in your section. Want to fold this into a single inference, or keep the round-class and step-list inferences independent?
 
 ---
@@ -138,7 +140,9 @@ For the panel to be trustworthy, the upstream panels must surface to their user 
 | Jenny — Corp pack editor | Saves a corp with empty coordinates | "→ This adds **Home Token** placement to Operating round; players will pick the home hex when the corp floats." |
 | Farrah — Phases | Adds `'can_buy_companies'` to a phase's status | "→ This activates the **Buy Companies** action during Operating rounds in that phase." |
 | Farrah — Phases | Adds `'limited_train_buy'` | "→ This swaps **Buy Trains** for **Single Depot Train Buy** during that phase." |
-| Evan — Mechanics | Toggles `bankruptcyAllowed` off | "→ This removes **Bankrupt** from Operating rounds. Corps with no money and no train will deadlock." |
+| Evan — Mechanics | Toggles `bankruptcyAllowed` off | "→ This removes **Bankrupt** from Operating rounds. `can_go_bankrupt?` always returns false — no corp can fold. Ensure your design provides an alternative when a corp cannot cover emergency buy: player loans, nationalisation, or a guaranteed depot train all qualify. Without one, the engine raises on an insolvent corp." |
+
+> [Evan]: "Deadlock" was imprecise — the engine raises a GameError, it doesn't silently hang. Verified against `base.rb:1970-1974` (`can_go_bankrupt?`) and the set of games with `BANKRUPTCY_ALLOWED = false` (1822, 1866, 18GB, 18MS, 18ESP, 18ZOO): each pairs this constant with loans, nationalisation, or a restricted train economy that prevents the insolvent state. The revised copy names the engine consequence and the patterns that cover it.
 | Evan — Mechanics | Enables merger round | "→ This unlocks the **Merger** sub-tab on the Steps panel; you'll need to define merge steps and a custom round subclass." |
 | Tim — Round classes | Picks a non-vanilla round class | "→ Step list semantics may differ from `Round::Operating`; review the picker after switching." |
 
