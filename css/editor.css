@@ -4437,15 +4437,22 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   background: var(--mkt-grid-bg);
   padding: 24px 28px;
   overflow: auto;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-}.mkt-view .mkt-grid-table { border-collapse: separate; border-spacing: 3px; }.mkt-view .mkt-1d-strip {
+  /* No flex centering: with overflow:auto, justify-content:center clips both ends of
+     a too-wide grid instead of left-aligning so the user can scroll right. */
+}
+.mkt-view .mkt-grid-table {
+  border-collapse: separate;
+  border-spacing: 3px;
+  margin: 0 auto;          /* center when there's room; collapses to 0 when overflowing */
+}
+.mkt-view .mkt-1d-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
+  margin: 0 auto;
+  width: max-content;
   max-width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }.mkt-view .mkt-cell {
   --c-bg: var(--mkt-cell-default);
   --c-fg: var(--mkt-cell-default-fg);
