@@ -247,14 +247,14 @@ const DEFAULT_TILE_LAY_SLOT = { lay: true, upgrade: true, cost: 0, upgrade_cost:
 
 // Structural net definitions.
 const STRUCTURAL_NETS = [
-  { id: 'rust_cross_ref',       name: 'Train rust cross-reference',       desc: 'Every rusts_on / obsolete_on value must name a valid train or variant',        owner: 'Farrah', validate: validateRustCrossRefs },
-  { id: 'phase_on_cross_ref',   name: 'Phase trigger cross-reference',    desc: 'Every PHASES on: value must match a train name or variant name',                owner: 'Farrah', validate: validatePhaseOnCrossRefs },
-  { id: 'train_event_library',  name: 'Train event handler library',      desc: 'Every events: type on a TRAINS entry must exist in the known event library',    owner: 'Evan',   validate: validateTrainEventTypes },
-  { id: 'ability_on_phase',     name: 'Ability on_phase reference',       desc: 'Every ability on_phase: value must match a phase name in PHASES',               owner: 'Jenny',  validate: validateAbilityOnPhase },
-  { id: 'ability_corporation',  name: 'Ability corporation reference',    desc: 'Every ability corporation:/corporations: value must exist in CORPORATIONS',      owner: 'Jenny',  validate: validateAbilityCorporation },
-  { id: 'exchange_tokens',      name: 'Exchange token corps',             desc: 'Exchange token map must only contain major corporation syms',                    owner: 'Evan',   validate: validateExchangeTokenCorps },
-  { id: 'merger_associations',  name: 'Minor/major merger associations',  desc: 'Every association must reference an existing minor sym and major corp sym',      owner: 'Evan',   validate: validateMergerAssociations },
-  { id: 'home_token_timing',   name: 'Home token timing vs coordinates', desc: 'Minors with no coordinates require HOME_TOKEN_TIMING :par, :float, or :never — not :operate', owner: 'Evan', validate: validateHomeTokenTiming },
+  { id: 'rust_cross_ref',       name: 'Train rust cross-reference',       desc: 'Every rusts_on / obsolete_on value must name a valid train or variant',                                                                          validate: validateRustCrossRefs },
+  { id: 'phase_on_cross_ref',   name: 'Phase trigger cross-reference',    desc: 'Every PHASES on: value must match a train name or variant name',                                                                                            validate: validatePhaseOnCrossRefs },
+  { id: 'train_event_library',  name: 'Train event handler library',      desc: 'Every events: type on a TRAINS entry must exist in the known event library',                                                                                 validate: validateTrainEventTypes },
+  { id: 'ability_on_phase',     name: 'Ability on_phase reference',       desc: 'Every ability on_phase: value must match a phase name in PHASES',                                                                                          validate: validateAbilityOnPhase },
+  { id: 'ability_corporation',  name: 'Ability corporation reference',    desc: 'Every ability corporation:/corporations: value must exist in CORPORATIONS',                                                                                  validate: validateAbilityCorporation },
+  { id: 'exchange_tokens',      name: 'Exchange token corps',             desc: 'Exchange token map must only contain major corporation syms',                                                                                               validate: validateExchangeTokenCorps },
+  { id: 'merger_associations',  name: 'Minor/major merger associations',  desc: 'Every association must reference an existing minor sym and major corp sym',                                                                                  validate: validateMergerAssociations },
+  { id: 'home_token_timing',   name: 'Home token timing vs coordinates', desc: 'Minors with no coordinates require HOME_TOKEN_TIMING :par, :float, or :never — not :operate',                                                              validate: validateHomeTokenTiming },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1488,8 +1488,8 @@ function buildMechanicLog() {
     lines.push('<div class="mech-subsection" style="gap:4px">');
     if (fm.TRAINS) {
       // Imported via game.rb — show as locked provenance rows
-      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner">farrah / trains</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
-      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner">farrah / phases</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
     } else {
       // Scratch mode — counts only, no lock
       lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:var(--text-muted)">○</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
@@ -1637,7 +1637,7 @@ function renderStructuralNets() {
     const errs = byNet[net.id] || [];
     const dot = statusDot(errs.length ? 'red' : 'green');
     return `<div class="mech-net-row">
-      ${dot}<span class="mech-net-name">${net.name}</span><span class="mech-net-owner">→ ${net.owner}</span>
+      ${dot}<span class="mech-net-name">${net.name}</span>
       ${errs.map(e => `<div class="mech-net-error">${e}</div>`).join('')}
     </div>`;
   }).join('');
