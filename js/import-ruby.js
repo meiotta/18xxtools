@@ -1316,11 +1316,22 @@ function _rbParsePhase(hashStr) {
     if (arr.length) onTrain = arr[0];
   }
 
-  // train_limit: integer or { minor: N, major: N } — take major (or the integer)
+  // train_limit: integer or { minor: N, major: N }
+  // limit     = major value (or scalar); always set
+  // limitMinor = minor value when hash form present; null when scalar
   let limit = _rbNum(hashStr, 'train_limit');
+  let limitMinor = null;
   if (limit === null) {
-    const m = hashStr.match(/\btrain_limit:\s*\{[^}]*\bmajor:\s*(\d+)/);
-    limit = m ? parseInt(m[1], 10) : 4;
+    const mh = hashStr.match(/\btrain_limit:\s*\{([^}]*)\}/);
+    if (mh) {
+      const inner = mh[1];
+      const maj = inner.match(/\bmajor:\s*(\d+)/);
+      const min = inner.match(/\bminor:\s*(\d+)/);
+      limit      = maj ? parseInt(maj[1], 10) : 4;
+      limitMinor = min ? parseInt(min[1], 10) : null;
+    } else {
+      limit = 4;
+    }
   }
 
   // tiles: last recognized color in [:yellow,:green,...] or %i[...] or %w[...]
@@ -1342,6 +1353,7 @@ function _rbParsePhase(hashStr) {
   const PHASE_COLORS = { yellow: '#d4a017', green: '#3a843a', brown: '#8b5e3c', grey: '#777777' };
 
   const ph = { name, onTrain, limit, tiles, ors, color: PHASE_COLORS[tiles] || '#d4a017' };
+  if (limitMinor !== null) ph.limitMinor = limitMinor;
   if (status.length) ph.status = status;
   return ph;
 }

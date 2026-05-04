@@ -365,7 +365,8 @@ function renderPhasesTable() {
     state.phases.forEach((ph, idx) => {
         const triggerTrain = state.trains.find(function(t) { return t.id === ph.onTrain; });
         const triggerDesc  = triggerTrain ? 'First ' + calculateTrainLabel(triggerTrain) + '-train bought' : (idx === 0 ? 'Game start' : 'Manual trigger');
-        const phaseDesc    = [triggerDesc, TILE_LABEL[ph.tiles] || ph.tiles, (ph.ors || 2) + ' ORs', 'Limit ' + (ph.limit || 4)].join(' · ');
+        const limitDesc    = (ph.limitMinor != null) ? ('Limit ' + ph.limit + '/' + ph.limitMinor + ' maj/min') : ('Limit ' + (ph.limit || 4));
+        const phaseDesc    = [triggerDesc, TILE_LABEL[ph.tiles] || ph.tiles, (ph.ors || 2) + ' ORs', limitDesc].join(' · ');
 
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -386,7 +387,15 @@ function renderPhasesTable() {
                 </select>
             </td>
             <td><input type="number" class="ph-ors" value="${ph.ors || 2}" style="width:60px;"></td>
-            <td><input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:60px;"></td>
+            <td>${(ph.limitMinor != null)
+                ? `<div style="display:flex;gap:4px;align-items:center;">
+                     <input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:46px;" title="Major corp train limit">
+                     <span style="opacity:0.5;font-size:11px;">maj</span>
+                     <input type="number" class="ph-limit-minor" value="${ph.limitMinor}" style="width:46px;" title="Minor corp train limit">
+                     <span style="opacity:0.5;font-size:11px;">min</span>
+                   </div>`
+                : `<input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:60px;">`
+              }</td>
             <td>
                 <select class="ph-tiles">
                     <option value="yellow" ${ph.tiles === 'yellow' ? 'selected' : ''}>Yellow Only</option>
@@ -406,6 +415,8 @@ function renderPhasesTable() {
         row.querySelector('.ph-trigger').addEventListener('change', (e) => { ph.onTrain = e.target.value; autosave(); });
         row.querySelector('.ph-ors').addEventListener('change', (e) => { ph.ors = parseInt(e.target.value) || 2; autosave(); });
         row.querySelector('.ph-limit').addEventListener('change', (e) => { ph.limit = parseInt(e.target.value) || 4; autosave(); });
+        const minorInput = row.querySelector('.ph-limit-minor');
+        if (minorInput) minorInput.addEventListener('change', (e) => { ph.limitMinor = parseInt(e.target.value) || 1; autosave(); });
         row.querySelector('.ph-tiles').addEventListener('change', (e) => { ph.tiles = e.target.value; autosave(); });
 
         row.querySelector('.delete-btn').addEventListener('click', () => {
