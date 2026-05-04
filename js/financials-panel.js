@@ -540,6 +540,13 @@ function renderRulesPanel() {
   panel.innerHTML = `
     ${dirRow('Dividend paid',     'dividend', f.rules.dividend || 'right')}
     ${dirRow('Dividend withheld', 'withheld', f.rules.withheld || 'left')}
+    <p class="mkt-rules-note" style="margin: 0 0 16px;">
+      These are simple one-step defaults: pay ⇒ right 1, withhold ⇒ left 1.
+      For tiered ladders (1822 double-pay, 1846 half-pay, 1862 four-tier, etc.),
+      configure the Dividend step in
+      <a href="#" id="rulesGotoSteps" class="mkt-rules-link">Steps →</a>.
+    </p>
+
     ${dirRow('Sold out (end of SR)', 'soldOut', f.rules.soldOut || 'up')}
 
     <label class="mkt-toggle-row" style="margin: 6px 0 16px;">
@@ -560,8 +567,9 @@ function renderRulesPanel() {
     </div>
 
     <p class="mkt-rules-note" style="border-top:1px solid var(--mkt-border); padding-top:12px; margin-top:12px;">
-      Sell movement (SELL_MOVEMENT, POOL_SHARE_DROP, MUST_SELL_IN_BLOCKS) lives in the
-      <strong style="color:var(--mkt-text)">Mechanics</strong> tab — share-sale rules belong with the operating round.
+      Sell movement (SELL_MOVEMENT, POOL_SHARE_DROP, MUST_SELL_IN_BLOCKS) lives in
+      <a href="#" id="rulesGotoMechanics" class="mkt-rules-link">Mechanics →</a>
+      — share-sale rules belong with the operating round.
     </p>
   `;
 
@@ -579,6 +587,20 @@ function renderRulesPanel() {
   panel.querySelector('#rulesSoldOutInc').addEventListener('change', e => {
     f.soldOutIncrease = !!e.target.checked;
     autosave();
+  });
+
+  // Cross-panel jump links
+  const stepsLink = panel.querySelector('#rulesGotoSteps');
+  if (stepsLink) stepsLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    const btn = document.querySelector('.nav-rail-btn[data-lsec="steps"]');
+    if (btn) btn.click();
+  });
+  const mechLink = panel.querySelector('#rulesGotoMechanics');
+  if (mechLink) mechLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    const btn = document.querySelector('.nav-rail-btn[data-lsec="mechanics"]');
+    if (btn) btn.click();
   });
 
   // Cert-limit and multi-buy flag chips
