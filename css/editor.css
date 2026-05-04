@@ -43,6 +43,8 @@
   --shadow-sm:    0 1px 3px rgba(0,0,0,0.15);
   --shadow-md:    0 4px 12px rgba(0,0,0,0.18);
   --shadow-panel: 2px 0 6px rgba(0,0,0,0.1);
+  /* Warning callouts — translucent yellow needs more opacity on white. */
+  --color-warning-bg: rgba(180,140,0,0.15);
 }
 [data-theme="light"] body           { background: var(--bg-base); color: var(--text-primary); }
 [data-theme="light"] .toolbar       { background: var(--bg-surface); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
