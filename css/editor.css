@@ -4329,6 +4329,12 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   font-size: 11px;
   color: var(--mkt-text-faint);
   line-height: 1.4;
+}
+.mkt-hint em { color: var(--mkt-text-muted); font-style: normal; font-weight: 600; }
+.mkt-view .mkt-wiz-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
 }/* ── Toolbar ──────────────────────────────────────────────────────────────── */
 .mkt-toolbar {
   flex-shrink: 0;

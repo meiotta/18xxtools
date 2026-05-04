@@ -12,6 +12,9 @@
 //   > 500        → step 50
 
 function initMarketWizard() {
+  const resetBtn = document.getElementById('wizResetBtn');
+  if (resetBtn) resetBtn.addEventListener('click', resetMarketUnlocked);
+
   const genBtn = document.getElementById('wizGenerateBtn');
   if (!genBtn) return;
   genBtn.addEventListener('click', () => {
@@ -141,6 +144,13 @@ function solveMarket2D(rows, cols) {
     }
   }
 
+  // Detect from-scratch mode: every cell is empty and no locks. In that mode
+  // the wizard bootstraps row 0 with min/max and does the classic 18xx staircase
+  // taper. Otherwise we run conservative: respect existing anchors and extents.
+  const allEmpty = f.market.every(row => row.every(v => !v));
+  const noLocks  = !f.locks || Object.keys(f.locks).length === 0;
+  const fromScratch = allEmpty && noLocks;
+
   // Step 1 — Row 0 interpolation between anchors.
   let row0 = f.market[0];
   const anchors = [];
@@ -151,27 +161,18 @@ function solveMarket2D(rows, cols) {
     }
   }
 
+  // From-scratch: bootstrap row 0 with min/max as virtual anchors.
+  // When ANY anchor exists, do NOT extrapolate — leave the user's empty cells alone.
   if (anchors.length === 0) {
     const { min, max } = _readMinMax();
     row0[0]        = String(min);
     row0[cols - 1] = String(max);
     anchors.push({ col: 0, val: min });
     anchors.push({ col: cols - 1, val: max });
-  } else {
-    // Extrapolate to ends if anchors don't cover them
-    if (anchors[0].col > 0) {
-      const { min } = _readMinMax();
-      row0[0] = String(min);
-      anchors.unshift({ col: 0, val: min });
-    }
-    if (anchors[anchors.length - 1].col < cols - 1) {
-      const { max } = _readMinMax();
-      row0[cols - 1] = String(max);
-      anchors.push({ col: cols - 1, val: max });
-    }
   }
 
-  // Fill gaps between adjacent anchors with linear interpolation, snapped to the 18xx ladder.
+  // Fill gaps between adjacent anchors with linear interpolation snapped to the 18xx ladder.
+  // Cells before the first anchor and after the last anchor stay empty.
   for (let i = 0; i < anchors.length - 1; i++) {
     const a = anchors[i], b = anchors[i + 1];
     const span = b.col - a.col;
@@ -185,14 +186,29 @@ function solveMarket2D(rows, cols) {
     }
   }
 
-  // Step 2 — propagate down. Each lower row tapers by 1 column from the right.
+  // Step 2 — propagate down, respecting each row's existing extent.
+  //
+  // For from-scratch mode (no original anchors anywhere): use the classic 18xx
+  // staircase — row r occupies cols 0..(cols-r-1).
+  // Otherwise: propagate ONLY within each row's existing anchor extent. A row
+  // with no anchors inherits its extent from the row above. This preserves
+  // 1822-style sparse layouts (top-left empty quadrant, bottom-right tail).
+  const useStaircase = fromScratch;
+  let prevExtent = _rowExtent(f.market[0], (c) => f.locks[`0,${c}`]);
   for (let r = 1; r < rows; r++) {
-    const activeCols = cols - r;
+    const ownExtent = _rowExtent(f.market[r], (c) => f.locks[`${r},${c}`]);
+    let extent;
+    if (ownExtent.first >= 0) {
+      extent = ownExtent;
+    } else if (useStaircase) {
+      // staircase: each row one shorter than the row above on the right
+      const right = Math.max(prevExtent.first, prevExtent.last - 1);
+      extent = { first: prevExtent.first, last: right };
+    } else {
+      extent = prevExtent;  // mirror the row above
+    }
     for (let c = 0; c < cols; c++) {
-      if (c >= activeCols) {
-        // Outside staircase: leave any existing flagged cell alone, but blank empties remain blank.
-        continue;
-      }
+      if (c < extent.first || c > extent.last) continue;
       if (f.locks[`${r},${c}`]) continue;
       const cur = parseCell(f.market[r][c]);
       if (cur.price != null) continue;
@@ -200,8 +216,21 @@ function solveMarket2D(rows, cols) {
       if (above.price == null) continue;
       f.market[r][c] = String(getPrev18xxPrice(above.price));
     }
+    prevExtent = extent;
   }
   // Refresh handled by the click handler in initMarketWizard.
+}
+
+// First/last col with a price or lock. Returns { first: -1, last: -1 } when row is empty.
+function _rowExtent(row, lockedAt) {
+  let first = -1, last = -1;
+  for (let c = 0; c < row.length; c++) {
+    if (parseCell(row[c]).price != null || lockedAt(c)) {
+      if (first === -1) first = c;
+      last = c;
+    }
+  }
+  return { first, last };
 }
 
 // ── 1D / zigzag solver ───────────────────────────────────────────────────────
@@ -230,26 +259,16 @@ function solveMarket1D(count) {
     }
   }
 
+  // From-scratch: bootstrap with min/max. When any anchor exists, do NOT extrapolate.
   if (anchors.length === 0) {
     const { min, max } = _readMinMax();
     f.market[0]         = String(min);
     f.market[count - 1] = String(max);
     anchors.push({ idx: 0, val: min });
     anchors.push({ idx: count - 1, val: max });
-  } else {
-    if (anchors[0].idx > 0) {
-      const { min } = _readMinMax();
-      f.market[0] = String(min);
-      anchors.unshift({ idx: 0, val: min });
-    }
-    if (anchors[anchors.length - 1].idx < count - 1) {
-      const { max } = _readMinMax();
-      f.market[count - 1] = String(max);
-      anchors.push({ idx: count - 1, val: max });
-    }
   }
 
-  // Fill gaps
+  // Fill gaps between adjacent anchors only — never past the first or last.
   for (let i = 0; i < anchors.length - 1; i++) {
     const a = anchors[i], b = anchors[i + 1];
     const span = b.idx - a.idx;
@@ -266,10 +285,35 @@ function solveMarket1D(count) {
   // Refresh handled by the click handler in initMarketWizard.
 }
 
+// ── Reset (clears unlocked cells so Generate can recompute from scratch) ────
+function resetMarketUnlocked() {
+  const f = state.financials;
+  if (!f || !Array.isArray(f.market)) return;
+  const before = (Array.isArray(f.market[0]) ? f.market.flat() : f.market).slice();
+  const oneD = !Array.isArray(f.market[0]);
+  if (oneD) {
+    for (let i = 0; i < f.market.length; i++) {
+      if (!f.locks[`0,${i}`]) f.market[i] = '';
+    }
+  } else {
+    for (let r = 0; r < f.market.length; r++) {
+      for (let c = 0; c < f.market[r].length; c++) {
+        if (!f.locks[`${r},${c}`]) f.market[r][c] = '';
+      }
+    }
+  }
+  if (typeof renderMarketEditor === 'function') renderMarketEditor();
+  if (typeof renderCellInspector === 'function') renderCellInspector();
+  if (typeof renderLegend === 'function') renderLegend();
+  if (typeof renderValidation === 'function') renderValidation();
+  if (typeof autosave === 'function') autosave();
+}
+
 // ── Globals ──────────────────────────────────────────────────────────────────
 window.initMarketWizard = initMarketWizard;
 window.solveMarket = solveMarket2D;     // legacy alias
 window.solveMarket2D = solveMarket2D;
 window.solveMarket1D = solveMarket1D;
+window.resetMarketUnlocked = resetMarketUnlocked;
 window.roundTo18xxIncrement = roundTo18xxIncrement;
 window.getPrev18xxPrice = getPrev18xxPrice;

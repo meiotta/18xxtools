@@ -528,8 +528,11 @@
               </div>
             </label>
           </div>
-          <button id="wizGenerateBtn" type="button" class="mkt-btn mkt-btn-primary mkt-btn-block">Generate prices</button>
-          <p class="mkt-hint">Locked cells anchor the solver. Empty cells get filled.</p>
+          <div class="mkt-wiz-actions">
+            <button id="wizGenerateBtn" type="button" class="mkt-btn mkt-btn-primary">Generate</button>
+            <button id="wizResetBtn"    type="button" class="mkt-btn"                 title="Clear all unlocked cells so Generate can recompute from min/max">Reset</button>
+          </div>
+          <p class="mkt-hint">Generate fills empty cells <em>between</em> existing prices, never past them. Use Reset to clear unlocked cells and recompute from min/max.</p>
           <input type="number" id="wizRows" style="display:none;" value="8">
           <input type="number" id="wizCols" style="display:none;" value="16">
         </section>
@@ -1232,7 +1235,7 @@
 <script src="js/trains-panel.js?v=20260419c"></script>
 <script src="js/config-panel.js?v=20260419c"></script>
 <script src="js/market-flags.js?v=20260503b"></script>
-<script src="js/market-wizard.js?v=20260503d"></script>
+<script src="js/market-wizard.js?v=20260504a"></script>
 <script src="js/market-painter.js?v=20260503b"></script>
 <script src="js/financials-panel.js?v=20260503b"></script>
 <script src="js/rule-builder.js?v=20260419c"></script>
