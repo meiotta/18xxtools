@@ -1,4 +1,4 @@
-// js/export-game.js  v20260502c
+// js/export-game.js  v20260503e
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -31,24 +31,24 @@ function _grbIndent(n, str) {
 }
 
 // ── Ruby literal helpers ──────────────────────────────────────────────────────
-function _rbStr(s) {
+function _rbQuote(s) {
   return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
 }
 function _rbColor(c) {
   if (!c || c === 'none') return ':white';
-  if (/^#/.test(c)) return _rbStr(c);
+  if (/^#/.test(c)) return _rbQuote(c);
   if (/^[a-zA-Z][a-zA-Z0-9_]*$/.test(c)) return ':' + c;
-  return _rbStr(c);
+  return _rbQuote(c);
 }
 function _rbWhen(w) {
   if (w == null) return null;
   if (Array.isArray(w)) return _grbStrArr(w);
-  return _rbStr(w);
+  return _rbQuote(w);
 }
 function _grbStrArr(arr) {
   if (!arr || !arr.length) return '[]';
   if (arr.every(s => /^[^\s'"]+$/.test(String(s)))) return '%w[' + arr.join(' ') + ']';
-  return '[' + arr.map(_rbStr).join(', ') + ']';
+  return '[' + arr.map(_rbQuote).join(', ') + ']';
 }
 function _rbNumArr(arr) {
   if (!arr || !arr.length) return '[]';
@@ -86,8 +86,8 @@ function _rbTileSlot(s) {
 function _rbAbility(ab) {
   const kv = [];
   const p  = (k, v) => kv.push(k + ': ' + v);
-  if (ab.type)        p('type',       _rbStr(ab.type));
-  if (ab.owner_type)  p('owner_type', _rbStr(ab.owner_type));
+  if (ab.type)        p('type',       _rbQuote(ab.type));
+  if (ab.owner_type)  p('owner_type', _rbQuote(ab.owner_type));
   const wen = _rbWhen(ab.when);
   if (wen)            p('when', wen);
   if (ab.hexes?.length)        p('hexes',        _grbStrArr(ab.hexes));
@@ -99,13 +99,13 @@ function _rbAbility(ab) {
   if (ab.amount       != null) p('amount',       String(ab.amount));
   if (ab.price        != null) p('price',        String(ab.price));
   if (ab.from != null)
-    p('from', Array.isArray(ab.from) ? _grbStrArr(ab.from) : _rbStr(ab.from));
-  if (ab.terrain)              p('terrain',      _rbStr(ab.terrain));
+    p('from', Array.isArray(ab.from) ? _grbStrArr(ab.from) : _rbQuote(ab.from));
+  if (ab.terrain)              p('terrain',      _rbQuote(ab.terrain));
   if (ab.tiles?.length)        p('tiles',        _grbStrArr(ab.tiles));
-  if (ab.corporation)          p('corporation',  _rbStr(ab.corporation));
-  if (ab.shares != null)       p('shares', Array.isArray(ab.shares) ? _grbStrArr(ab.shares) : _rbStr(ab.shares));
-  if (ab.description)          p('description',  _rbStr(ab.description));
-  if (ab.on_phase)             p('on_phase',     _rbStr(ab.on_phase));
+  if (ab.corporation)          p('corporation',  _rbQuote(ab.corporation));
+  if (ab.shares != null)       p('shares', Array.isArray(ab.shares) ? _grbStrArr(ab.shares) : _rbQuote(ab.shares));
+  if (ab.description)          p('description',  _rbQuote(ab.description));
+  if (ab.on_phase)             p('on_phase',     _rbQuote(ab.on_phase));
   if (ab.closed_when_used_up != null)
     p('closed_when_used_up', ab.closed_when_used_up ? 'true' : 'false');
   if (ab.free      != null) p('free',      ab.free      ? 'true' : 'false');
@@ -124,14 +124,14 @@ function _rbPrivate(priv) {
   const ii = '    ';
   const lines = [];
   lines.push(i + '{');
-  lines.push(ii + 'name: '    + _rbStr(priv.name || ''));
+  lines.push(ii + 'name: '    + _rbQuote(priv.name || ''));
   lines.push(ii + 'value: '   + (priv.cost != null ? priv.cost : (priv.value || 0)));
   const rev = priv.revenue;
   if (Array.isArray(rev)) lines.push(ii + 'revenue: ' + _rbNumArr(rev));
   else                    lines.push(ii + 'revenue: ' + (rev != null ? rev : 0));
   const desc = priv.ability || priv.desc || '';
-  if (desc) lines.push(ii + 'desc: ' + _rbStr(desc));
-  lines.push(ii + 'sym: ' + _rbStr(priv.sym || priv.abbr || ''));
+  if (desc) lines.push(ii + 'desc: ' + _rbQuote(desc));
+  lines.push(ii + 'sym: ' + _rbQuote(priv.sym || priv.abbr || ''));
   if (priv.minPrice != null) lines.push(ii + 'min_price: ' + priv.minPrice);
   if (priv.maxPrice != null) lines.push(ii + 'max_price: ' + priv.maxPrice);
   if (priv.color && !/^#(000|666)/.test(priv.color))
@@ -162,19 +162,19 @@ function _rbCorp(co, pack, gameCap) {
   const maxOwn   = pack.maxOwnershipPct ?? 60;
   const amp      = pack.alwaysMarketPrice || false;
   lines.push(i + '{');
-  lines.push(ii + 'sym: '  + _rbStr(co.sym  || ''));
-  lines.push(ii + 'name: ' + _rbStr(co.name || ''));
-  if (co.logo)  lines.push(ii + 'logo: ' + _rbStr(co.logo));
+  lines.push(ii + 'sym: '  + _rbQuote(co.sym  || ''));
+  lines.push(ii + 'name: ' + _rbQuote(co.name || ''));
+  if (co.logo)  lines.push(ii + 'logo: ' + _rbQuote(co.logo));
   lines.push(ii + 'color: ' + _rbColor(co.color || '#666666'));
   if (co.textColor && !/^#fff/i.test(co.textColor))
     lines.push(ii + 'text_color: ' + _rbColor(co.textColor));
   lines.push(ii + 'tokens: ' + _rbNumArr(tokens));
   if (co.coordinates)
-    lines.push(ii + 'coordinates: ' + _rbStr(co.coordinates));
+    lines.push(ii + 'coordinates: ' + _rbQuote(co.coordinates));
   if (co.city && parseInt(co.city) !== 0)
     lines.push(ii + 'city: ' + parseInt(co.city));
   if (co.destinationCoordinates)
-    lines.push(ii + 'destination_coordinates: ' + _rbStr(co.destinationCoordinates));
+    lines.push(ii + 'destination_coordinates: ' + _rbQuote(co.destinationCoordinates));
   if (JSON.stringify(shares) !== _RB_DEFAULT_SHARES)
     lines.push(ii + 'shares: ' + _rbNumArr(shares));
   if (floatPct !== 60)
@@ -236,7 +236,7 @@ function _grbTrainHash(tr, variants, state) {
     ? calculateTrainLabel(tr) : (tr.label || '?');
 
   const kv = [];
-  kv.push(`name: ${_rbStr(label)}`);
+  kv.push(`name: ${_rbQuote(label)}`);
   kv.push(`distance: ${_grbDistance(tr)}`);
   if (tr.cost != null)   kv.push(`price: ${tr.cost}`);
   // count semantics (see _rbParseTrain comments):
@@ -251,7 +251,7 @@ function _grbTrainHash(tr, variants, state) {
     if (tgt) {
       const tgtLabel = (typeof calculateTrainLabel === 'function')
         ? calculateTrainLabel(tgt) : (tgt.label || '');
-      kv.push(`rusts_on: ${_rbStr(tgtLabel)}`);
+      kv.push(`rusts_on: ${_rbQuote(tgtLabel)}`);
     }
   }
 
@@ -264,7 +264,7 @@ function _grbTrainHash(tr, variants, state) {
     const varLines = variants.map(vtr => {
       const vLabel = (typeof calculateTrainLabel === 'function')
         ? calculateTrainLabel(vtr) : (vtr.label || '?');
-      const vKv = [`name: ${_rbStr(vLabel)}`, `distance: ${_grbDistance(vtr)}`];
+      const vKv = [`name: ${_rbQuote(vLabel)}`, `distance: ${_grbDistance(vtr)}`];
       // multiplier: required for E-train / revenue-doubling variants (g_1822 E-train)
       if (vtr.multiplier && vtr.multiplier > 1) vKv.push(`multiplier: ${vtr.multiplier}`);
       if (vtr.cost != null) vKv.push(`price: ${vtr.cost}`);
@@ -273,7 +273,7 @@ function _grbTrainHash(tr, variants, state) {
         if (vtgt) {
           const vtLabel = (typeof calculateTrainLabel === 'function')
             ? calculateTrainLabel(vtgt) : (vtgt.label || '');
-          vKv.push(`rusts_on: ${_rbStr(vtLabel)}`);
+          vKv.push(`rusts_on: ${_rbQuote(vtLabel)}`);
         }
       }
       return `    { ${vKv.join(', ')} }`;
@@ -296,14 +296,14 @@ function _grbTrainHash(tr, variants, state) {
 function _grbPhaseHash(ph, state) {
   const allTrains = (state && state.trains) || [];
   const kv = [];
-  kv.push(`name: ${_rbStr(ph.name || '')}`);
+  kv.push(`name: ${_rbQuote(ph.name || '')}`);
 
   if (ph.onTrain) {
     const trig = allTrains.find(t => t.id === ph.onTrain);
     if (trig) {
       const tLabel = (typeof calculateTrainLabel === 'function')
         ? calculateTrainLabel(trig) : (trig.label || '');
-      kv.push(`on: ${_rbStr(tLabel)}`);
+      kv.push(`on: ${_rbQuote(tLabel)}`);
     }
   }
 
@@ -402,7 +402,7 @@ function _grbStepOptsHash(opts) {
     let rb;
     if (typeof v === 'boolean')      rb = v ? 'true' : 'false';
     else if (typeof v === 'number')  rb = String(v);
-    else if (typeof v === 'string')  rb = _rbStr(v);
+    else if (typeof v === 'string')  rb = _rbQuote(v);
     else                             rb = String(v);  // fallback; symbols pre-stringified
     return k + ': ' + rb;
   });
@@ -926,7 +926,7 @@ const _GRB_MODULES = [
         const mName = _grbHelperName(priv.name, priv.sym || priv.abbr);
         lines.push('');
         lines.push(`def ${mName}`);
-        lines.push(`  @${mName} ||= company_by_id(${_rbStr(priv.sym || priv.abbr || '')})`);
+        lines.push(`  @${mName} ||= company_by_id(${_rbQuote(priv.sym || priv.abbr || '')})`);
         lines.push(`end`);
       }
       return { methods: lines.join('\n') };
