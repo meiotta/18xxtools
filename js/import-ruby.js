@@ -1435,6 +1435,85 @@ function _rbConstTileLays(src, name) {
   return slots.length ? slots : null;
 }
 
+// Parse `MARKET = [...]` from a game.rb. Handles two row forms:
+//   ['', '70', '80p', ...]           — quoted strings, may include empty cells
+//   %w[60y 67 71 76 100p ...]        — bare-word list (no spaces in cells)
+//   %w[60y\n  67\n  71]              — multi-line %w blocks (1822, 1862)
+// Returns { marketType, market, marketRows, marketCols } or null.
+function _rbParseMarket(src) {
+  const content = _rbExtractArray(src, 'MARKET');
+  if (!content) return null;
+
+  const rows = [];
+  let i = 0;
+  while (i < content.length) {
+    // Skip whitespace and commas between rows
+    while (i < content.length && /[\s,]/.test(content[i])) i++;
+    if (i >= content.length) break;
+
+    let row;
+    if (content.startsWith('%w[', i) || content.startsWith('%i[', i)) {
+      const openIdx = content.indexOf('[', i);
+      let depth = 0, j = openIdx;
+      while (j < content.length) {
+        if (content[j] === '[') depth++;
+        else if (content[j] === ']') { depth--; if (depth === 0) break; }
+        j++;
+      }
+      row = content.slice(openIdx + 1, j).split(/\s+/).filter(Boolean);
+      i = j + 1;
+    } else if (content[i] === '[') {
+      const openIdx = i;
+      let depth = 0, j = openIdx;
+      while (j < content.length) {
+        if (content[j] === '[') depth++;
+        else if (content[j] === ']') { depth--; if (depth === 0) break; }
+        j++;
+      }
+      row = [];
+      const inner = content.slice(openIdx + 1, j);
+      const re = /(['"])((?:\\.|(?!\1).)*)\1/g;
+      let m;
+      while ((m = re.exec(inner)) !== null) row.push(m[2]);
+      i = j + 1;
+    } else {
+      // Garbage (likely trailing ".freeze" or whitespace) — advance
+      i++;
+      continue;
+    }
+    rows.push(row);
+  }
+
+  if (!rows.length) return null;
+  const marketRows = rows.length;
+  const marketCols = Math.max(...rows.map(r => r.length));
+  // Pad short rows so 2D state stays rectangular
+  const padded = rows.map(r => {
+    const out = r.slice();
+    while (out.length < marketCols) out.push('');
+    return out;
+  });
+
+  if (marketRows === 1) {
+    return { marketType: '1D', market: padded[0], marketRows: 1, marketCols };
+  }
+  return { marketType: '2D', market: padded, marketRows, marketCols };
+}
+
+// Detect `init_stock_market` opts that turn a flat MARKET into zigzag or hex.
+// Looks at any `StockMarket.new(...)` call body; uses `[^()]` (no nested parens
+// in normal init_stock_market overrides) so a single regex catches the kwargs
+// regardless of whether they're on one line or several.
+function _rbParseStockMarketOpts(src) {
+  const out = {};
+  if (/StockMarket\.new\([^)]*\bhex_market:\s*true/.test(src))     out.hexMarket = true;
+  if (/StockMarket\.new\([^)]*\bzigzag:\s*true/.test(src))         out.zigzag = true;
+  if (out.zigzag && /StockMarket\.new\([^)]*\bledge_movement:\s*true/.test(src)) {
+    out.ledgeMovement = true;
+  }
+  return out;
+}
+
 // Walk a {…} block starting at the opening brace index, return inner content.
 function _rbExtractBraces(src, openIdx) {
   let depth = 0, i = openIdx;
@@ -1703,8 +1782,10 @@ function importGameRb(content) {
   }
 
   const mechanics = _rbParseMechanics(src);
+  const market    = _rbParseMarket(src);
+  const stockOpts = _rbParseStockMarketOpts(src);
 
-  return { trains, phases, mechanics };
+  return { trains, phases, mechanics, market, stockOpts };
 }
 
 // Parses all @company_trains[...] = find_and_remove_train_by_id(...) assignments
@@ -2012,9 +2093,9 @@ function applyEntitiesImport(content, sourceName) {
   updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations from ${sourceName}`);
 }
 
-// Parses game.rb content and applies trains / phases / mechanics to state.
+// Parses game.rb content and applies trains / phases / mechanics / market to state.
 function applyGameImport(content, sourceName) {
-  const { trains, phases, mechanics } = importGameRb(content);
+  const { trains, phases, mechanics, market, stockOpts } = importGameRb(content);
   state.trains = trains;
   state.phases = phases;
   if (mechanics && Object.keys(mechanics).length) {
@@ -2029,6 +2110,29 @@ function applyGameImport(content, sourceName) {
       state.mechanics.functionMap = Object.assign({}, existingFunctionMap, mechanics.functionMap);
     }
   }
+  // ── Market ────────────────────────────────────────────────────────────────
+  // Apply MARKET = [...] and any init_stock_market opts (zigzag / hex_market).
+  // Preserve user data adjacent to the market (rules / logicRules / bonusPerShare)
+  // when overwriting just the grid + structure fields.
+  if (market) {
+    if (!state.financials) state.financials = {};
+    state.financials.market      = market.market;
+    state.financials.marketRows  = market.marketRows;
+    state.financials.marketCols  = market.marketCols;
+    // marketType: zigzag wins over 1D when the engine declared it that way.
+    if (stockOpts && stockOpts.zigzag)              state.financials.marketType = 'zigzag';
+    else if (stockOpts && stockOpts.hexMarket)      state.financials.marketType = '2D';
+    else                                            state.financials.marketType = market.marketType;
+    if (stockOpts && stockOpts.ledgeMovement)       state.financials.ledgeMovement = true;
+    if (stockOpts && stockOpts.hexMarket)           state.financials.hexMarket    = true;
+    state.financials.locks = {};
+    state.financials.selectedCell = null;
+  }
+  // Bank: BANK_CASH lives in mechanics; mirror to financials so the market panel input matches.
+  if (mechanics && typeof mechanics.bankCash === 'number') {
+    if (!state.financials) state.financials = {};
+    state.financials.bank = mechanics.bankCash;
+  }
   // Wire TRAINS and PHASES into Evan's functionMap as ref entries.
   // Schema per Anthony's brief: { type: 'ref', agent, stateKey, serializer }
   if (!state.mechanics) state.mechanics = {};
@@ -2040,13 +2144,21 @@ function applyGameImport(content, sourceName) {
   if (typeof renderPhasesTable    === 'function') renderPhasesTable();
   if (typeof renderMechanicsLeft  === 'function') renderMechanicsLeft();
   if (typeof renderMechanicsRight === 'function') renderMechanicsRight();
+  if (market) {
+    if (typeof syncFinancialsUI   === 'function') syncFinancialsUI();
+    if (typeof renderMarketEditor === 'function') renderMarketEditor();
+    if (typeof renderCellInspector=== 'function') renderCellInspector();
+    if (typeof renderRulesPanel   === 'function') renderRulesPanel();
+  }
   autosave();
   const evCount   = trains.reduce((s, t) => s + (t.events ? t.events.length : 0), 0);
   const mechCount = Object.keys(mechanics || {}).length;
+  const cellsImported = market ? (Array.isArray(market.market[0]) ? market.market.flat() : market.market).filter(Boolean).length : 0;
   updateStatus(
     `Imported ${trains.length} trains, ${phases.length} phases` +
-    (evCount   ? `, ${evCount} events`           : '') +
-    (mechCount ? `, ${mechCount} mechanics fields` : '') +
+    (evCount       ? `, ${evCount} events`              : '') +
+    (mechCount     ? `, ${mechCount} mechanics fields`  : '') +
+    (cellsImported ? `, ${cellsImported} market cells`  : '') +
     ` from ${sourceName}`
   );
 }
