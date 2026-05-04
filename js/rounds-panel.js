@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260503d
+// js/rounds-panel.js  v20260504a
 // Rounds panel — round class selection and step list editing.
 //
 // Co-owned: Tim (round-system) + Addy (step-system).
@@ -193,7 +193,7 @@ function _renderInitialClassSection(r) {
   }
 
   if (cls === 'choices') {
-    lines.push('  <p class="mech-warn" style="color:#b8860b;font-size:11px;border-left:3px solid #b8860b;padding:6px 8px;background:rgba(255,200,0,0.08);">Engine::Round::Choices has no <code>select_entities</code> default. Provide a custom subclass below.</p>');
+    lines.push('  <p class="mech-warn" style="color:var(--color-warning-text, #b8860b);font-size:11px;border-left:3px solid var(--color-warning-text, #b8860b);padding:6px 8px;background:var(--color-warning-bg, rgba(255,200,0,0.08));">Engine::Round::Choices has no <code>select_entities</code> default. Provide a custom subclass below.</p>');
   }
 
   lines.push(_renderSubclassEditor('initial', r));
