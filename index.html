@@ -463,223 +463,193 @@
       <button id="manifestMapBtn" style="position:absolute;bottom:16px;right:16px;z-index:5;padding:7px 14px;background:#3a3a3a;color:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px;">← Map</button>
     </div>
 
-    <!-- MARKET VIEW -->
-    <div id="marketView" style="display:none; flex:1; flex-direction:row; overflow:hidden; min-width:0;">
-
-      <!-- ── LEFT: Market Grid (resizable) ─────────────────────────────────────── -->
-      <div id="marketLeftPane" style="width:60%; min-width:280px; max-width:85%; display:flex; flex-direction:column; overflow:hidden; background:#161616; flex-shrink:0;">
-
-        <!-- Market toolbar -->
-        <div class="market-toolbar">
-
-          <!-- Type + Dims -->
-          <div class="mtb-group">
-            <span class="mtb-label">Type</span>
-            <select id="finMarketType" class="mtb-select" style="width:110px;">
+    <!-- MARKET VIEW (rebuilt 2026-05) -->
+    <div id="marketView" class="mkt-view" style="display:none;">
+      <!-- ── LEFT RAIL: Configuration ──────────────────────────────────── -->
+      <aside class="mkt-sidebar">
+        <section class="mkt-section">
+          <h3 class="mkt-section-title">Market</h3>
+          <label class="mkt-field">
+            <span class="mkt-field-label">Type</span>
+            <select id="finMarketType" class="mkt-input">
               <option value="2D">2D Grid</option>
               <option value="1D">1D Linear</option>
               <option value="zigzag">1.5D Zigzag</option>
             </select>
-            <div id="finMarket2DConfig" style="display:flex; gap:5px; align-items:center;">
-              <input type="number" id="finMarketRows" value="11" min="1" max="25" class="mtb-num" title="Rows">
-              <span style="color:#444; font-size:11px;">×</span>
-              <input type="number" id="finMarketCols" value="19" min="1" max="40" class="mtb-num" title="Cols">
+          </label>
+          <div id="finMarket2DConfig" class="mkt-field-row">
+            <label class="mkt-field"><span class="mkt-field-label">Rows</span>
+              <input type="number" id="finMarketRows" class="mkt-input mkt-num" value="11" min="1" max="25">
+            </label>
+            <label class="mkt-field"><span class="mkt-field-label">Cols</span>
+              <input type="number" id="finMarketCols" class="mkt-input mkt-num" value="19" min="1" max="40">
+            </label>
+          </div>
+          <div id="finMarket1DConfig" class="mkt-field-row" style="display:none;">
+            <label class="mkt-field"><span class="mkt-field-label">Count</span>
+              <input type="number" id="finMarketCount" class="mkt-input mkt-num" value="10" min="1" max="100">
+            </label>
+          </div>
+          <label class="mkt-field">
+            <span class="mkt-field-label">Bank</span>
+            <div class="mkt-input-prefix">
+              <span class="mkt-prefix">$</span>
+              <input type="number" id="finBank" class="mkt-input" value="12000">
             </div>
-            <div id="finMarket1DConfig" style="display:none;">
-              <input type="number" id="finMarketCount" value="10" min="1" max="100" class="mtb-num" style="width:56px;" title="Count">
-            </div>
+          </label>
+          <span style="display:none;"><span id="bankCashValWide">12000</span></span>
+        </section>
+
+        <section class="mkt-section">
+          <h3 class="mkt-section-title">Templates</h3>
+          <div class="mkt-tmpl-grid">
+            <button id="tmpl1830"  type="button" class="mkt-tmpl-btn">1830</button>
+            <button id="tmplChesa" type="button" class="mkt-tmpl-btn">18Chesa</button>
+            <button id="tmpl1846"  type="button" class="mkt-tmpl-btn">1846</button>
+            <button id="tmpl1817"  type="button" class="mkt-tmpl-btn">1817</button>
+            <button id="tmpl1822"  type="button" class="mkt-tmpl-btn">1822</button>
+            <button id="tmpl1862"  type="button" class="mkt-tmpl-btn">1862</button>
+          </div>
+        </section>
+
+        <section class="mkt-section">
+          <h3 class="mkt-section-title">Wizard</h3>
+          <div class="mkt-field-row">
+            <label class="mkt-field"><span class="mkt-field-label">Min</span>
+              <div class="mkt-input-prefix">
+                <span class="mkt-prefix">$</span>
+                <input type="number" id="wizMin" class="mkt-input" value="40">
+              </div>
+            </label>
+            <label class="mkt-field"><span class="mkt-field-label">Max</span>
+              <div class="mkt-input-prefix">
+                <span class="mkt-prefix">$</span>
+                <input type="number" id="wizMax" class="mkt-input" value="400">
+              </div>
+            </label>
+          </div>
+          <button id="wizGenerateBtn" type="button" class="mkt-btn mkt-btn-primary mkt-btn-block">Generate prices</button>
+          <p class="mkt-hint">Locked cells anchor the solver. Empty cells get filled.</p>
+          <input type="number" id="wizRows" style="display:none;" value="8">
+          <input type="number" id="wizCols" style="display:none;" value="16">
+        </section>
+
+        <section class="mkt-section">
+          <h3 class="mkt-section-title">Export</h3>
+          <button id="marketDebugBtn" type="button" class="mkt-btn mkt-btn-block">Show Ruby array</button>
+        </section>
+      </aside>
+
+      <!-- ── CENTER: Grid + brushes ───────────────────────────────────── -->
+      <main class="mkt-main">
+        <div class="mkt-toolbar" role="toolbar" aria-label="Market editor brushes">
+          <div class="mkt-toolbar-group" role="group" aria-label="Tools">
+            <button class="mkt-tool" data-brush="select" type="button" aria-pressed="true" title="Select cell (default)">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 1.5L13 8 8 9 6.5 13.5z"/></svg>
+              <span>Select</span>
+            </button>
+            <button class="mkt-tool" data-brush="eraser" type="button" aria-pressed="false" title="Erase cell">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M2 11l5-5 6 6-3 3H6L2 11z"/><path stroke="currentColor" stroke-width="1.5" d="M2 14h12"/></svg>
+              <span>Erase</span>
+            </button>
+            <button class="mkt-tool" data-brush="lock" type="button" aria-pressed="false" title="Lock from solver">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+              <span>Lock</span>
+            </button>
           </div>
 
-          <div class="mtb-sep"></div>
+          <div class="mkt-toolbar-divider" aria-hidden="true"></div>
 
-          <!-- Bank -->
-          <div class="mtb-group">
-            <span class="mtb-label">Bank</span>
-            <span class="mtb-bank-val">$<span id="bankCashValWide">12000</span></span>
-            <input type="number" id="finBank" value="12000" class="mtb-num" style="width:70px;" title="Bank cash">
+          <div class="mkt-toolbar-group mkt-brushes" role="group" aria-label="Flag brushes">
+            <button class="mkt-brush" data-brush="par"           type="button" aria-pressed="false" style="--brush-color:#e15f5f" title="Par — companies par here">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Par</span>
+            </button>
+            <button class="mkt-brush" data-brush="endgame"       type="button" aria-pressed="false" style="--brush-color:#3f7fc6" title="Endgame trigger">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Endgame</span>
+            </button>
+            <button class="mkt-brush" data-brush="close"         type="button" aria-pressed="false" style="--brush-color:#1a1a1a" title="Close — corporation closes">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Close</span>
+            </button>
+            <button class="mkt-brush" data-brush="no_cert_limit" type="button" aria-pressed="false" style="--brush-color:#dab836" title="No cert limit (yellow band)">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Yellow</span>
+            </button>
+            <button class="mkt-brush" data-brush="unlimited"     type="button" aria-pressed="false" style="--brush-color:#d4823a" title="Unlimited (orange band)">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Orange</span>
+            </button>
+            <button class="mkt-brush" data-brush="multiple_buy"  type="button" aria-pressed="false" style="--brush-color:#9e5c2c" title="Multiple buy (brown band)">
+              <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Brown</span>
+            </button>
+            <button id="paintMoreBtn" class="mkt-tool mkt-tool-more" type="button" aria-haspopup="true" aria-expanded="false" title="More flags">
+              <span>More</span>
+              <svg viewBox="0 0 10 6" width="9" height="5" aria-hidden="true"><path fill="currentColor" d="M0 0h10L5 6z"/></svg>
+            </button>
           </div>
 
-          <div class="mtb-sep"></div>
+          <div class="mkt-toolbar-spacer"></div>
 
-          <!-- Templates -->
-          <div class="mtb-group">
-            <span class="mtb-label">Template</span>
-            <button id="tmplChesa" class="mtb-btn">18Chesa</button>
-            <button id="tmpl1846" class="mtb-btn">1846</button>
-            <button id="tmpl1862" class="mtb-btn">1862</button>
-          </div>
-
-          <div class="mtb-sep"></div>
-
-          <!-- Wizard — uses main grid Rows/Cols, just needs Min/Max prices -->
-          <div class="mtb-group">
-            <span class="mtb-label">Wizard</span>
-            <span style="font-size:10px;color:#4a4a4a;">$</span>
-            <input type="number" id="wizMin" placeholder="Min" class="mtb-num" style="width:54px;" value="40" title="Lowest price">
-            <span style="font-size:10px;color:#4a4a4a;">→</span>
-            <input type="number" id="wizMax" placeholder="Max" class="mtb-num" style="width:60px;" value="400" title="Highest price">
-            <button id="wizGenerateBtn" class="mtb-btn mtb-btn-primary">Generate</button>
-            <!-- hidden stubs kept for market-wizard.js compatibility -->
-            <input type="number" id="wizRows" style="display:none;" value="8">
-            <input type="number" id="wizCols" style="display:none;" value="16">
-          </div>
-          <!-- Nudge: shown when user adds cells without regenerating -->
-          <div id="marketRegenNudge" class="market-regen-nudge" style="display:none;">
-            <span>Values added — you may want to <button id="marketNudgeRegenBtn" class="nudge-regen-btn">Regenerate</button> for balance</span>
-            <button id="marketNudgeDismissBtn" class="nudge-dismiss-btn" title="Dismiss">✕</button>
-          </div>
-
-          <div class="mtb-sep"></div>
-
-          <!-- Painter -->
-          <div class="mtb-group">
-            <span class="mtb-label">Paint</span>
-            <div id="painterTools" style="display:flex; gap:3px; align-items:center;">
-              <button class="painter-btn active" data-brush="price" title="Edit price">✎</button>
-              <button class="painter-btn painter-par"    data-brush="p" title="Par band">P</button>
-              <button class="painter-btn painter-yellow" data-brush="y" title="No-limit yellow">Y</button>
-              <button class="painter-btn painter-orange" data-brush="o" title="Orange zone">O</button>
-              <button class="painter-btn painter-brown"  data-brush="b" title="Brown zone">B</button>
-              <button class="painter-btn painter-closed" data-brush="c" title="Closed">✕</button>
-              <button class="painter-btn painter-lock"   data-brush="locked" title="Lock price">⚿</button>
-              <button onclick="enforceContiguity()" class="mtb-btn" style="margin-left:4px;" title="Enforce staircase">Tidy</button>
-            </div>
-          </div>
-
-          <div class="mtb-sep"></div>
-
-          <!-- Debug -->
-          <div class="mtb-group">
-            <button id="marketDebugBtn" class="mtb-btn" title="Show market array in .rb format">🔍 Debug</button>
-          </div>
+          <div id="marketValidation" class="mkt-validation" aria-live="polite"></div>
         </div>
 
-        <!-- Market grid (scrollable) -->
-        <div id="marketContainerWide" style="flex:1; padding:28px; display:flex; justify-content:center; align-items:flex-start; overflow:auto;">
+        <div id="marketContainerWide" class="mkt-grid-host"></div>
+
+        <!-- Nudge: shown when user adds cells without regenerating -->
+        <div id="marketRegenNudge" class="mkt-nudge" style="display:none;">
+          <span>Values added — <button id="marketNudgeRegenBtn" class="mkt-nudge-link">regenerate</button> to balance</span>
+          <button id="marketNudgeDismissBtn" class="mkt-nudge-x" title="Dismiss" aria-label="Dismiss">×</button>
         </div>
 
-        <!-- Submitted movement rules (below grid) -->
-        <div id="submittedRulesArea" class="submitted-rules-area">
-          <div class="submitted-rules-header">
-            <span>Movement Rules</span>
-            <span id="submittedRulesCount" class="submitted-rules-count">0 rules</span>
-          </div>
-          <div id="submittedRulesList" class="submitted-rules-list">
-            <!-- populated by rule-builder.js -->
-          </div>
+        <div id="marketLegend" class="mkt-legend" aria-label="Flag legend"></div>
+      </main>
+
+      <!-- ── RIGHT RAIL: Inspector / Movement Rules ────────────────────── -->
+      <aside class="mkt-inspector">
+        <div class="mkt-inspector-tabs" role="tablist">
+          <button id="insTabCell"  class="mkt-tab active" role="tab" aria-selected="true"  data-tab="cell">Cell</button>
+          <button id="insTabRules" class="mkt-tab"        role="tab" aria-selected="false" data-tab="rules">Movement</button>
         </div>
 
+        <div id="insPanelCell" class="mkt-tab-panel" role="tabpanel">
+          <!-- Populated by renderCellInspector() -->
+        </div>
+
+        <div id="insPanelRules" class="mkt-tab-panel" role="tabpanel" hidden>
+          <!-- Populated by renderRulesPanel() -->
+        </div>
+      </aside>
+
+      <!-- Hidden stubs: rule-builder.js still wires up against these IDs.
+           The custom-rules UI gets re-mounted into the Rules tab in a follow-up. -->
+      <div id="submittedRulesArea" style="display:none;">
+        <div class="submitted-rules-header">
+          <span>Movement Rules</span>
+          <span id="submittedRulesCount" class="submitted-rules-count">0 rules</span>
+        </div>
+        <div id="submittedRulesList"></div>
       </div>
-
-      <!-- ── Resize Handle ─────────────────────────────────────────────────────── -->
-      <div id="marketResizeHandle" class="market-resize-handle" title="Drag to resize"></div>
-
-      <!-- ── RIGHT: Logic Builder (flex:1, fills remainder) ───────────────────── -->
-      <div id="marketLogicPanel" class="logic-builder-panel" style="flex:1; min-width:220px;">
-
-        <!-- Header -->
-        <div class="logic-builder-header">
-          <div class="logic-builder-title">Logic Builder</div>
-          <div class="logic-builder-sub">Drag pills to build a movement rule, then submit</div>
-        </div>
-
-        <!-- Pill Palette -->
-        <div class="pill-palette-scroll">
-
-          <!-- WHEN triggers -->
-          <div class="pill-section">
-            <div class="pill-section-label">When (trigger)</div>
-            <div class="pill-palette">
-              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_paid">Pays Dividend</div>
-              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_withheld">Withholds</div>
-              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_sold_out">Sold Out</div>
-              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_shares_sold">Shares Sold</div>
-              <div class="logic-pill pill-trigger draggable-pill" draggable="true" data-type="trigger" data-value="if_no_run">Doesn't Run</div>
-            </div>
-          </div>
-
-          <!-- COMPANY type conditions (blue) -->
-          <div class="pill-section">
-            <div class="pill-section-label">Company type (and condition)</div>
-            <div class="pill-palette">
-              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"any"}'>Any Company</div>
-              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"major"}'>Major</div>
-              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"minor"}'>Minor</div>
-              <div class="logic-pill pill-company draggable-pill" draggable="true" data-type="condition" data-value='{"field":"entity_type","op":"==","value":"private"}'>Private</div>
-            </div>
-          </div>
-
-          <!-- REVENUE conditions (green, stackable) -->
-          <div class="pill-section">
-            <div class="pill-section-label">Revenue (and condition — stackable)</div>
-            <div class="pill-palette">
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">=","value":50,"unit":"percent"}'>Revenue ≥ 50%</div>
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">=","value":100,"unit":"percent"}'>Revenue ≥ 100%</div>
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":"==","value":0}'>Revenue = 0</div>
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue","op":">","value":0}'>Revenue &gt; 0</div>
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue_calc","op":"==","value":"per_share"}'>Per Share</div>
-              <div class="logic-pill pill-revenue draggable-pill" draggable="true" data-type="condition" data-value='{"field":"revenue_calc","op":"==","value":"per_sell"}'>Per Sell Action</div>
-            </div>
-          </div>
-
-          <!-- EVENT conditions (gray) -->
-          <div class="pill-section">
-            <div class="pill-section-label">Event / actor (and condition)</div>
-            <div class="pill-palette">
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_out_timing","op":"==","value":"end_of_sr"}'>Sold Out at End of SR</div>
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_by","op":"==","value":"any_player"}'>Sold by Any Player</div>
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"sold_by","op":"==","value":"director"}'>Sold by Director</div>
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"bank","op":"<","value":5000}'>Bank &lt; 5000</div>
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"price","op":">=","value":100}'>Price ≥ 100</div>
-              <div class="logic-pill pill-event draggable-pill" draggable="true" data-type="condition" data-value='{"field":"price","op":"<","value":50}'>Price &lt; 50</div>
-            </div>
-          </div>
-
-          <!-- THEN actions -->
-          <div class="pill-section">
-            <div class="pill-section-label">Then (action)</div>
-            <div class="pill-palette">
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"right"}'>→ Right</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"left"}'>← Left</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"up"}'>↑ Up</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"down"}'>↓ Down</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"up_twice"}'>↑↑ Up ×2</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"move","value":"right_twice"}'>→→ Right ×2</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"end_game","value":"end_of_or"}'>End Game</div>
-              <div class="logic-pill pill-action draggable-pill" draggable="true" data-type="action" data-value='{"type":"bankrupt"}'>Go Bankrupt</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Statement Builder -->
+      <div id="legacyRuleBuilderStub" style="display:none;" aria-hidden="true">
         <div class="stmt-builder">
-          <div class="pill-section-label" style="margin-bottom:10px;">Build statement</div>
-
           <div class="stmt-rows" id="stmtRows">
             <div class="stmt-row">
               <span class="stmt-label">When</span>
-              <div class="stmt-drop-zone" id="stmtWhen" data-accept="trigger" data-placeholder="drop a trigger here">drop a trigger here</div>
+              <div class="stmt-drop-zone" id="stmtWhen" data-accept="trigger"></div>
             </div>
-            <!-- AND condition rows added dynamically by rule-builder.js -->
             <div class="stmt-row" id="stmtAndRow0">
               <span class="stmt-label">And</span>
-              <div class="stmt-drop-zone stmt-and-zone" id="stmtAnd0" data-accept="condition" data-idx="0" data-placeholder="drop a condition (optional)">drop a condition (optional)</div>
+              <div class="stmt-drop-zone stmt-and-zone" id="stmtAnd0" data-accept="condition" data-idx="0"></div>
             </div>
             <div class="stmt-row">
               <span class="stmt-label">Then</span>
-              <div class="stmt-drop-zone" id="stmtThen" data-accept="action" data-placeholder="drop an action here">drop an action here</div>
+              <div class="stmt-drop-zone" id="stmtThen" data-accept="action"></div>
             </div>
           </div>
-
           <div class="stmt-actions">
-            <button id="submitRuleBtn" class="stmt-submit" disabled>Submit Rule</button>
-            <button id="clearRuleBtn" class="stmt-clear">Clear</button>
+            <button id="submitRuleBtn" type="button" disabled></button>
+            <button id="clearRuleBtn"  type="button"></button>
           </div>
         </div>
-
       </div>
-
     </div>
+
 
     <!-- CORPS VIEW ─────────────────────────────────────────────────────────── -->
     <div id="corpView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden;">
@@ -1261,9 +1231,10 @@
 <script src="js/companies-panel.js?v=20260425b"></script>
 <script src="js/trains-panel.js?v=20260419c"></script>
 <script src="js/config-panel.js?v=20260419c"></script>
+<script src="js/market-flags.js?v=20260503b"></script>
 <script src="js/market-wizard.js?v=20260419c"></script>
-<script src="js/market-painter.js?v=20260419c"></script>
-<script src="js/financials-panel.js?v=20260419c"></script>
+<script src="js/market-painter.js?v=20260503b"></script>
+<script src="js/financials-panel.js?v=20260503b"></script>
 <script src="js/rule-builder.js?v=20260419c"></script>
 <script src="js/setup.js?v=20260425b"></script>
 <script src="js/io.js?v=20260419d"></script>
