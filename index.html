@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="css/editor.css">
   <style>
     /* ── Game Mechanics Panel ─────────────────────────────────────────── */
+    /*    All colors use CSS variables from editor.css (:root = dark default,   */
+    /*    [data-theme="light"] = light overrides). Per-selector light overrides  */
+    /*    follow immediately where the variable alone is not sufficient.         */
 
     /* Framework tree — left column */
     .mech-framework { display: flex; flex-direction: column; padding: 8px 0; }
@@ -16,35 +19,40 @@
       display: flex; align-items: center; gap: 7px;
       padding: 7px 14px; cursor: pointer; user-select: none;
       font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #888;
+      text-transform: uppercase; color: var(--text-dim);
       border-radius: 4px;
     }
     .mech-sec-header:hover { background: rgba(255,255,255,0.03); }
-    .mech-sec-chevron { font-size: 12px; width: 10px; color: #555; flex-shrink: 0; }
+    [data-theme="light"] .mech-sec-header:hover { background: rgba(0,0,0,0.04); }
+    .mech-sec-chevron { font-size: 12px; width: 10px; color: var(--text-muted); flex-shrink: 0; }
     .mech-sec-label { flex: 1; }
     .mech-readonly-badge {
-      font-size: 9px; color: #444; letter-spacing: 0.04em;
-      text-transform: uppercase; border: 1px solid #333;
+      font-size: 9px; color: var(--text-muted); letter-spacing: 0.04em;
+      text-transform: uppercase; border: 1px solid var(--border);
       border-radius: 3px; padding: 1px 4px;
     }
     .mech-sec-items { padding: 0 0 4px 0; }
     .mech-item-row {
       display: flex; align-items: center; gap: 8px;
       padding: 4px 14px 4px 28px; border-radius: 4px;
-      cursor: pointer; font-size: 12px; color: #aaa;
+      cursor: pointer; font-size: 12px; color: var(--text-secondary);
     }
-    .mech-item-row:hover { background: rgba(255,255,255,0.04); color: #ddd; }
+    .mech-item-row:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+    [data-theme="light"] .mech-item-row:hover { background: rgba(0,0,0,0.04); }
+    /* selected: lavender in dark, dark-indigo in light */
     .mech-item-row.selected { background: rgba(99,102,241,0.14); color: #a5b4fc; }
+    [data-theme="light"] .mech-item-row.selected { background: rgba(79,70,229,0.1); color: #3730a3; }
     .mech-item-label { flex: 1; }
-    .mech-empty-label { color: #555; font-style: italic; }
+    .mech-empty-label { color: var(--text-muted); font-style: italic; }
     .mech-item-value {
-      font-size: 11px; color: #555; max-width: 110px;
+      font-size: 11px; color: var(--text-muted); max-width: 110px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       text-align: right; flex-shrink: 0;
     }
     .mech-item-row.selected .mech-item-value { color: #7c83b8; }
+    [data-theme="light"] .mech-item-row.selected .mech-item-value { color: #4338ca; }
 
-    /* Status dots */
+    /* Status dots — semantic colors, work on both backgrounds */
     .mech-status-dot {
       width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
       box-shadow: 0 0 3px rgba(0,0,0,0.4);
@@ -59,16 +67,22 @@
       background: none; border: none; color: #6366f1; cursor: pointer;
       font-size: 12px; padding: 0; text-align: left; margin-bottom: 4px;
     }
+    [data-theme="light"] .mech-editor-back { color: #4f46e5; }
     .mech-editor-back:hover { color: #818cf8; text-decoration: underline; }
+    [data-theme="light"] .mech-editor-back:hover { color: #3730a3; }
     .mech-editor-wrap label {
       display: flex; flex-direction: column; gap: 3px;
-      font-size: 12px; color: #aaa;
+      font-size: 12px; color: var(--text-secondary);
     }
+    /* Specificity fix: .mech-editor-wrap label > input (0,2,0,1) beats
+       [data-theme="light"] input (0,1,0,1) from editor.css. Using CSS variables
+       directly here means both themes resolve correctly without needing a
+       higher-specificity light override. */
     .mech-editor-wrap label > select,
     .mech-editor-wrap label > input[type="number"],
     .mech-editor-wrap label > input[type="text"] {
-      background: #1e1e1e; border: 1px solid #444; border-radius: 4px;
-      color: #ddd; padding: 4px 8px; font-size: 12px;
+      background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 4px;
+      color: var(--text-primary); padding: 4px 8px; font-size: 12px;
     }
 
     /* Slide toggle */
@@ -76,18 +90,18 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 6px 0; gap: 12px;
     }
-    .mech-toggle-label { font-size: 12px; color: #aaa; flex: 1; }
+    .mech-toggle-label { font-size: 12px; color: var(--text-secondary); flex: 1; }
     .mech-toggle { position: relative; width: 34px; height: 19px; flex-shrink: 0; }
     .mech-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
     .mech-toggle-slider {
       position: absolute; inset: 0; cursor: pointer;
-      background: #333; border-radius: 19px;
-      border: 1px solid #444; transition: background .18s;
+      background: var(--bg-card); border-radius: 19px;
+      border: 1px solid var(--border-mid); transition: background .18s;
     }
     .mech-toggle-slider::before {
       content: ''; position: absolute;
       width: 13px; height: 13px; left: 2px; top: 2px;
-      background: #666; border-radius: 50%; transition: transform .18s, background .18s;
+      background: var(--text-dim); border-radius: 50%; transition: transform .18s, background .18s;
     }
     .mech-toggle input:checked + .mech-toggle-slider { background: #4338ca; border-color: #6366f1; }
     .mech-toggle input:checked + .mech-toggle-slider::before { transform: translateX(15px); background: #fff; }
@@ -95,20 +109,25 @@
     /* Bank editor row helpers */
     .mech-row-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
     .mech-row-pair { display: flex; align-items: center; gap: 4px; }
-    .mech-row-label { font-size: 11px; color: #666; width: 18px; text-align: right; }
-    .mech-num-sm { width: 56px; background: #1e1e1e; border: 1px solid #444; border-radius: 4px; color: #ddd; padding: 3px 6px; font-size: 12px; }
-    .mech-hint-inline { font-size: 10px; color: #555; margin-left: 4px; }
+    .mech-row-label { font-size: 11px; color: var(--text-muted); width: 18px; text-align: right; }
+    /* Same specificity fix as label > input above */
+    .mech-num-sm { width: 56px; background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 4px; color: var(--text-primary); padding: 3px 6px; font-size: 12px; }
+    .mech-hint-inline { font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+    /* Warn banner: dark amber box in dark mode, light amber tint in light mode */
     .mech-warn-banner {
       background: #2a1f0e; border: 1px solid #6b4c12;
       border-radius: 5px; padding: 8px 12px; font-size: 12px; color: #f5a623;
       margin-bottom: 12px;
     }
+    [data-theme="light"] .mech-warn-banner {
+      background: rgba(245,166,35,0.12); border-color: rgba(180,100,0,0.4); color: #7a4500;
+    }
 
     /* Keep old accordion classes alive (used in right-panel editors) */
-    .mech-accordion { border-bottom: 1px solid var(--border, #333); }
+    .mech-accordion { border-bottom: 1px solid var(--border); }
     .mech-accordion-header {
       padding: 10px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #888; cursor: pointer; user-select: none;
+      text-transform: uppercase; color: var(--text-dim); cursor: pointer; user-select: none;
       display: flex; align-items: center; gap: 6px;
     }
     .mech-accordion-header::before { content: '▶'; font-size: 9px; transition: transform 0.15s; }
@@ -118,51 +137,55 @@
 
     .mech-accordion-body label {
       display: flex; flex-direction: column; gap: 3px;
-      font-size: 12px; color: #aaa;
+      font-size: 12px; color: var(--text-secondary);
     }
     .mech-accordion-body label input[type="checkbox"] { width: auto; margin-right: 6px; }
+    /* Same specificity fix as .mech-editor-wrap label > input above */
     .mech-accordion-body label > select,
     .mech-accordion-body label > input[type="number"] {
-      background: #1e1e1e; border: 1px solid #444; border-radius: 4px;
-      color: #ddd; padding: 4px 8px; font-size: 12px;
+      background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 4px;
+      color: var(--text-primary); padding: 4px 8px; font-size: 12px;
     }
-    .mech-hint { font-size: 11px; color: #555; margin: 2px 0; }
+    .mech-hint { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
 
     .mech-slot {
-      background: #1a1a1a; border: 1px solid #333; border-radius: 5px;
+      background: var(--bg-base); border: 1px solid var(--border); border-radius: 5px;
       padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
       margin-bottom: 4px;
     }
-    .mech-slot-num { font-size: 10px; font-weight: 700; color: #666; text-transform: uppercase; }
+    .mech-slot-num { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
 
     .mech-btn-small {
-      background: #2a2a2a; border: 1px solid #444; border-radius: 4px;
-      color: #ccc; padding: 4px 10px; font-size: 11px; cursor: pointer;
+      background: var(--bg-card); border: 1px solid var(--border-mid); border-radius: 4px;
+      color: var(--text-secondary); padding: 4px 10px; font-size: 11px; cursor: pointer;
       align-self: flex-start;
     }
-    .mech-btn-small:hover { background: #333; }
-    .mech-btn-danger { border-color: #662; color: #c88; }
-    .mech-btn-danger:hover { background: #2a1a1a; }
+    /* var(--border) is slightly lighter than var(--bg-card) in dark, darker in light — correct hover direction in both */
+    .mech-btn-small:hover { background: var(--border); }
+    .mech-btn-danger { border-color: #663; color: #c88; }
+    .mech-btn-danger:hover { background: rgba(200,80,80,0.12); }
+    [data-theme="light"] .mech-btn-danger { color: #a03030; border-color: #cc8888; }
 
     .mech-event-row, .mech-bonus-row {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 8px; font-size: 12px; color: #bbb;
-      background: #1e1e1e; border: 1px solid #333; border-radius: 4px;
+      gap: 8px; font-size: 12px; color: var(--text-secondary);
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px;
       padding: 5px 8px;
     }
     .mech-event-add { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 
     .mech-net-row {
       display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
-      font-size: 11px; padding: 4px 0; border-bottom: 1px solid #222;
+      font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--border);
     }
     .mech-net-status { font-size: 13px; width: 18px; flex-shrink: 0; }
-    .mech-net-name { color: #ccc; flex: 1; }
-    .mech-net-owner { color: #666; font-size: 10px; }
+    .mech-net-name { color: var(--text-secondary); flex: 1; }
+    .mech-net-owner { color: var(--text-muted); font-size: 10px; }
     .mech-net-error { width: 100%; padding: 2px 22px; color: #c88; font-size: 10px; }
+    [data-theme="light"] .mech-net-error { color: #b03030; }
 
     .mech-subsection {
-      background: #1a1a1a; border: 1px solid #333; border-radius: 5px;
+      background: var(--bg-base); border: 1px solid var(--border); border-radius: 5px;
       padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
       margin-top: 4px;
     }
@@ -170,33 +193,45 @@
     /* Right column log */
     #mechanicsRight h4 {
       font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #666;
-      border-bottom: 1px solid #2a2a2a; padding-bottom: 6px; margin: 20px 0 8px;
+      text-transform: uppercase; color: var(--text-muted);
+      border-bottom: 1px solid var(--border); padding-bottom: 6px; margin: 20px 0 8px;
     }
     #mechanicsRight h4:first-child { margin-top: 0; }
     #mechanicsRight ol, #mechanicsRight ul { padding-left: 18px; margin: 4px 0; }
-    #mechanicsRight li { margin-bottom: 4px; color: #bbb; }
-    #mechanicsRight strong { color: #ddd; }
-    #mechanicsRight em { color: #999; }
+    #mechanicsRight li { margin-bottom: 4px; color: var(--text-secondary); }
+    #mechanicsRight strong { color: var(--text-primary); }
+    #mechanicsRight em { color: var(--text-dim); }
     .mech-warnings { color: #c84 !important; }
+    [data-theme="light"] .mech-warnings { color: #8a5000 !important; }
     .mech-warn-list li { color: #c88; }
+    [data-theme="light"] .mech-warn-list li { color: #b03030; }
     .mech-ok { color: #5a5; font-size: 12px; }
+    [data-theme="light"] .mech-ok { color: #1a7a1a; }
     .mech-custom-list li { color: #99c; font-family: monospace; font-size: 11px; }
+    [data-theme="light"] .mech-custom-list li { color: #4040a0; }
 
     /* Mechanics toolbar (peek button strip) */
     #mechToolbar {
       display: flex; align-items: center; gap: 8px;
-      padding: 6px 18px; border-bottom: 1px solid #2a2a2a;
-      background: #141414; flex-shrink: 0;
+      padding: 6px 18px; border-bottom: 1px solid var(--border);
+      background: var(--bg-base); flex-shrink: 0;
     }
+    /* Peek button: indigo-tinted in dark, plain card in light */
     #mechPeekBtn {
       margin-left: auto; padding: 4px 12px; font-size: 11px;
       background: #1e1e2e; border: 1px solid #3d3d5c; border-radius: 4px;
       color: #a5b4fc; cursor: pointer; letter-spacing: .03em;
     }
     #mechPeekBtn:hover { background: #25253a; border-color: #6366f1; color: #c7d2fe; }
+    [data-theme="light"] #mechPeekBtn {
+      background: var(--bg-card); border-color: var(--border-mid); color: #4f46e5;
+    }
+    [data-theme="light"] #mechPeekBtn:hover {
+      background: var(--bg-elevated); border-color: #6366f1; color: #3730a3;
+    }
 
-    /* game.rb preview overlay */
+    /* game.rb preview overlay — code panel stays dark in both themes (intentional:
+       code viewers conventionally use dark backgrounds regardless of app theme) */
     #mechRbOverlay {
       position: fixed; inset: 0; z-index: 900;
       background: rgba(0,0,0,.75); display: flex; align-items: stretch; justify-content: flex-end;
@@ -1231,7 +1266,7 @@
 <script src="js/hex-builder-debug.js?v=20260425a"></script>
 
 <!-- ── Evan: Mechanics / Rulebook Panel ──────────────────────────────────── -->
-<script src="js/mechanics-panel.js?v=20260504a"></script>
+<script src="js/mechanics-panel.js?v=20260504b"></script>
 
 <!-- ── Tim + Addy: Rounds Panel ──────────────────────────────────────────── -->
 <script src="js/rounds-panel.js?v=20260503d"></script>

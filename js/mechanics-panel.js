@@ -814,7 +814,7 @@ function sectionOverallStatus(sec) {
 function renderMechanicsLeft() {
   const el = document.getElementById('mechanicsLeft');
   if (!el) return;
-  if (typeof state === 'undefined') { el.innerHTML = '<p style="color:#666;padding:16px;">Waiting for state…</p>'; return; }
+  if (typeof state === 'undefined') { el.innerHTML = '<p style="color:var(--text-muted);padding:16px;">Waiting for state…</p>'; return; }
 
   const sections = buildFramework();
 
@@ -876,7 +876,7 @@ function renderMechanicsRight() {
   if (!el) return;
 
   if (typeof state === 'undefined' || !state.mechanics) {
-    el.innerHTML = '<p style="color:#666;">Select a section on the left to begin configuring your game mechanics.</p>';
+    el.innerHTML = '<p style="color:var(--text-muted);">Select a section on the left to begin configuring your game mechanics.</p>';
     return;
   }
 
@@ -1114,7 +1114,7 @@ function renderEditorFor(itemId) {
 }
 
 function wrap(back, title, body) {
-  const h = title ? `<h4 style="margin:0 0 14px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#666;border-bottom:1px solid #2a2a2a;padding-bottom:6px;">${title}</h4>` : '';
+  const h = title ? `<h4 style="margin:0 0 14px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);padding-bottom:6px;">${title}</h4>` : '';
   return `<div class="mech-editor-wrap">${back}${h}${body}</div>`;
 }
 
@@ -1188,9 +1188,9 @@ function renderInfoPanel(sectionId) {
   if (!info) return `<p class="mech-hint">No reference available for this section.</p>`;
   const rows = info.fields.map(f => `
     <tr>
-      <td style="color:#a5b4fc;padding:5px 14px 5px 0;font-size:11px;font-family:monospace;vertical-align:top;white-space:nowrap;">${f.key}</td>
-      <td style="color:#666;padding:5px 14px 5px 0;font-size:10px;vertical-align:top;white-space:nowrap;">${f.type}</td>
-      <td style="color:#999;padding:5px 0;font-size:11px;line-height:1.5;">${f.desc}</td>
+      <td style="color:var(--text-primary);padding:5px 14px 5px 0;font-size:11px;font-family:monospace;vertical-align:top;white-space:nowrap;">${f.key}</td>
+      <td style="color:var(--text-dim);padding:5px 14px 5px 0;font-size:10px;vertical-align:top;white-space:nowrap;">${f.type}</td>
+      <td style="color:var(--text-secondary);padding:5px 0;font-size:11px;line-height:1.5;">${f.desc}</td>
     </tr>`).join('');
   return `
     ${info.note ? `<p class="mech-hint" style="margin-bottom:14px;">${info.note}</p>` : ''}
@@ -1280,7 +1280,7 @@ function renderCorpRules(m) {
             <option value="all_but_one" ${sel(m.bankruptcyEndsGameAfter,'all_but_one')}>All but one player bankrupt</option>
           </select>
         </label>`
-      : `<p class="mech-hint" style="margin:4px 0 0 0;padding:6px 8px;background:rgba(255,200,0,0.08);border-left:3px solid #b8860b;border-radius:3px;font-size:11px;">Bankruptcy disabled — configure how the shortfall resolves in the <strong>Emergency Buy</strong> section (president must help, player loans, share issuance).</p>`
+      : `<p class="mech-hint" style="margin:4px 0 0 0;padding:6px 8px;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:3px;font-size:11px;">Bankruptcy disabled — configure how the shortfall resolves in the <strong>Emergency Buy</strong> section (president must help, player loans, share issuance).</p>`
     }`;
 }
 
@@ -1405,8 +1405,8 @@ function renderTrainEditor(train) {
   const metaKeys = ['name','distance','cost','num','rusts_on','obsolete_on'];
   const metaRows = metaKeys.filter(k => train[k] !== undefined).map(k => `
     <tr>
-      <td style="color:#888;padding:3px 16px 3px 0;font-size:11px;">${k}</td>
-      <td style="color:#ddd;font-size:12px;">${JSON.stringify(train[k])}</td>
+      <td style="color:var(--text-dim);padding:3px 16px 3px 0;font-size:11px;">${k}</td>
+      <td style="color:var(--text-primary);font-size:12px;">${JSON.stringify(train[k])}</td>
     </tr>`).join('');
 
   const cells = _playerRange().map(p => `
@@ -1419,18 +1419,18 @@ function renderTrainEditor(train) {
 
   return `
     <h4 style="margin:0 0 10px;">${train.name || '?'}-train
-      <span style="font-weight:400;color:#555;font-size:11px;"> — structure owned by Trains &amp; Phases</span>
+      <span style="font-weight:400;color:var(--text-muted);font-size:11px;"> — structure owned by Trains &amp; Phases</span>
     </h4>
     <table style="border-collapse:collapse;margin-bottom:14px;">${metaRows}</table>
-    <hr style="border:none;border-top:1px solid #2a2a2a;margin-bottom:14px;">
+    <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px;">
     ${toggleDynamic('Dynamic bank (count varies by player count)', train.name, isDynamic)}
     ${isDynamic
       ? `<p class="mech-hint" style="margin:8px 0 6px;">Count per player count — fallback num: ${train.num ?? '?'}</p>
          <div class="mech-row-group">${cells}</div>`
-      : `<p class="mech-hint" style="margin-top:6px;color:#555;">Fixed — num: ${train.num ?? '?'} copies. Toggle on to set per player count.</p>`
+      : `<p class="mech-hint" style="margin-top:6px;">Fixed — num: ${train.num ?? '?'} copies. Toggle on to set per player count.</p>`
     }
     ${(train.events || []).length
-      ? `<p style="color:#aaa;font-size:12px;margin-top:14px;">Events: ${train.events.map(e => `<strong>${e.type}</strong>`).join(', ')}</p>`
+      ? `<p style="color:var(--text-secondary);font-size:12px;margin-top:14px;">Events: ${train.events.map(e => `<strong>${e.type}</strong>`).join(', ')}</p>`
       : ''}`;
 }
 
@@ -1439,14 +1439,14 @@ function renderTrainReadOnly(train) {
   const rows = Object.entries(train)
     .filter(([k]) => !['events', '_isSpecial'].includes(k))
     .map(([k, v]) => `<tr>
-      <td style="color:#888;padding:3px 16px 3px 0;font-size:11px;">${k}</td>
-      <td style="color:#ddd;font-size:12px;">${JSON.stringify(v)}</td>
+      <td style="color:var(--text-dim);padding:3px 16px 3px 0;font-size:11px;">${k}</td>
+      <td style="color:var(--text-primary);font-size:12px;">${JSON.stringify(v)}</td>
     </tr>`).join('');
   const evts = (train.events || []);
   return `
-    <h4>${train.name || '?'}-train <span style="font-weight:400;color:#666;font-size:11px;">(Trains &amp; Phases screen)</span></h4>
+    <h4>${train.name || '?'}-train <span style="font-weight:400;color:var(--text-muted);font-size:11px;">(Trains &amp; Phases screen)</span></h4>
     <table style="border-collapse:collapse;margin-bottom:12px;">${rows}</table>
-    ${evts.length ? `<p style="color:#aaa;font-size:12px;">Events: ${evts.map(e => `<strong>${e.type}</strong>`).join(', ')}</p>` : ''}`;
+    ${evts.length ? `<p style="color:var(--text-secondary);font-size:12px;">Events: ${evts.map(e => `<strong>${e.type}</strong>`).join(', ')}</p>` : ''}`;
 }
 
 function renderPhaseReadOnly(phase) {
@@ -1454,11 +1454,11 @@ function renderPhaseReadOnly(phase) {
   const rows = Object.entries(phase)
     .filter(([k]) => k !== 'events')
     .map(([k, v]) => `<tr>
-      <td style="color:#888;padding:3px 16px 3px 0;font-size:11px;">${k}</td>
-      <td style="color:#ddd;font-size:12px;">${JSON.stringify(v)}</td>
+      <td style="color:var(--text-dim);padding:3px 16px 3px 0;font-size:11px;">${k}</td>
+      <td style="color:var(--text-primary);font-size:12px;">${JSON.stringify(v)}</td>
     </tr>`).join('');
   return `
-    <h4>Phase ${phase.name || '?'} <span style="font-weight:400;color:#666;font-size:11px;">(Trains &amp; Phases screen)</span></h4>
+    <h4>Phase ${phase.name || '?'} <span style="font-weight:400;color:var(--text-muted);font-size:11px;">(Trains &amp; Phases screen)</span></h4>
     <table style="border-collapse:collapse;">${rows}</table>`;
 }
 
@@ -1475,7 +1475,7 @@ function buildMechanicLog() {
     lines.push(`<div class="mech-warn-banner">⚠ ${netErrors.length} structural validation warning${netErrors.length > 1 ? 's' : ''} — click items below for details</div>`);
   }
 
-  lines.push('<p style="color:#666;font-size:12px;margin-bottom:16px;">Click any item on the left to edit it. This panel shows a summary of your current configuration.</p>');
+  lines.push('<p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">Click any item on the left to edit it. This panel shows a summary of your current configuration.</p>');
 
   lines.push('<h4>Game Flow</h4><ol>');
   const roundNames = {
@@ -1508,8 +1508,8 @@ function buildMechanicLog() {
       lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner">farrah / phases</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
     } else {
       // Scratch mode — counts only, no lock
-      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:#555">○</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
-      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:#555">○</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:var(--text-muted)">○</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:var(--text-muted)">○</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
     }
     lines.push('</div>');
   }
@@ -1567,7 +1567,7 @@ function renderTileLays(m) {
     ${renderSlotEditorOrNull(tl.byType && tl.byType.major, 'tileLays.byType.major')}
     <p class="mech-hint" style="margin-top:12px;">Override for minor corporations:</p>
     ${renderSlotEditorOrNull(tl.byType && tl.byType.minor, 'tileLays.byType.minor')}
-    <p class="mech-hint" style="margin-top:10px; color:#5a6a5a;">
+    <p class="mech-hint" style="margin-top:10px;">
       Color restrictions (e.g. 1822 minors capped at green) are phase-status flags
       (<code>minors_green_upgrade</code>) + a custom <code>step/tracker.rb</code>
       <code>potential_tiles</code> override — not expressible as a slot field.
