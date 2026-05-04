@@ -208,22 +208,6 @@ const KNOWN_STATUS = [
     label: 'No New Shorts',
     desc: 'Short selling is not permitted; existing shorts remain',
     tier: 'game_specific', effects: ['custom_ruby'] },
-  // ── Tier H: 1862 train kind limits ───────────────────────────────────────
-  { key: 'three_per',   label: '3 Per Kind',      desc: 'Limit of 3 trains of each kind (Freight/Local/Express)', tier: 'game_specific', effects: ['custom_ruby'] },
-  { key: 'two_per',     label: '2 Per Kind',       desc: 'Limit of 2 trains of each kind', tier: 'game_specific', effects: ['custom_ruby'] },
-  { key: 'three_total', label: '3 Total',           desc: 'Limit of 3 trains total across all kinds', tier: 'game_specific', effects: ['custom_ruby'] },
-  { key: 'first_rev',   label: 'First Offboard',   desc: 'First offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
-  { key: 'middle_rev',  label: 'Middle Offboard',  desc: 'Middle offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
-  { key: 'last_rev',    label: 'Last Offboard',    desc: 'Last offboard/port value used for revenue', tier: 'game_specific', effects: ['custom_ruby'] },
-  // ── Minor train limits (18EU) ─────────────────────────────────────────────
-  { key: 'minor_limit_one',
-    label: 'Minor Train Limit: 1',
-    desc: 'Minor companies are limited to owning 1 train',
-    tier: 'game_specific', effects: [] },
-  { key: 'minor_limit_two',
-    label: 'Minor Train Limit: 2',
-    desc: 'Minor companies are limited to owning 2 trains',
-    tier: 'game_specific', effects: [] },
   // ── 18ESP ────────────────────────────────────────────────────────────────
   { key: 'mountain_pass',
     label: 'Mountain Pass',
