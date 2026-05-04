@@ -4223,7 +4223,7 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
 }/* ── Layout ────────────────────────────────────────────────────────────────── */
 .mkt-view {
   flex: 1;
-  display: grid !important;
+  /* `display` is set inline by the nav-rail toggle in setup.js: 'grid' to show, 'none' to hide. */
   grid-template-columns: 240px minmax(0, 1fr) 308px;
   background: var(--mkt-page-bg);
   color: var(--mkt-text);

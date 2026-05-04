@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showMainView(which) {
     _inCanvasView = (which === 'canvas');
     canvasContainer.style.display  = which === 'canvas' ? 'block' : 'none';
-    marketView.style.display       = which === 'market' ? 'flex'  : 'none';
+    marketView.style.display       = which === 'market' ? 'grid'  : 'none';
     if (corpView)   corpView.style.display   = which === 'corps'  ? 'flex'  : 'none';
     if (trainsView) trainsView.style.display = which === 'trains' ? 'flex'  : 'none';
     tileManifestView.style.display = 'none'; // manifest has its own toggle
