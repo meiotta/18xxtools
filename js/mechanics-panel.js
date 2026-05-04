@@ -1494,17 +1494,24 @@ function buildMechanicLog() {
   lines.push('</ol>');
 
   const trains = state.trains || [];
-  if (trains.length) {
-    lines.push(`<h4>Trains (${trains.length})</h4><ul>`);
-    trains.forEach(t => lines.push(`<li><strong>${t.name || '?'}</strong>${t.cost !== undefined ? ' — $' + t.cost : ''}</li>`));
-    lines.push('</ul>');
-  }
-
   const phases = state.phases || [];
-  if (phases.length) {
-    lines.push(`<h4>Phases (${phases.length})</h4><ul>`);
-    phases.forEach(p => lines.push(`<li><strong>Phase ${p.name}</strong>${p.on ? ' — triggered by first ' + p.on + '-train' : ''}</li>`));
-    lines.push('</ul>');
+  const fm = m.functionMap || {};
+  const trainCount = trains.filter(t => !t.isVariant).length;
+  const phaseCount = phases.length;
+  if (trainCount || phaseCount || fm.TRAINS) {
+    const navLink = `<button class="mech-btn-small" style="margin-left:auto" onclick="document.querySelector('.nav-rail-btn[data-lsec=trains]')?.click()">Trains &amp; Phases →</button>`;
+    lines.push(`<h4 style="display:flex;align-items:center;gap:8px">Trains &amp; Phases ${navLink}</h4>`);
+    lines.push('<div class="mech-subsection" style="gap:4px">');
+    if (fm.TRAINS) {
+      // Imported via game.rb — show as locked provenance rows
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner">farrah / trains</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status">🔒</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner">farrah / phases</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
+    } else {
+      // Scratch mode — counts only, no lock
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:#555">○</span><span class="mech-net-name">TRAINS</span><span class="mech-net-owner" style="margin-left:auto">${trainCount} train${trainCount !== 1 ? 's' : ''}</span></div>`);
+      lines.push(`<div class="mech-net-row"><span class="mech-net-status" style="color:#555">○</span><span class="mech-net-name">PHASES</span><span class="mech-net-owner" style="margin-left:auto">${phaseCount} phase${phaseCount !== 1 ? 's' : ''}</span></div>`);
+    }
+    lines.push('</div>');
   }
 
   lines.push('<h4>Operating Round — Tile Lays</h4><ul>');

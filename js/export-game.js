@@ -1,4 +1,4 @@
-// js/export-game.js  v20260503e
+// js/export-game.js  v20260504a
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -307,7 +307,13 @@ function _grbPhaseHash(ph, state) {
     }
   }
 
-  kv.push(`train_limit: ${ph.limit || 4}`);
+  // train_limit: integer OR { minor: N, major: M } hash.
+  // ph.limitMinor (set by Farrah's parser) is non-null when source used hash form.
+  if (ph.limitMinor !== null && ph.limitMinor !== undefined) {
+    kv.push(`train_limit: { minor: ${ph.limitMinor}, major: ${ph.limit || 4} }`);
+  } else {
+    kv.push(`train_limit: ${ph.limit || 4}`);
+  }
 
   // Tiles: cumulative progression — ph.tiles stores highest accessible color.
   // Source: g_1830/game.rb PHASES (each phase includes all lower colors).
