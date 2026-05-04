@@ -16,6 +16,8 @@ function initMarketWizard() {
   if (!genBtn) return;
   genBtn.addEventListener('click', () => {
     const f = state.financials;
+    const beforeShape = _shapeKey(f.market);
+    const before = _snapshotMarket(f.market);
     if (f.marketType === '2D') {
       const rows = parseInt(document.getElementById('finMarketRows')?.value, 10) || f.marketRows || 8;
       const cols = parseInt(document.getElementById('finMarketCols')?.value, 10) || f.marketCols || 16;
@@ -26,12 +28,64 @@ function initMarketWizard() {
                   || 28;
       solveMarket1D(count);
     }
+    const afterShape = _shapeKey(f.market);
+    if (beforeShape !== afterShape) {
+      // Structural change: full re-render
+      if (typeof renderMarketEditor === 'function') renderMarketEditor();
+    } else {
+      _renderChangedCells(before, f.market);
+    }
+    if (typeof syncFinancialsUI === 'function') syncFinancialsUI();
+    if (typeof renderLegend === 'function') renderLegend();
+    if (typeof renderValidation === 'function') renderValidation();
+    if (typeof renderCellInspector === 'function') renderCellInspector();
+    if (typeof autosave === 'function') autosave();
     // Hidden legacy stubs for any code that still reads them
     const rStub = document.getElementById('wizRows');
     const cStub = document.getElementById('wizCols');
     if (rStub) rStub.value = state.financials.marketRows || rStub.value;
     if (cStub) cStub.value = state.financials.marketCols || cStub.value;
   });
+}
+
+function _shapeKey(market) {
+  if (!Array.isArray(market)) return 'none';
+  if (Array.isArray(market[0])) return `2d:${market.length}x${market[0].length}`;
+  return `1d:${market.length}`;
+}
+function _snapshotMarket(market) {
+  if (!Array.isArray(market)) return null;
+  if (Array.isArray(market[0])) return market.map(row => row.slice());
+  return market.slice();
+}
+function _renderChangedCells(before, after) {
+  if (!before || !after) return;
+  const oneD = !Array.isArray(after[0]);
+  if (oneD) {
+    for (let i = 0; i < after.length; i++) {
+      if (before[i] !== after[i] && typeof renderOneCell === 'function') {
+        renderOneCell(0, i);
+        _flashCell(0, i);
+      }
+    }
+  } else {
+    for (let r = 0; r < after.length; r++) {
+      for (let c = 0; c < after[r].length; c++) {
+        const wasV = (before[r] && before[r][c]) || '';
+        const isV  = after[r][c] || '';
+        if (wasV !== isV && typeof renderOneCell === 'function') {
+          renderOneCell(r, c);
+          _flashCell(r, c);
+        }
+      }
+    }
+  }
+}
+function _flashCell(r, c) {
+  const el = document.querySelector(`.mkt-cell[data-r="${r}"][data-c="${c}"]`);
+  if (!el) return;
+  el.classList.add('is-flash');
+  setTimeout(() => el.classList.remove('is-flash'), 480);
 }
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
@@ -147,11 +201,7 @@ function solveMarket2D(rows, cols) {
       f.market[r][c] = String(getPrev18xxPrice(above.price));
     }
   }
-
-  if (typeof syncFinancialsUI === 'function') syncFinancialsUI();
-  if (typeof renderMarketEditor === 'function') renderMarketEditor();
-  if (typeof renderCellInspector === 'function') renderCellInspector();
-  if (typeof autosave === 'function') autosave();
+  // Refresh handled by the click handler in initMarketWizard.
 }
 
 // ── 1D / zigzag solver ───────────────────────────────────────────────────────
@@ -213,10 +263,7 @@ function solveMarket1D(count) {
     }
   }
 
-  if (typeof syncFinancialsUI === 'function') syncFinancialsUI();
-  if (typeof renderMarketEditor === 'function') renderMarketEditor();
-  if (typeof renderCellInspector === 'function') renderCellInspector();
-  if (typeof autosave === 'function') autosave();
+  // Refresh handled by the click handler in initMarketWizard.
 }
 
 // ── Globals ──────────────────────────────────────────────────────────────────
