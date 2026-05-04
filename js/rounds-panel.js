@@ -460,7 +460,7 @@ function _renderRoundStepsSection(roundType, r) {
 
   // Add-step picker. Group placement is automatic via _stepIsBlocking().
   lines.push('  <div class="rounds-steps-picker" style="display:flex;gap:8px;align-items:center;margin-top:8px;">');
-  lines.push('    <select data-step-picker style="background:#1e1e1e;border:1px solid #444;border-radius:4px;color:#ddd;padding:4px 8px;font-size:12px;flex:1;max-width:380px;">');
+  lines.push('    <select data-step-picker style="background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;max-width:380px;">');
   lines.push('      <option value="">Select a step to add…</option>');
   Object.keys(_STEP_CATALOG).sort().forEach(cls => {
     const short = _stepShortName(cls);
@@ -484,10 +484,10 @@ function _renderStepPillGroupA(stepEntry, originalIdx, roundType) {
   const desc      = _STEP_CATALOG[stepEntry.class] || '';
   const canBlock  = stepEntry.class === 'Engine::Step::BuyCompany';
   const blocksOn  = !!(stepEntry.opts && stepEntry.opts.blocks);
-  return `<span class="rounds-step-pill" title="${desc}" style="display:inline-flex;align-items:center;gap:4px;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:14px;padding:3px 4px 3px 10px;font-size:11px;color:#ddd;">` +
+  return `<span class="rounds-step-pill" title="${desc}" style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-surface);border:1px solid var(--border);border-radius:14px;padding:3px 4px 3px 10px;font-size:11px;color:var(--text-primary);">` +
     `<span>${name}</span>` +
-    (canBlock ? `<button class="rounds-step-blocks-pill${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Promote to In-sequence with { blocks: true }" style="background:${blocksOn ? '#4338ca' : 'transparent'};border:1px solid ${blocksOn ? '#6366f1' : '#444'};color:${blocksOn ? '#fff' : '#888'};border-radius:10px;padding:0 6px;font-size:10px;cursor:pointer;line-height:14px;">blocks</button>` : '') +
-    `<button class="rounds-step-remove" data-skey="remove" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Remove" style="background:transparent;border:none;color:#888;font-size:14px;cursor:pointer;padding:0 4px;line-height:1;">×</button>` +
+    (canBlock ? `<button class="rounds-step-blocks-pill${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Promote to In-sequence with { blocks: true }" style="background:${blocksOn ? 'var(--accent)' : 'transparent'};border:1px solid ${blocksOn ? 'var(--accent)' : 'var(--border-mid)'};color:${blocksOn ? '#fff' : 'var(--text-dim)'};border-radius:10px;padding:0 6px;font-size:10px;cursor:pointer;line-height:14px;">blocks</button>` : '') +
+    `<button class="rounds-step-remove" data-skey="remove" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Remove" style="background:transparent;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:0 4px;line-height:1;">×</button>` +
   `</span>`;
 }
 
@@ -502,18 +502,18 @@ function _renderStepCardGroupB(stepEntry, originalIdx, roundType, visibleIdx, to
   const canBlock = stepEntry.class === 'Engine::Step::BuyCompany';
   const blocksOn = !!(stepEntry.opts && stepEntry.opts.blocks);
 
-  return `<li data-step-index="${originalIdx}" style="display:flex;align-items:center;gap:8px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:5px;padding:6px 10px;font-size:12px;color:#ddd;">` +
-    `<span style="color:#666;font-size:10px;width:14px;flex-shrink:0;text-align:right;">${visibleIdx + 1}</span>` +
+  return `<li data-step-index="${originalIdx}" style="display:flex;align-items:center;gap:8px;background:var(--bg-surface);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-size:12px;color:var(--text-primary);">` +
+    `<span style="color:var(--text-muted);font-size:10px;width:14px;flex-shrink:0;text-align:right;">${visibleIdx + 1}</span>` +
     `<span style="display:flex;flex-direction:column;gap:1px;">` +
-      `<button data-skey="move-up" data-round-type="${roundType}" data-step-index="${originalIdx}" ${isFirst ? 'disabled' : ''} title="Move up" style="background:transparent;border:1px solid #333;color:${isFirst ? '#333' : '#888'};border-radius:3px;padding:0 4px;font-size:9px;cursor:${isFirst ? 'default' : 'pointer'};line-height:11px;">▲</button>` +
-      `<button data-skey="move-down" data-round-type="${roundType}" data-step-index="${originalIdx}" ${isLast ? 'disabled' : ''} title="Move down" style="background:transparent;border:1px solid #333;color:${isLast ? '#333' : '#888'};border-radius:3px;padding:0 4px;font-size:9px;cursor:${isLast ? 'default' : 'pointer'};line-height:11px;">▼</button>` +
+      `<button data-skey="move-up" data-round-type="${roundType}" data-step-index="${originalIdx}" ${isFirst ? 'disabled' : ''} title="Move up" style="background:transparent;border:1px solid var(--border);color:${isFirst ? 'var(--border)' : 'var(--text-dim)'};border-radius:3px;padding:0 4px;font-size:9px;cursor:${isFirst ? 'default' : 'pointer'};line-height:11px;">▲</button>` +
+      `<button data-skey="move-down" data-round-type="${roundType}" data-step-index="${originalIdx}" ${isLast ? 'disabled' : ''} title="Move down" style="background:transparent;border:1px solid var(--border);color:${isLast ? 'var(--border)' : 'var(--text-dim)'};border-radius:3px;padding:0 4px;font-size:9px;cursor:${isLast ? 'default' : 'pointer'};line-height:11px;">▼</button>` +
     `</span>` +
     `<span style="font-weight:500;">${name}</span>` +
-    (desc ? ` <span style="color:#888;font-size:11px;">— ${desc}</span>` : '') +
-    (optsStr ? ` <span style="color:#7a7a7a;font-family:monospace;font-size:10px;">{ ${optsStr} }</span>` : '') +
+    (desc ? ` <span style="color:var(--text-dim);font-size:11px;">— ${desc}</span>` : '') +
+    (optsStr ? ` <span style="color:var(--text-muted);font-family:monospace;font-size:10px;">{ ${optsStr} }</span>` : '') +
     `<span style="margin-left:auto;display:flex;gap:4px;">` +
-      (canBlock ? `<button class="rounds-step-blocks-pill${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Toggle { blocks: true }" style="background:${blocksOn ? '#4338ca' : 'transparent'};border:1px solid ${blocksOn ? '#6366f1' : '#444'};color:${blocksOn ? '#fff' : '#888'};border-radius:10px;padding:1px 8px;font-size:10px;cursor:pointer;">${blocksOn ? 'blocks ✓' : 'blocks'}</button>` : '') +
-      `<button data-skey="remove" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Remove" style="background:transparent;border:1px solid #4a2a2a;color:#c88;border-radius:3px;padding:1px 8px;font-size:11px;cursor:pointer;">×</button>` +
+      (canBlock ? `<button class="rounds-step-blocks-pill${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Toggle { blocks: true }" style="background:${blocksOn ? 'var(--accent)' : 'transparent'};border:1px solid ${blocksOn ? 'var(--accent)' : 'var(--border-mid)'};color:${blocksOn ? '#fff' : 'var(--text-dim)'};border-radius:10px;padding:1px 8px;font-size:10px;cursor:pointer;">${blocksOn ? 'blocks ✓' : 'blocks'}</button>` : '') +
+      `<button data-skey="remove" data-round-type="${roundType}" data-step-index="${originalIdx}" title="Remove" style="background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:3px;padding:1px 8px;font-size:11px;cursor:pointer;">×</button>` +
     `</span>` +
   `</li>`;
 }
@@ -658,17 +658,17 @@ function _refreshRbPreviewIfOpen() {
 const _WIZARD_PROSE = {
   initial: `<p>The Initial round runs once at game start. Players acquire the private companies that will be available — by bidding (1830), drafting (1846), or face-value purchase (1822 bidbox). The round ends when every private has an owner.</p>
             <p>Most games inherit the engine default (Waterfall Auction). Change the round class above only if your game uses a different startup mechanism — draft, certificate selection, or a fully custom flow.</p>
-            <p style="color:#888;font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
+            <p style="color:var(--text-dim);font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
   stock: `<p>Stock rounds let players buy and sell company shares, par new corporations, and (in some games) exchange privates for shares of their linked majors.</p>
           <p>The order of actions matters less here — most stock-round steps are non-blocking interrupts. A player may declare bankruptcy, exchange a company, or trigger a private's special ability at any point during their turn.</p>
-          <p style="color:#888;font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
+          <p style="color:var(--text-dim);font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
   operating: `<p>Operating rounds are the heart of every 18xx game. Each company in turn lays track, places station tokens, runs trains, pays or withholds dividends, and buys new trains.</p>
               <p>The <strong>blocking sequence</strong> below (Track → Token → Route → Dividend → Buy Train, etc.) is the play timeline — a company resolves each step in order before the round moves on. The <strong>interrupt menu</strong> above (Bankruptcy, Exchange, Special Track/Token, early BuyCompany, DiscardTrain) is available throughout — a player may take any of those actions at any moment during their turn.</p>
               <p>Bankruptcy isn't "first" in time — it's a non-blocking action available throughout. The button is always offered; the engine only allows it when the corp actually qualifies.</p>
-              <p style="color:#888;font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
+              <p style="color:var(--text-dim);font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
   merger: `<p>Merger rounds happen when game mechanics require companies to fold or combine — typically in 1817-style games. The structure depends entirely on the merger flow your game uses.</p>
            <p>Merger rounds are always game-specific; the engine has no default. You'll need a custom round subclass and a step list reflecting your particular merger flow.</p>
-           <p style="color:#888;font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
+           <p style="color:var(--text-dim);font-size:11px;font-style:italic;">Wizard prose is a placeholder. Anthony to co-author final copy.</p>`,
 };
 
 // Per-round wizard collapsed state. Module-local; not persisted to state.
@@ -697,14 +697,14 @@ function renderStepsPanelView() {
 
   view.innerHTML = [
     '<div style="max-width:980px;margin:0 auto;">',
-    `  <h2 style="margin:0 0 4px 0;font-weight:500;letter-spacing:.04em;color:#ddd;">Round Steps</h2>`,
+    `  <h2 style="margin:0 0 4px 0;font-weight:500;letter-spacing:.04em;color:var(--text-primary);">Round Steps</h2>`,
     `  <p class="mech-hint" style="margin:0 0 16px;">Configure the order of actions in each round. Empty step lists fall through to base.rb defaults.</p>`,
     `  <div class="corp-tab-bar" style="margin-bottom:0;">`,
          _ROUND_SUB_TABS.map(t =>
            `    <button type="button" class="corp-tab-btn${t.id === activeTab ? ' active' : ''}" data-rounds-tab="${t.id}">${t.label}</button>`
          ).join('\n'),
     '  </div>',
-    `  <div style="border:1px solid var(--border, #2a2a2a);border-top:none;border-radius:0 0 6px 6px;padding:18px 20px;background:var(--bg-panel, #161616);">`,
+    `  <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:18px 20px;background:var(--bg-elevated);">`,
          _renderWizardCard(activeTab, r),
          _renderRoundClassSection(activeTab, r),
          _renderRoundStepsSection(activeTab, r),
@@ -728,12 +728,12 @@ function _renderWizardCard(roundType, _r) {
     </div>`;
   }
 
-  return `<div style="margin-bottom:18px;background:#16213a;border:1px solid #2a3a5a;border-left:4px solid #4a6dc7;border-radius:5px;padding:12px 14px;">
+  return `<div style="margin-bottom:18px;background:var(--accent-dim);border:1px solid var(--accent-dim);border-left:4px solid var(--accent);border-radius:5px;padding:12px 14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-      <strong style="color:#a5b4fc;font-size:13px;letter-spacing:.03em;">ⓘ How the ${label} works</strong>
+      <strong style="color:var(--accent);font-size:13px;letter-spacing:.03em;">ⓘ How the ${label} works</strong>
       <button class="mech-btn-small" data-wizard-toggle="${roundType}" title="Hide this explainer">Hide</button>
     </div>
-    <div style="color:#c8d4f0;font-size:12px;line-height:1.6;">${_WIZARD_PROSE[roundType] || ''}</div>
+    <div style="color:var(--text-secondary);font-size:12px;line-height:1.6;">${_WIZARD_PROSE[roundType] || ''}</div>
   </div>`;
 }
 
@@ -759,7 +759,7 @@ function _renderStepsPreviewPane(roundType, _r) {
   const escaped = body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<div style="margin-top:16px;">
     <div class="mech-slot-num" style="margin-bottom:6px;">Live preview — game.rb output for this round</div>
-    <pre style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:5px;padding:12px 14px;margin:0;font-family:monospace;font-size:11px;line-height:1.55;color:#bbb;overflow-x:auto;white-space:pre;">${escaped}</pre>
+    <pre style="background:var(--bg-card);border:1px solid var(--border);border-radius:5px;padding:12px 14px;margin:0;font-family:monospace;font-size:11px;line-height:1.55;color:var(--text-secondary);overflow-x:auto;white-space:pre;">${escaped}</pre>
   </div>`;
 }
 
