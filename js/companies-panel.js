@@ -63,11 +63,11 @@ function renderMinorsTable() {
   tbody.innerHTML = '';
   state.minors.forEach((co, idx) => {
     const tr = document.createElement('tr');
-    tr.style.borderBottom = '1px solid #333';
+    tr.style.borderBottom = '1px solid var(--border)';
 
     const needsHome = co.locationMechanism === 'fixed' && !co.homeHex;
     const warning = needsHome ? '<span title="Home Hex Required" style="color:#ff4444;margin-right:4px;cursor:help;">⚠️</span>' : '';
-    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:#444;margin-top:4px;font-size:10px;">${co.homeHex || 'Place'}</button>` : '<span style="color:#666;font-size:10px;">-</span>';
+    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:var(--border-mid);margin-top:4px;font-size:10px;">${co.homeHex || 'Place'}</button>` : '<span style="color:var(--text-secondary);font-size:10px;">-</span>';
 
     tr.innerHTML = `
       <td><input type="color" class="co-color"></td>
@@ -80,7 +80,7 @@ function renderMinorsTable() {
           <option value="choice">Choice</option>
           <option value="draft">Draft</option>
         </select>
-        ${co.locationMechanism === 'draft' ? `<div style="font-size:9px;color:#aaa;margin-top:2px;">Bid: $${co.minBid || 0}</div>` : ''}
+        ${co.locationMechanism === 'draft' ? `<div style="font-size:9px;color:var(--text-secondary);margin-top:2px;">Bid: $${co.minBid || 0}</div>` : ''}
       </td>
       <td><input type="number" class="co-tokens"></td>
       <td><button class="table-btn delete-btn" style="background: #8b0000;">x</button></td>
@@ -1115,7 +1115,7 @@ function renderTerrainCostsTable() {
   Object.entries(state.terrainCosts).forEach(([terrain, cost]) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td style="font-size:11px; color:#aaa; text-transform:capitalize; width:80px; padding:4px 0;">${terrain}</td>
+      <td style="font-size:11px; color:var(--text-secondary); text-transform:capitalize; width:80px; padding:4px 0;">${terrain}</td>
       <td><input type="number" value="${cost}" style="width:100%;"></td>
     `;
     tr.querySelector('input').addEventListener('change', (e) => {
@@ -1202,7 +1202,7 @@ function _buildColorPickerHTML(currentHex, prefix, colors) {
   const norm = (currentHex || '').toLowerCase();
   const chips = arr.map(c => {
     const sel = norm === c.hex.toLowerCase();
-    return `<button type="button" class="cp-color-chip" data-color="${c.hex}" title="${c.name}" style="background:${c.hex};${sel ? 'box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(0,0,0,0.6);' : ''}"></button>`;
+    return `<button type="button" class="cp-color-chip" data-color="${c.hex}" title="${c.name}" style="background:${c.hex};${sel ? 'box-shadow:0 0 0 2px var(--chip-ring),0 0 0 4px rgba(0,0,0,0.6);' : ''}"></button>`;
   }).join('');
   const display = currentHex || '#336699';
   return `<div class="cp-color-pick-wrap">
@@ -1235,7 +1235,7 @@ function _wireColorPicker(container, prefix, onChange) {
       trigger.style.background = hex;
       trigger.title = hex;
       popout.querySelectorAll('.cp-color-chip').forEach(c => c.style.boxShadow = '');
-      chip.style.boxShadow = '0 0 0 2px #fff,0 0 0 4px rgba(0,0,0,0.6)';
+      chip.style.boxShadow = '0 0 0 2px var(--chip-ring),0 0 0 4px rgba(0,0,0,0.6)';
       popout.classList.remove('cp-color-open');
       onChange(hex);
     });
