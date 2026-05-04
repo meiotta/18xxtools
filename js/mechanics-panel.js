@@ -1671,7 +1671,10 @@ function describeTileLaySlots(slots) {
 function identifyCustomRubyRequired() {
   const items = [];
   if (typeof state === 'undefined' || !state.mechanics) return items;
-  const m = state.mechanics;
+  const m             = state.mechanics;
+  const orSteps       = m.orSteps       || {};
+  const merger        = m.merger        || {};
+  const nationalization = m.nationalization || {};
   const knownTypes = new Set(KNOWN_EVENTS.map(e => e.type));
   (state.trains || []).forEach(t => {
     (t.events || []).forEach(ev => {
@@ -1679,12 +1682,12 @@ function identifyCustomRubyRequired() {
         items.push(`event_${ev.type}! handler — triggered by ${t.name}-train purchase`);
     });
   });
-  if (m.orSteps.minorAcquisition) items.push('G<game>::Step::MinorAcquisition');
-  if (m.orSteps.priceProtection)  items.push('G<game>::Step::PriceProtection');
-  if (m.orSteps.loanOperations)   items.push('G<game>::Step::LoanOperations + Engine::Loan');
-  if (m.merger.enabled && m.merger.style === 'nationalization') items.push('nationalize!(corp) + G<game>::Round::Merger');
-  else if (m.merger.enabled) items.push('G<game>::Step::Merge + G<game>::Round::Merger');
-  if (m.nationalization.enabled) items.push('nationalize!(corp) + custom G<game>::Round::Operating');
+  if (orSteps.minorAcquisition) items.push('G<game>::Step::MinorAcquisition');
+  if (orSteps.priceProtection)  items.push('G<game>::Step::PriceProtection');
+  if (orSteps.loanOperations)   items.push('G<game>::Step::LoanOperations + Engine::Loan');
+  if (merger.enabled && merger.style === 'nationalization') items.push('nationalize!(corp) + G<game>::Round::Merger');
+  else if (merger.enabled) items.push('G<game>::Step::Merge + G<game>::Round::Merger');
+  if (nationalization.enabled) items.push('nationalize!(corp) + custom G<game>::Round::Operating');
   if ((m.revenueBonuses || []).length > 0) items.push('revenue_for(route, stops) override');
   return items;
 }
