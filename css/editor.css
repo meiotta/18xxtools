@@ -4779,4 +4779,186 @@ div.auc-row > .auc-num:focus { outline: none; border-color: var(--accent); }
   box-shadow: 0 0 0 2px var(--mkt-accent-soft);
   border-radius: 2px;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DIVIDEND RULES MODAL (rendered by js/dividend-rules.js, mounted from
+   the Steps panel's Dividend step card).  Themed via mkt-* custom properties
+   so dark and light both look right.
+════════════════════════════════════════════════════════════════════════════ */
+
+.rounds-step-rules {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--mkt-input-bg);
+  border: 1px solid var(--mkt-input-border);
+  color: var(--mkt-text-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.rounds-step-rules:hover { border-color: var(--mkt-accent); color: var(--mkt-accent); }
+.rounds-step-rules.active {
+  background: var(--mkt-accent-soft);
+  border-color: var(--mkt-accent);
+  color: var(--mkt-accent);
+}
+
+.dr-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+[data-theme="light"] .dr-overlay { background: rgba(0,0,0,0.35); }
+
+.dr-modal {
+  width: 560px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  background: var(--mkt-panel-bg);
+  border: 1px solid var(--mkt-border-strong);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--mkt-shadow);
+  color: var(--mkt-text);
+  font-size: 13px;
+}
+
+.dr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--mkt-border);
+  flex-shrink: 0;
+}
+.dr-head h3 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+.dr-close {
+  background: none;
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--mkt-text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.dr-close:hover { color: var(--mkt-text); }
+.dr-close:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--mkt-accent-soft); border-radius: 3px; }
+
+.dr-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+.dr-section { margin-bottom: 16px; }
+.dr-section:last-child { margin-bottom: 0; }
+.dr-section-title {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--mkt-text-label);
+}
+.dr-section.dr-disabled { opacity: 0.45; pointer-events: none; }
+
+.dr-help {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--mkt-text-faint);
+  line-height: 1.45;
+}
+.dr-help em { color: var(--mkt-text-muted); font-style: italic; }
+.dr-help code { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; padding: 1px 3px; background: var(--mkt-input-bg); border-radius: 2px; }
+.dr-muted { color: var(--mkt-text-faint); }
+
+.dr-select, .dr-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  background: var(--mkt-input-bg);
+  border: 1px solid var(--mkt-input-border);
+  border-radius: 4px;
+  color: var(--mkt-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+  box-sizing: border-box;
+}
+.dr-select:focus, .dr-input:focus {
+  border-color: var(--mkt-accent);
+  box-shadow: 0 0 0 2px var(--mkt-accent-soft);
+}
+
+.dr-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--mkt-text);
+  cursor: pointer;
+  user-select: none;
+}
+.dr-toggle input { accent-color: var(--mkt-accent); cursor: pointer; }
+
+.dr-floor-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.dr-floor-row .dr-select { width: 110px; }
+.dr-floor-row .dr-input  { width: auto; }
+
+.dr-preview-section { margin-top: 8px; }
+.dr-preview {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--mkt-input-bg);
+  border: 1px solid var(--mkt-input-border);
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, "Source Code Pro", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mkt-text);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.dr-preview-extra { margin-top: 8px; }
+
+.dr-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--mkt-border);
+  flex-shrink: 0;
+}
+.dr-btn {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--mkt-input-bg);
+  border: 1px solid var(--mkt-input-border);
+  border-radius: 4px;
+  color: var(--mkt-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.dr-btn:hover { border-color: var(--mkt-border-strong); }
+.dr-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--mkt-accent-soft); }
+.dr-btn-primary {
+  background: var(--mkt-accent);
+  border-color: var(--mkt-accent);
+  color: #1a1500;
+}
+[data-theme="light"] .dr-btn-primary { color: #fff; }
+.dr-btn-primary:hover { filter: brightness(1.08); }
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      

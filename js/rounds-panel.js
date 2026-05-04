@@ -417,6 +417,11 @@ function _renderStepCardEditable(stepEntry, index, roundType, total) {
   const blocksOn = !!(stepEntry.opts && stepEntry.opts.blocks);
   const isFirst  = index === 0;
   const isLast   = index === total - 1;
+  // The Dividend step gets a "Rules" button that opens the dividend-rules modal.
+  // Owned by the market SME (js/dividend-rules.js); state lives on stepEntry.priceMovement.
+  const isDividend = stepEntry.class === 'Engine::Step::Dividend' || /::Dividend$/.test(stepEntry.class || '');
+  const ruleBadge  = isDividend && typeof priceMovementBadge === 'function'
+    ? priceMovementBadge(stepEntry) : null;
 
   return `<li class="rounds-step-card" data-step-index="${index}">` +
     `<span class="rounds-step-reorder">` +
@@ -426,6 +431,9 @@ function _renderStepCardEditable(stepEntry, index, roundType, total) {
     `<span class="rounds-step-name">${name}</span>` +
     (desc ? ` <span class="rounds-step-desc">— ${desc}</span>` : '') +
     (optsStr ? ` <span class="rounds-step-opts">{ ${optsStr} }</span>` : '') +
+    (isDividend
+      ? `<button class="rounds-step-rules${ruleBadge ? ' active' : ''}" data-skey="edit-rules" data-round-type="${roundType}" data-step-index="${index}" title="Configure price movement and half-pay">Rules${ruleBadge ? `: ${ruleBadge}` : ''}</button>`
+      : '') +
     `<button class="rounds-step-blocks${blocksOn ? ' active' : ''}" data-skey="toggle-blocks" data-round-type="${roundType}" data-step-index="${index}" title="Toggle { blocks: true } — gates round progression on explicit pass (e.g. 1830 OR's trailing BuyCompany)">${blocksOn ? 'blocks ✓' : 'blocks'}</button>` +
     `<button class="rounds-step-remove" data-skey="remove" data-round-type="${roundType}" data-step-index="${index}" title="Remove">×</button>` +
   `</li>`;
@@ -530,6 +538,18 @@ function onRoundsStepAction(e) {
         entry.opts = opts;
       }
       break;
+    }
+    case 'edit-rules': {
+      // Open the dividend rules modal (owned by js/dividend-rules.js).
+      if (Number.isNaN(idx) || idx < 0 || idx >= slot.steps.length) return;
+      const entry = slot.steps[idx];
+      if (typeof openDividendRulesModal !== 'function') return;
+      openDividendRulesModal(entry, () => {
+        if (typeof autosave === 'function') autosave();
+        if (typeof renderRoundsPanel === 'function') renderRoundsPanel();
+        if (typeof _refreshRbPreviewIfOpen === 'function') _refreshRbPreviewIfOpen();
+      });
+      return;  // modal manages its own state — don't fall through to autosave/render
     }
     default:
       return;  // unknown action — no-op rather than throw
