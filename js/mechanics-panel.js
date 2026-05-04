@@ -582,7 +582,7 @@ function buildFramework() {
       id: 'trains', label: 'Trains',
       empty: trains.length === 0 ? { label: 'No trains defined — use Trains & Phases screen', status: 'red' } : null,
       items: trains.filter(t => !t._isSpecial).map(t => {
-        const ok = t.name && t.cost !== undefined && t.distance !== undefined;
+        const ok = t.name && t.cost !== undefined && t.distType !== undefined;
         const dynTag = t.dynamic ? ' · dynamic' : '';
         return { id: 'train_' + t.name, label: (t.name || '?') + '-train', value: (t.cost !== undefined ? '$' + t.cost : '?') + dynTag, status: ok ? 'green' : (t.name ? 'amber' : 'red') };
       }),
