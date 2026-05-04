@@ -285,7 +285,6 @@ function applyCellStyle(cellEl, r, c, val) {
     cellEl.style.setProperty('--c-bg', color);
     const lightBg = _isLightColor(color);
     cellEl.style.setProperty('--c-fg', lightBg ? '#1a1a1a' : '#fff');
-    if (!lightBg) cellEl.classList.add('is-fg-light');
   }
 
   // Single-letter mark for the most-significant secondary
