@@ -951,7 +951,15 @@ function importRubyMap(content) {
 
 function _rbExtractArray(src, name) {
   const marker = name + ' =';
-  const idx = src.indexOf(marker);
+  let searchFrom = 0, idx = -1;
+  while (true) {
+    const found = src.indexOf(marker, searchFrom);
+    if (found === -1) break;
+    // reject if immediately preceded by a word char (e.g. PRIVATE_TRAINS matching TRAINS)
+    if (found > 0 && /\w/.test(src[found - 1])) { searchFrom = found + 1; continue; }
+    idx = found;
+    break;
+  }
   if (idx === -1) return '';
   let i = src.indexOf('[', idx + marker.length);
   if (i === -1) return '';
