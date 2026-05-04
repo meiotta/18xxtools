@@ -9,13 +9,13 @@
 // where every constant and method in the file is accounted for:
 //
 //   known constant  → { type: 'const', emit, default, value }
-//   ref constant    → { type: 'ref',   agent, stateKey, ... }
+//   ref constant    → { type: 'ref',   stateKey, ... }
 //   known method    → { type: 'method', template, params }
 //   anything else   → { type: 'raw',   ruby, label, hint }
 //
 // This file owns:
-//   FM_SCHEMA   — master schema for every constant Evan's panel controls
-//   FM_REFS     — cross-agent ref declarations (TRAINS/PHASES/COMPANIES/…)
+//   FM_SCHEMA   — master schema for every constant the mechanics panel controls
+//   FM_REFS     — external module ref declarations (TRAINS/PHASES/COMPANIES/…)
 //   _rbBuildFunctionMap(src) → functionMap object
 //
 // Load order: after mechanics-panel.js (needs initMechanicsState).
@@ -251,7 +251,7 @@ function _parseStatusTextVal(raw) {
 }
 
 // ── FM_SCHEMA ─────────────────────────────────────────────────────────────────
-// Master schema for every constant that Evan's panel controls.
+// Master schema for every constant the mechanics panel controls.
 // Keys match the Ruby constant name exactly.
 // emit:    serializer key used by export-game.js
 // default: engine default — entry is omitted from export if value === default
@@ -298,21 +298,21 @@ const FM_SCHEMA = {
   'GAME_END_CHECK':                    { emit: 'gec_hash',           default: {},                     parse: _parseGecHashVal },
   // Phase status display
   'STATUS_TEXT':                       { emit: 'status_text_hash',   default: {},                     parse: _parseStatusTextVal },
-  // Mail contracts (Evan-owned special arrays)
+  // Mail contracts (special arrays)
   'PRIVATE_MAIL_CONTRACTS':            { emit: 'word_array',         default: [],                     parse: _parseWordArrVal },
   'PRIVATE_REMOVE_REVENUE':            { emit: 'word_array',         default: [],                     parse: _parseWordArrVal },
 };
 
 // ── FM_REFS ───────────────────────────────────────────────────────────────────
-// Constants owned by other agents. Recognised and stored as ref entries;
-// NOT passed through as raw.  Actual parsing is Farrah's / Jenny's responsibility.
+// Constants parsed by other modules. Recognised and stored as ref entries;
+// NOT passed through as raw.  Parsed by trains-panel.js / companies-panel.js.
 
 const FM_REFS = {
-  'TRAINS':       { agent: 'farrah', stateKey: 'trains',    serializer: 'trains' },
-  'PHASES':       { agent: 'farrah', stateKey: 'phases',    serializer: 'phases' },
-  'COMPANIES':    { agent: 'jenny',  stateKey: 'privates',  serializer: 'privates' },
-  'CORPORATIONS': { agent: 'jenny',  stateKey: 'corpPacks', filter: 'major', serializer: 'corporations' },
-  'MINORS':       { agent: 'jenny',  stateKey: 'corpPacks', filter: 'minor', serializer: 'corporations' },
+  'TRAINS':       { stateKey: 'trains',    serializer: 'trains' },
+  'PHASES':       { stateKey: 'phases',    serializer: 'phases' },
+  'COMPANIES':    { stateKey: 'privates',  serializer: 'privates' },
+  'CORPORATIONS': { stateKey: 'corpPacks', filter: 'major', serializer: 'corporations' },
+  'MINORS':       { stateKey: 'corpPacks', filter: 'minor', serializer: 'corporations' },
 };
 
 // Constants that are structurally required by the file but carry no designer

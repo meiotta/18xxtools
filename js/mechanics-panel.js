@@ -1,5 +1,5 @@
 // mechanics-panel.js
-// Evan's domain: game mechanics taxonomy, OR structure, structural net validation.
+// Covers: game mechanics taxonomy, OR structure, structural net validation.
 // Reads from: state.mechanics (own state slice), state.trains, state.phases,
 //             state.companies, state.minors, state.privates, state.hexes, state.market.
 // Does NOT touch: renderer.js, palette.js, companies-panel.js, state.js, io.js, import-ruby.js.
@@ -875,14 +875,14 @@ function renderMechanicsRight() {
   el.querySelectorAll('[data-mkey]').forEach(input => {
     input.addEventListener('change', onMechanicsInputChange);
   });
-  // Rounds panel writers (rounds-panel.js — Tim PR1a)
+  // Rounds panel writers (rounds-panel.js)
   el.querySelectorAll('[data-rkey]').forEach(input => {
     if (typeof onRoundsInputChange === 'function') input.addEventListener('change', onRoundsInputChange);
   });
   el.querySelectorAll('[data-rounds-tab]').forEach(btn => {
     if (typeof onRoundsTabClick === 'function') btn.addEventListener('click', onRoundsTabClick);
   });
-  // Rounds steps actions (rounds-panel.js — Addy PR1c): add/remove/reorder/toggle-blocks
+  // Rounds steps actions (rounds-panel.js): add/remove/reorder/toggle-blocks
   el.querySelectorAll('[data-skey]').forEach(btn => {
     if (typeof onRoundsStepAction === 'function') btn.addEventListener('click', onRoundsStepAction);
   });
