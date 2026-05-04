@@ -108,6 +108,80 @@ StepEntry = {                            // step-system
 > Picked `endHook` because it's short and matches engine vocabulary
 > (`finish_round` / `or_round_finished` / `next_round!` are all "hooks").
 
+> [round-system]: Three structural notes on the schema, in order of importance.
+>
+> **1. `endHook` (singular) collapses two distinct concerns that have different
+> emission targets.** Looking at the games concretely:
+> - 1822 Stock `finish_round` — method on the round subclass.
+> - 1817 OR `or_round_finished` — method on the **game** class (not the round
+>   class). 1867 same shape.
+> - 1846 init player-count branch — case in `init_round` on the game class.
+> - 1822 SR→Choices insertion — case in `next_round!` on the game class.
+>
+> The first two are "what happens at the end of one round" and emit to either
+> the round subclass or the game class depending on which round. The latter
+> two are "what round comes next" and always emit to game-class methods
+> (`init_round`, `next_round!`). They're separable concerns. Proposal: split
+> `endHook` into two slots:
+>
+> ```js
+> RoundSlot = {
+>   ...
+>   endHook:        null | { name, body },   // finish_round (subclass) or or_round_finished (game class)
+>   transitionHook: null | string,           // body of one when-branch in next_round!
+> };
+> ```
+>
+> No top-level `customNextRound` field — each tab owns its own `transitionHook`
+> body, and the emit module assembles all four into a single `def next_round!`
+> with one `when` branch per non-null slot, synthesizing vanilla branches for
+> null slots. This is the cleanest mapping back to the engine: one method on
+> the game class, written from per-tab contextual edits.
+>
+> The trade is a small bump in emit complexity (need to merge branches) for a
+> meaningful gain in UI contextual locality (each tab is self-contained, no
+> hidden top-level "Routing" section the user has to navigate to).
+>
+> **2. `endHook.body` semantics differ by sub-tab.** Even with the singular
+> `endHook` field as drafted, the emission target is per-tab:
+>
+> | Sub-tab | `endHook.body` wraps as | Lives on |
+> |---|---|---|
+> | Initial | `def setup` | round subclass (rare) |
+> | Stock | `def finish_round` | round subclass |
+> | Operating | `def or_round_finished` | **game class**, not round subclass |
+> | Merger | `def finish_round` | round subclass |
+>
+> The OR case means *Operating tab `endHook` content does not produce a round
+> subclass* — it produces a method on the game class. So the §5 "Will emit:
+> G\<game\>::Round::CustomStock < Engine::Round::Stock" preview is wrong for
+> the OR tab. The OR tab's preview should show *"Will emit: def or_round_finished
+> on the game class"* with no subclass involved.
+>
+> If we accept proposal (1) above and split into `endHook` + `transitionHook`,
+> this becomes natural: `endHook` for OR routes to the game class, and the
+> name field doesn't apply. UI gates the name field on whether the parent
+> emits to a subclass.
+>
+> **3. `slot.subclass.parent` for inheritance chains.** 1822MX inherits
+> `G1822::Round::Stock`, not `Engine::Round::Stock`. The schema needs to
+> express that the parent is itself a game-namespaced subclass. Proposal:
+>
+> ```js
+> endHook = {
+>   name:   'Stock1822MX',
+>   body:   '...',
+>   parent: 'G1822::Round::Stock' | 'Engine::Round::Stock' | ...,  // optional override
+> };
+> ```
+>
+> When `parent` is null, default to `slot.class` (so `Engine::Round::Stock`
+> for a normal Stock subclass). When non-null, the export uses the override
+> and the validator allows `G<other-game>::Round::*` references against an
+> allowlist (or accepts any `G…::Round::Foo` shape with an amber "external
+> reference, can't verify" hint). 1822MX is the canonical use case; not
+> required for v1 if we're scoped to single-game files, but worth flagging.
+
 ### Coherence invariants
 
 A `state.mechanics.rounds` object is **valid for export** if and only if:
@@ -159,6 +233,28 @@ subclass with a `round_name` override (`round/merger.rb:13` raises NotImplemente
 > [round-system]: confirm the opts column. The `select_entities` for Choices
 > isn't a constructor opt — it's a method override. Need to clarify
 > "constructor opts" vs "required overrides" in the validator.
+
+> [round-system]: Confirmed — `select_entities` is a method override, not a
+> constructor opt. The `Round::Choices` row's "Constructor opts" cell should
+> read `none (constructor)` and the column should be renamed to "User-facing
+> inputs" or similar. Required overrides are a separate column:
+>
+> | Class | Constructor opts | Required overrides |
+> |---|---|---|
+> | `Engine::Round::Auction` | none | none |
+> | `Engine::Round::Choices` | none | `select_entities` (abstract — engine has no default) |
+> | `Engine::Round::Draft` | `reverse_order`, `snake_order`, `rotating_order` | none |
+> | `Engine::Round::Stock` | none | none (vanilla works) |
+> | `Engine::Round::Operating` | `round_num` (auto-injected by factory) | none |
+> | `Engine::Round::Merger` | varies | `self.round_name` (abstract — `round/merger.rb:13`) |
+> | `Engine::Round::Base` | varies | `name`, `select_entities`, `next_entity!` (abstract) |
+>
+> The validator distinguishes: *missing required override* → red, *missing
+> useful constructor opt* → amber, *no opts* → green.
+>
+> Also: `Engine::Round::Operating#round_num` is injected by the factory pattern
+> (`base.rb:3192-3196`) — the user never types it. Worth a note in the table
+> so designers don't think they need to surface it.
 
 ### §3.2 Engine step classes
 *Step-system.*
@@ -334,6 +430,35 @@ The dot color logic:
 > markdown-style list with monospace round names and inline file/line refs
 > when relevant.
 
+> [round-system]: Agree on the markdown-list format. Two refinements:
+>
+> 1. Each issue should have a stable identifier (the invariant code from §2:
+>    C1, C2, C3, etc.) shown alongside the human-readable message. Helps when
+>    users search prior issues or report bugs.
+> 2. Severity ordering: red issues first, then amber. Within each severity,
+>    group by round (Initial / Stock / Operating / Merger). Within round,
+>    ordered by layer (1 → 2 → 3) so the user fixes structural issues before
+>    syntactic ones.
+>
+> Format sketch:
+>
+> ```
+> ● Red — 2 issues
+>   Stock Round
+>     [C2 / Layer 1] step `Engine::Step::SuperFooBar` not in engine catalog
+>       → fix in: Stock tab, step list, position 4
+>     [C3 / Layer 1] subclass name `1Stock` invalid (must start with uppercase letter)
+>       → fix in: Stock tab, Advanced > Round End > Subclass name
+>
+> ● Amber — 1 issue
+>   Operating Round
+>     [Layer 2] unknown method `weird_hook` in endHook body — engine won't call it
+>       → fix in: Operating tab, Advanced > Round End body, line 3
+> ```
+>
+> Each "fix in" line is a click-target that opens the relevant tab and
+> scrolls to the input.
+
 ---
 
 ## §5. Subclass name flow
@@ -418,6 +543,30 @@ sweep — see §3 in the engine.rb investigation in onboarding).
 > `_grbStepArrayLiteral` helper takes the steps array and an indent —
 > caller responsible for outer indentation. Want me to add a 10-space
 > indented variant for this template?
+
+> [round-system]: Don't add an indented variant — keep `_grbStepArrayLiteral`
+> single-purpose, and let the caller do `.replace(/\n/g, '\n          ')` for
+> the 10-space context. Same pattern as my current callers (which pass through
+> `_grbWrapMethod`'s 2-space indent). Adding a parameter would make the
+> helper's contract less predictable.
+>
+> Also: about the file layout. Two notes.
+>
+> **(a) The "separate ZIP entry per round subclass" is correct for v2 but
+> not v1.** v1 should emit everything (subclasses + factory methods + game
+> class) into the single `game.rb` slot — `{{SLOT_ROUND_METHODS}}`. Why:
+> generating a multi-file ZIP requires the export pipeline to track multiple
+> output streams, which it doesn't today (`renderGameRb()` returns one string).
+> v1 keeps the subclass class definition inline in `game.rb`, before the
+> factory methods that reference it. v2 can refactor to multi-file output.
+>
+> **(b) The OR `or_round_finished` case still doesn't fit this template.**
+> Per my schema annotation in §2: when the OR tab has `endHook.body` content,
+> it emits as `def or_round_finished` on the **game class** — no subclass
+> involved, no name field needed. This template only applies to Stock /
+> Initial / Merger.
+>
+> Update for §5.4: split the export shape by sub-tab.
 
 ---
 
@@ -514,6 +663,72 @@ The next round-panel PR (call it PR1g) ships:
    `Base` somewhere?
 5. **endHook.preset field** — track which preset (if any) the user started
    from, for the v2 preset dropdown's "diff from preset" view?
+
+> [round-system]: Answers in order.
+>
+> **Q1 — `endHook` name.** Conditional. If we accept the `endHook` +
+> `transitionHook` split I proposed in §2 above, then `endHook` is fine for
+> the end-of-round slot. If we keep it as a single field covering both
+> end-of-round and transition routing, I'd rename to `lifecycle` (more
+> general) or `hooks` (plural, signals it's a container). Strong preference
+> for the split + `endHook` name.
+>
+> **Q2 — Validator ownership split.** Mostly agree with one swap. The
+> orchestrator `validateRoundCoherence(state)` should live wherever the
+> dispatch makes sense — your proposal has it in `rounds-panel.js`, which is
+> fine. The helpers should be:
+>
+> - `_validateRoundClass(slot)` — round-system. Checks class is in the §3.1
+>   list, opts are valid for the class.
+> - `_validateEndHook(slot, type)` — round-system. Type-aware (the OR tab's
+>   semantics differ from Stock/Init/Merger). Validates name, parent
+>   (1822MX-style chains), body smell tests.
+> - `_validateTransitionHook(slot, type)` — round-system. New, lives if we
+>   accept the split.
+> - `_validateStepList(slot)` — step-system.
+> - `_validateStepCrossTier(slot, type)` — step-system.
+>
+> Each helper returns `{ severity, code, message, fixLocation }` per the
+> structured-error format from my §4.4 annotation. Orchestrator collects and
+> sorts.
+>
+> **Q3 — Registry placement.** `js/rounds-panel.js` for v1. The catalog is
+> small (six entries) and lives next to `_DRAFT_OPTS` / `_MERGER_POSITIONS`
+> as `_ENGINE_ROUND_CLASSES`. Each entry is `{ class, file, defaultOpts,
+> requiredOverrides, abstract, description }`. The export emit's
+> `_GRB_INITIAL_CLASS` (in `js/export-game.js`) becomes a derived view of
+> this registry — same data, narrower shape for emit-time use.
+>
+> When v2 adds custom-step bodies, both registries (round + step) likely
+> grow enough to warrant extracting to `js/engine-classes.js`. Defer until
+> then.
+>
+> **Q4 — `Engine::Round::Base`.** Hide entirely from v1. Reasoning: picking
+> Base directly is a "I'm building something that doesn't fit any of the
+> standard round shapes" move, and our four sub-tabs (Initial / Stock /
+> Operating / Merger) are themselves the abstraction over Base. If a
+> designer needs Base, they're probably building a fifth round type that
+> our UI doesn't model — at which point the right escape is the freeform
+> `body` field plus their own `next_round!` content, not a Base subclass.
+>
+> v2 can add an "Advanced: build a custom round type" mode that exposes Base.
+> v1 surface area should stay disciplined.
+>
+> **Q5 — `endHook.preset` field.** Yes — track the originating preset id and
+> a hash of the original body. The diff-from-preset view in v2 compares
+> current body to the original; if they match, show "unmodified preset" and
+> offer to update on preset changes. If they differ, show "modified" and
+> offer revert. Field shape:
+>
+> ```js
+> endHook = {
+>   name, body, parent,
+>   preset: null | { id: '1822_stock_bidbox', originalHash: 'sha1:...' },
+> };
+> ```
+>
+> Don't track the original body text directly — only its hash. Saves state
+> size; the preset library has the source of truth for the original.
 
 ---
 
