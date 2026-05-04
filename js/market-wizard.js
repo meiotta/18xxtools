@@ -1,139 +1,228 @@
-// ─── ADVANCED MARKET DESIGNER (SOLVER) ────────────────────────────────────────
-// Handles generating market prices while respecting manual Locks.
+// ─── MARKET WIZARD (price solver) ─────────────────────────────────────────────
+// Generates prices across the market, respecting locks and existing values.
+// Works for all three market shapes:
+//   2D     — interpolate row 0, propagate down with the standard 18xx step ladder.
+//   1D     — interpolate the single strip from min to max, preserving locks.
+//   zigzag — same as 1D price-wise.
+//
+// 18xx step ladder used by the propagator and by 1D interpolation snapping:
+//   < 100        → step 5
+//   100..200     → step 10
+//   200..500     → step 20
+//   > 500        → step 50
 
 function initMarketWizard() {
   const genBtn = document.getElementById('wizGenerateBtn');
-  if (genBtn) {
-    genBtn.addEventListener('click', () => {
-      // Read from the main grid dimension inputs — no duplicate fields
-      const rows = parseInt(document.getElementById('finMarketRows')?.value) || state.financials.marketRows || 8;
-      const cols = parseInt(document.getElementById('finMarketCols')?.value) || state.financials.marketCols || 16;
-      // Also sync the hidden stubs so any legacy code reading wizRows/wizCols still works
-      const rStub = document.getElementById('wizRows');
-      const cStub = document.getElementById('wizCols');
-      if (rStub) rStub.value = rows;
-      if (cStub) cStub.value = cols;
-      solveMarket(rows, cols);
-    });
-  }
+  if (!genBtn) return;
+  genBtn.addEventListener('click', () => {
+    const f = state.financials;
+    if (f.marketType === '2D') {
+      const rows = parseInt(document.getElementById('finMarketRows')?.value, 10) || f.marketRows || 8;
+      const cols = parseInt(document.getElementById('finMarketCols')?.value, 10) || f.marketCols || 16;
+      solveMarket2D(rows, cols);
+    } else {
+      const count = parseInt(document.getElementById('finMarketCount')?.value, 10)
+                  || (Array.isArray(f.market) ? f.market.length : 0)
+                  || 28;
+      solveMarket1D(count);
+    }
+    // Hidden legacy stubs for any code that still reads them
+    const rStub = document.getElementById('wizRows');
+    const cStub = document.getElementById('wizCols');
+    if (rStub) rStub.value = state.financials.marketRows || rStub.value;
+    if (cStub) cStub.value = state.financials.marketCols || cStub.value;
+  });
 }
 
-function solveMarket(rows, cols) {
-  state.financials.marketRows = rows;
-  state.financials.marketCols = cols;
-  
-  // Initialize grid if empty or wrong size
-  if (!state.financials.market || state.financials.market.length !== rows) {
-    state.financials.market = Array.from({length: rows}, () => Array(cols).fill(''));
-  }
-
-  // ── Step 1: Solve Row 0 (Interpolation) ─────────────────────────────────────
-  let row0 = state.financials.market[0];
-  if (row0.length !== cols) row0 = Array(cols).fill('');
-
-  // Anchors = explicitly locked cells OR any cell that already has a value.
-  // This ensures Generate never overwrites work the user has already done.
-  const locks0 = [];
-  for (let c = 0; c < cols; c++) {
-    const v = (row0[c] || '').trim();
-    if (v || state.financials.locks[`0,${c}`]) {
-      locks0.push({ col: c, val: parseInt(v) || 0 });
-    }
-  }
-
-  // If no anchors at all in row 0, use Min/Max from the wizard inputs
-  if (locks0.length === 0) {
-    const min = parseInt(document.getElementById('wizMin').value) || 40;
-    const max = parseInt(document.getElementById('wizMax').value) || 400;
-    row0[0] = min.toString();
-    row0[cols - 1] = max.toString();
-    locks0.push({ col: 0, val: min });
-    locks0.push({ col: cols - 1, val: max });
-  } else {
-    // Ensure we have a left edge: if first anchor is not col 0, extrapolate back
-    if (locks0[0].col > 0) {
-      const rightAnchor = locks0[0];
-      // Use the Min input as the implied left edge if available
-      const min = parseInt(document.getElementById('wizMin').value) || 40;
-      locks0.unshift({ col: 0, val: min });
-      row0[0] = min.toString();
-    }
-    // Ensure a right edge
-    if (locks0[locks0.length - 1].col < cols - 1) {
-      const max = parseInt(document.getElementById('wizMax').value) || 400;
-      locks0.push({ col: cols - 1, val: max });
-      row0[cols - 1] = max.toString();
-    }
-  }
-
-  // Fill gaps between anchors in Row 0
-  for (let i = 0; i < locks0.length - 1; i++) {
-    const start = locks0[i];
-    const end = locks0[i+1];
-    const steps = end.col - start.col;
-    if (steps <= 0) continue;
-
-    const diff = end.val - start.val;
-    const avgJump = diff / steps;
-
-    for (let c = start.col + 1; c < end.col; c++) {
-      // Skip cells the user already filled
-      if ((row0[c] || '').trim()) continue;
-      const distFromStart = c - start.col;
-      let p = start.val + (avgJump * distFromStart);
-      p = roundTo18xxIncrement(p);
-      row0[c] = p.toString();
-    }
-  }
-  state.financials.market[0] = row0;
-
-  // ── Step 2: Solve Lower Rows (Propagation) ──────────────────────────────────
-  for (let r = 1; r < rows; r++) {
-    const taper = r; // Standard staircase (each row is 1 shorter than above)
-    const activeCols = cols - taper;
-
-    for (let c = 0; c < cols; c++) {
-      // Respect manual locks and any existing value the user typed
-      if (state.financials.locks[`${r},${c}`]) continue;
-      if ((state.financials.market[r][c] || '').trim()) continue;
-
-      if (c >= activeCols) {
-        state.financials.market[r][c] = '';
-        continue;
-      }
-
-      const valAbove = parseInt(state.financials.market[r-1][c]) || 0;
-      if (valAbove > 0) {
-        state.financials.market[r][c] = getPrev18xxPrice(valAbove).toString();
-      } else {
-        state.financials.market[r][c] = '';
-      }
-    }
-  }
-
-  syncFinancialsUI();
-  renderMarketEditor();
-  autosave();
-}
-
+// ── Math helpers ─────────────────────────────────────────────────────────────
 function roundTo18xxIncrement(p) {
-  // Snap to nearest 5 or 10
   if (p < 100) return Math.round(p / 5) * 5;
   if (p < 300) return Math.round(p / 10) * 10;
   return Math.round(p / 20) * 20;
 }
-
 function getPrev18xxPrice(p) {
-  let jump = 5;
-  if (p > 500) jump = 50;
-  else if (p > 200) jump = 20;
-  else if (p > 100) jump = 10;
-  else jump = 5;
-
-  return Math.max(0, p - jump);
+  let step = 5;
+  if (p > 500) step = 50;
+  else if (p > 200) step = 20;
+  else if (p > 100) step = 10;
+  return Math.max(0, p - step);
 }
 
-function validateMarketFlow() {
-  // Scans grid for anomalies (handled in the render loop styleMarketInput)
-  // But we could add a high-level report here if needed.
+function _readMinMax() {
+  return {
+    min: parseInt(document.getElementById('wizMin')?.value, 10) || 40,
+    max: parseInt(document.getElementById('wizMax')?.value, 10) || 400,
+  };
 }
+
+// Cell raw read/write that preserves the cell's flag suffix.
+// Generate only fills empty cells and unlocked cells; it never touches flagged ones with values.
+function _writeNewPrice(rawSlot, newPrice) {
+  // rawSlot may be '' (empty) or '<digits>[flags]'. We only write if empty.
+  // Caller checks lock; here we just produce the new string.
+  const cell = parseCell(rawSlot);
+  if (cell.price != null) return rawSlot;
+  return String(newPrice);
+}
+
+// ── 2D solver ────────────────────────────────────────────────────────────────
+function solveMarket2D(rows, cols) {
+  const f = state.financials;
+  f.marketType = '2D';
+  f.marketRows = rows;
+  f.marketCols = cols;
+
+  // Initialize grid if shape mismatches
+  if (!Array.isArray(f.market) || !Array.isArray(f.market[0]) ||
+      f.market.length !== rows || f.market[0].length !== cols) {
+    const oldFlat = (f.market || []).flat ? f.market.flat() : [];
+    f.market = Array.from({ length: rows }, () => Array(cols).fill(''));
+    // Best-effort restore of values into top-left corner
+    let i = 0;
+    for (let r = 0; r < rows && i < oldFlat.length; r++) {
+      for (let c = 0; c < cols && i < oldFlat.length; c++) {
+        if (typeof oldFlat[i] === 'string') f.market[r][c] = oldFlat[i];
+        i++;
+      }
+    }
+  }
+
+  // Step 1 — Row 0 interpolation between anchors.
+  let row0 = f.market[0];
+  const anchors = [];
+  for (let c = 0; c < cols; c++) {
+    const cell = parseCell(row0[c]);
+    if (cell.price != null || f.locks[`0,${c}`]) {
+      anchors.push({ col: c, val: cell.price != null ? cell.price : (parseInt(f.locks[`0,${c}`], 10) || 0) });
+    }
+  }
+
+  if (anchors.length === 0) {
+    const { min, max } = _readMinMax();
+    row0[0]        = String(min);
+    row0[cols - 1] = String(max);
+    anchors.push({ col: 0, val: min });
+    anchors.push({ col: cols - 1, val: max });
+  } else {
+    // Extrapolate to ends if anchors don't cover them
+    if (anchors[0].col > 0) {
+      const { min } = _readMinMax();
+      row0[0] = String(min);
+      anchors.unshift({ col: 0, val: min });
+    }
+    if (anchors[anchors.length - 1].col < cols - 1) {
+      const { max } = _readMinMax();
+      row0[cols - 1] = String(max);
+      anchors.push({ col: cols - 1, val: max });
+    }
+  }
+
+  // Fill gaps between adjacent anchors with linear interpolation, snapped to the 18xx ladder.
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i], b = anchors[i + 1];
+    const span = b.col - a.col;
+    if (span <= 1) continue;
+    const inc = (b.val - a.val) / span;
+    for (let c = a.col + 1; c < b.col; c++) {
+      const cur = parseCell(row0[c]);
+      if (cur.price != null) continue; // never overwrite an existing value
+      const v = roundTo18xxIncrement(a.val + inc * (c - a.col));
+      row0[c] = String(v);
+    }
+  }
+
+  // Step 2 — propagate down. Each lower row tapers by 1 column from the right.
+  for (let r = 1; r < rows; r++) {
+    const activeCols = cols - r;
+    for (let c = 0; c < cols; c++) {
+      if (c >= activeCols) {
+        // Outside staircase: leave any existing flagged cell alone, but blank empties remain blank.
+        continue;
+      }
+      if (f.locks[`${r},${c}`]) continue;
+      const cur = parseCell(f.market[r][c]);
+      if (cur.price != null) continue;
+      const above = parseCell(f.market[r - 1][c]);
+      if (above.price == null) continue;
+      f.market[r][c] = String(getPrev18xxPrice(above.price));
+    }
+  }
+
+  if (typeof syncFinancialsUI === 'function') syncFinancialsUI();
+  if (typeof renderMarketEditor === 'function') renderMarketEditor();
+  if (typeof renderCellInspector === 'function') renderCellInspector();
+  if (typeof autosave === 'function') autosave();
+}
+
+// ── 1D / zigzag solver ───────────────────────────────────────────────────────
+// `count` is the desired strip length. The strip is interpolated from min→max,
+// stepping along the 18xx ladder. Locked / pre-filled cells anchor.
+function solveMarket1D(count) {
+  const f = state.financials;
+  // Keep marketType as-is (1D or zigzag)
+  if (f.marketType === '2D') f.marketType = '1D';
+
+  // Coerce shape to flat array
+  if (!Array.isArray(f.market) || Array.isArray(f.market[0])) {
+    f.market = Array(count).fill('');
+  } else if (f.market.length !== count) {
+    const next = Array(count).fill('');
+    for (let i = 0; i < Math.min(count, f.market.length); i++) next[i] = f.market[i];
+    f.market = next;
+  }
+
+  // Anchors
+  const anchors = [];
+  for (let i = 0; i < count; i++) {
+    const cell = parseCell(f.market[i]);
+    if (cell.price != null || f.locks[`0,${i}`]) {
+      anchors.push({ idx: i, val: cell.price != null ? cell.price : (parseInt(f.locks[`0,${i}`], 10) || 0) });
+    }
+  }
+
+  if (anchors.length === 0) {
+    const { min, max } = _readMinMax();
+    f.market[0]         = String(min);
+    f.market[count - 1] = String(max);
+    anchors.push({ idx: 0, val: min });
+    anchors.push({ idx: count - 1, val: max });
+  } else {
+    if (anchors[0].idx > 0) {
+      const { min } = _readMinMax();
+      f.market[0] = String(min);
+      anchors.unshift({ idx: 0, val: min });
+    }
+    if (anchors[anchors.length - 1].idx < count - 1) {
+      const { max } = _readMinMax();
+      f.market[count - 1] = String(max);
+      anchors.push({ idx: count - 1, val: max });
+    }
+  }
+
+  // Fill gaps
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i], b = anchors[i + 1];
+    const span = b.idx - a.idx;
+    if (span <= 1) continue;
+    const inc = (b.val - a.val) / span;
+    for (let k = a.idx + 1; k < b.idx; k++) {
+      const cur = parseCell(f.market[k]);
+      if (cur.price != null) continue;
+      const v = roundTo18xxIncrement(a.val + inc * (k - a.idx));
+      f.market[k] = String(v);
+    }
+  }
+
+  if (typeof syncFinancialsUI === 'function') syncFinancialsUI();
+  if (typeof renderMarketEditor === 'function') renderMarketEditor();
+  if (typeof renderCellInspector === 'function') renderCellInspector();
+  if (typeof autosave === 'function') autosave();
+}
+
+// ── Globals ──────────────────────────────────────────────────────────────────
+window.initMarketWizard = initMarketWizard;
+window.solveMarket = solveMarket2D;     // legacy alias
+window.solveMarket2D = solveMarket2D;
+window.solveMarket1D = solveMarket1D;
+window.roundTo18xxIncrement = roundTo18xxIncrement;
+window.getPrev18xxPrice = getPrev18xxPrice;
