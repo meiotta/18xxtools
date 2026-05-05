@@ -58,6 +58,24 @@ function _rbCashNum(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '_');
 }
 
+// MARKET row → Ruby literal. Picks %w[…] when every cell is non-empty and
+// contains no whitespace/quotes (the safe characters for a %w array). Falls
+// back to ['', 'cell', …] when the row contains LEADING empties (1822-style
+// sparse top rows). Trailing empties are trimmed — tobymao's convention is
+// variable-length rows where missing right-side columns simply don't exist.
+function _grbMarketRow(row) {
+  let cells = (row || []).map(c => c == null ? '' : String(c));
+  // Strip trailing empties so the emitted row matches tobymao source shape.
+  while (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+  if (cells.length === 0) return '[]';
+  const hasEmpty = cells.some(c => c === '');
+  const hasUnsafe = cells.some(c => /[\s'"]/.test(c));
+  if (!hasEmpty && !hasUnsafe) {
+    return '%w[' + cells.join(' ') + ']';
+  }
+  return '[' + cells.map(c => `'${c.replace(/'/g, "\\'")}'`).join(', ') + ']';
+}
+
 // ── Tile-lay slot → Ruby hash literal ────────────────────────────────────────
 // Mirrors slotToRuby() that used to live in mechanics-panel.js.
 // Keys sourced from lib/engine/step/tracker.rb:34-45.
@@ -695,6 +713,59 @@ const _GRB_MODULES = [
     },
   },
 
+  // ── Market ──────────────────────────────────────────────────────────────────
+  // Emits MARKET = [...].freeze from state.financials.market.
+  // Row form follows tobymao convention:
+  //   • %w[a b c]      when no row cell is empty (1830, 1846, 1862 typical rows)
+  //   • ['', 'a', '', 'b']  when the row contains empty cells (1822 sparse top rows)
+  // For 1D / zigzag markets (state.financials.market is a flat array), wrap as
+  // a single-row 2D so the array literal matches the engine's `market.map.with_index`.
+  // Also emits init_stock_market override when marketType is 'zigzag' or hex_market
+  // is set, since those movement classes are opt-in via the constructor (not a constant).
+  {
+    id: 'market',
+    emit(state) {
+      const f = state.financials || {};
+      const m = f.market;
+      if (!Array.isArray(m) || m.length === 0) return null;
+
+      const rows = Array.isArray(m[0]) ? m : [m];   // promote 1D to single-row 2D
+      const lines = ['MARKET = ['];
+      rows.forEach((row, i) => {
+        lines.push('  ' + _grbMarketRow(row) + (i < rows.length - 1 ? ',' : ''));
+      });
+      lines.push('].freeze');
+      const out = { market: lines.join('\n') };
+
+      // Movement-class override.  For zigzag, pass `zigzag: true` and
+      // `ledge_movement: true` (which we capture on import). For hex_market,
+      // pass `hex_market: true`. Standard 2D / 1D inherit the engine default.
+      const wantZigzag = f.marketType === 'zigzag';
+      const wantHex    = !!f.hexMarket;
+      if (wantZigzag || wantHex) {
+        const opts = [];
+        if (wantHex)    opts.push('hex_market: true');
+        if (wantZigzag) {
+          opts.push('zigzag: true');
+          if (f.ledgeMovement) opts.push('ledge_movement: true');
+        }
+        const body = `StockMarket.new(self.class::MARKET, self.class::CERT_LIMIT_TYPES, ${opts.join(', ')})`;
+        out.market += '\n\n' + `def init_stock_market\n  ${body}\nend`;
+      }
+
+      // pays_bonus_*: emit a stock_market_bonus method so the dividend step's
+      // bonus-cell ladder is wired. Skip when no pays_bonus values configured.
+      const bonus = f.bonusPerShare || {};
+      const bonusEntries = Object.entries(bonus).filter(([_, v]) => typeof v === 'number');
+      if (bonusEntries.length) {
+        const cases = bonusEntries.map(([flag, v]) => `  when :${flag}\n    ${v}`).join('\n');
+        out.market += '\n\n' + `def stock_market_bonus(corporation)\n  case corporation.share_price&.type\n${cases}\n  else\n    0\n  end\nend`;
+      }
+
+      return out;
+    },
+  },
+
   // ── Bank & Players ──────────────────────────────────────────────────────────
   {
     id: 'bank',
@@ -1073,6 +1144,9 @@ module Engine
 
         # ── Bank & Players ────────────────────────────────────────────────────
 {{SLOT_BANK}}
+
+        # ── Stock Market ──────────────────────────────────────────────────────
+{{SLOT_MARKET}}
 
         # ── Corporation Rules ─────────────────────────────────────────────────
 {{SLOT_CORP_RULES}}

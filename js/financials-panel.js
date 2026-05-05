@@ -666,6 +666,26 @@ function renderLegend() {
     item.appendChild(label);
     host.appendChild(item);
   }
+
+  // Par range — show the discoverable par prices derived from p/x/z/w/P-flagged
+  // cells. The companies panel can also call getParPrices() to constrain its
+  // parValue picker. Render only when at least one par cell exists.
+  if (typeof getParPrices === 'function') {
+    const pars = getParPrices(state.financials.market);
+    if (pars.length) {
+      const item = document.createElement('div');
+      item.className = 'mkt-legend-item mkt-legend-pars';
+      item.title = 'Companies par at one of these prices (set in Companies panel)';
+      const lbl = document.createElement('span');
+      lbl.style.fontWeight = '600';
+      lbl.textContent = 'Par prices:';
+      item.appendChild(lbl);
+      const vals = document.createElement('span');
+      vals.textContent = pars.join(' · ');
+      item.appendChild(vals);
+      host.appendChild(item);
+    }
+  }
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────
@@ -809,6 +829,7 @@ function applyTemplate1822() {
 function applyTemplate1862() {
   _applyTemplate({
     marketType: 'zigzag',
+    ledgeMovement: true,           // 1862 passes ledge_movement: true to StockMarket.new
     bank: 15000,
     market: ['0c','7i','14i','20i','26i','31i','36i','40','44','47','50','52','54p','56r','58p','60r','62p','65r','68p','71r','74p','78r','82p','86r','90p','95r','100p','105r','110r','116r','122r','128r','134r','142r','150r','158r','166r','174r','182r','191r','200r','210i','220i','232i','245i','260i','275i','292i','310i','330i','350i','375i','400j','430j','460j','495j','530j','570j','610j','655j','700j','750j','800j','850j','900j','950j','1000e'],
   });

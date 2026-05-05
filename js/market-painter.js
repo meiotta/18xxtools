@@ -203,8 +203,18 @@ function buildPaintPopover() {
   wrap.setAttribute('role', 'dialog');
   wrap.setAttribute('aria-label', 'Additional flag brushes');
 
+  // Show every flag NOT already represented in the toolbar. Source-of-truth for
+  // "in the toolbar" is the rendered DOM, so editing the toolbar HTML auto-adjusts
+  // the popover. Avoids the previous tier-2-only filter that left 4 tier-1 flags
+  // (par_1, repar, ignore_one_sale, pays_bonus) unreachable from any brush.
+  const inToolbar = new Set(
+    Array.from(document.querySelectorAll('.mkt-brush[data-brush]')).map(b => b.dataset.brush)
+  );
+
   for (const cat of BRUSH_CATEGORY_ORDER) {
-    const flags = Object.keys(FLAG_DEFS).filter(t => FLAG_DEFS[t].category === cat && FLAG_DEFS[t].tier === 2);
+    const flags = Object.keys(FLAG_DEFS).filter(t =>
+      FLAG_DEFS[t].category === cat && !inToolbar.has(t)
+    );
     if (flags.length === 0) continue;
     const sec = document.createElement('div');
     sec.className = 'mkt-popover-section';

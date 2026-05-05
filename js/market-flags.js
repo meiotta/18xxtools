@@ -198,6 +198,55 @@ function cellOrderedTypes(cell) {
     .map(t => ({ type: t, def: FLAG_DEFS[t] }));
 }
 
+// ── Par range derivation ────────────────────────────────────────────────────
+// Mirrors Engine::SharePrice::PAR_TYPES — the cell flags whose corporations
+// can par at this cell. Used by:
+//   • the companies panel to constrain / suggest valid parValue.
+//   • the bridge to populate @par_prices analogous to tobymao.
+//   • the market legend for at-a-glance "Par prices: 60, 70, 80…" display.
+const PAR_TYPES = ['par', 'par_overlap', 'par_1', 'par_2', 'par_3'];
+
+// Collect all par-eligible prices from the market grid. Accepts either a 2D
+// array-of-arrays or a 1D flat array; returns a sorted ascending unique number list.
+// Caller can then offer dropdown options or validate parValue ∈ list.
+function getParPrices(market) {
+  if (!market) return [];
+  const flat = Array.isArray(market[0]) ? market.flat() : market;
+  const set  = new Set();
+  for (const v of flat) {
+    if (!v) continue;
+    const cell = parseCell(v);
+    if (cell.price == null) continue;
+    if (cell.types.some(t => PAR_TYPES.includes(t))) set.add(cell.price);
+  }
+  return Array.from(set).sort((a, b) => a - b);
+}
+
+// Per-par-type breakdown — useful when a game has multiple par categories
+// (1822: 'par' for minors, 'par_1' for majors). Returns
+//   { par: [60, 70, 80], par_1: [100], ... }
+function getParPricesByType(market) {
+  if (!market) return {};
+  const flat = Array.isArray(market[0]) ? market.flat() : market;
+  const buckets = {};
+  for (const v of flat) {
+    if (!v) continue;
+    const cell = parseCell(v);
+    if (cell.price == null) continue;
+    for (const t of cell.types) {
+      if (PAR_TYPES.includes(t)) {
+        if (!buckets[t]) buckets[t] = new Set();
+        buckets[t].add(cell.price);
+      }
+    }
+  }
+  const out = {};
+  for (const [t, set] of Object.entries(buckets)) {
+    out[t] = Array.from(set).sort((a, b) => a - b);
+  }
+  return out;
+}
+
 // Brush definitions — buttons in the toolbar. Includes non-flag tools.
 // Order matters for layout. Tier 1 brushes go in the toolbar; tier 2 in the popover.
 const BRUSH_DEFS = {
@@ -237,3 +286,6 @@ window.setCellFlag = setCellFlag;
 window.toggleCellFlag = toggleCellFlag;
 window.cellStrSetFlag = cellStrSetFlag;
 window.cellStrToggleFlag = cellStrToggleFlag;
+window.PAR_TYPES = PAR_TYPES;
+window.getParPrices = getParPrices;
+window.getParPricesByType = getParPricesByType;
