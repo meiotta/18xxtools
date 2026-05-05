@@ -11,7 +11,7 @@
 #                    numbers; even-position rows (B,D,F,H,J,L,N,P,R,T) use odd.
 # Col range 2–72 for even-position rows; 1–71 for odd-position rows.
 #
-# Memphis = London-equivalent (6-slot L-hub, C50).
+# Memphis = London-equivalent (6-slot L-hub, Y6).
 # Minor capacity: 26 single-slot white cities + 4 Y-cities = 30 potential homes.
 # Tile manifest: deferred to separate design stage.
 
@@ -26,224 +26,224 @@ module Engine
 
         LOCATION_NAMES = {
           # Memphis hub
-          'C50' => 'Memphis',
+          'Y6' => 'Memphis',
 
           # Offboards
-          'A38' => 'Oklahoma City & St. Louis',
-          'A54' => 'Nashville & Knoxville',
-          'F71' => 'Atlanta',
-          'L71' => 'Tallahassee & Jacksonville',
-          'I4'  => 'El Paso & West Texas',
-          'T15' => 'Monterrey',
-          'T45' => 'Tampico & Veracruz',
+          'S2' => 'Oklahoma City & St. Louis',
+          'AA2' => 'Nashville & Knoxville',
+          'AJ11' => 'Atlanta',
+          'AJ23' => 'Tallahassee & Jacksonville',
+          'B17'  => 'El Paso & West Texas',
+          'H39' => 'Monterrey',
+          'W40' => 'Tampico & Veracruz',
 
           # Major cities (Y-label, pre-printed yellow)
-          'H27' => 'Dallas & Fort Worth',
-          'N33' => 'Houston',
-          'M50' => 'New Orleans',
-          'F61' => 'Birmingham',
+          'N15' => 'Dallas & Fort Worth',
+          'Q28' => 'Houston',
+          'Y26' => 'New Orleans',
+          'AE12' => 'Birmingham',
 
           # Minor company cities (26 total)
-          'C54' => 'Jackson, TN',
-          'D43' => 'Little Rock',
-          'D65' => 'Chattanooga',
-          'E62' => 'Huntsville',
-          'F43' => 'Pine Bluff',
-          'F53' => 'Tupelo',
-          'G48' => 'Vicksburg',
-          'H37' => 'Shreveport',
-          'H43' => 'Monroe',
-          'H49' => 'Jackson, MS',
-          'I58' => 'Meridian',
-          'I64' => 'Montgomery',
-          'J27' => 'Waco',
-          'J43' => 'Alexandria',
-          'J47' => 'Natchez',
-          'K52' => 'Hattiesburg',
-          'K60' => 'Mobile',
-          'L39' => 'Lake Charles',
-          'L47' => 'Baton Rouge',
-          'L61' => 'Pensacola',
-          'M24' => 'Austin',
-          'M36' => 'Beaumont',
-          'M44' => 'Lafayette',
-          'N19' => 'San Antonio',
-          'P23' => 'Corpus Christi',
-          'Q18' => 'Laredo',
+          'AA6' => 'Jackson, TN',
+          'V7' => 'Little Rock',
+          'AG8' => 'Chattanooga',
+          'AE10' => 'Huntsville',
+          'V11' => 'Pine Bluff',
+          'AA12' => 'Tupelo',
+          'X13' => 'Vicksburg',
+          'S16' => 'Shreveport',
+          'V15' => 'Monroe',
+          'Y16' => 'Jackson, MS',
+          'AC18' => 'Meridian',
+          'AF17' => 'Montgomery',
+          'N19' => 'Waco',
+          'V19' => 'Alexandria',
+          'X19' => 'Natchez',
+          'Z21' => 'Hattiesburg',
+          'AD21' => 'Mobile',
+          'T23' => 'Lake Charles',
+          'X23' => 'Baton Rouge',
+          'AE24' => 'Pensacola',
+          'L25' => 'Austin',
+          'R25' => 'Beaumont',
+          'V25' => 'Lafayette',
+          'J27' => 'San Antonio',
+          'L31' => 'Corpus Christi',
+          'I34' => 'Laredo',
 
           # Towns (no minor home, connectivity only)
-          'E56' => 'Corinth',
-          'G36' => 'Texarkana',
-          'G44' => 'Hot Springs',
-          'G56' => 'Columbus',
-          'G66' => 'Auburn',
-          'I22' => 'Tyler',
-          'I42' => 'Natchitoches',
-          'J63' => 'Selma',
-          'K34' => 'Lufkin',
-          'K66' => 'Demopolis',
-          'M56' => 'Biloxi',
-          'O34' => 'Galveston',
-          'S20' => 'Brownsville',
+          'AB9' => 'Corinth',
+          'R13' => 'Texarkana',
+          'V13' => 'Hot Springs',
+          'AB13' => 'Columbus',
+          'AG14' => 'Auburn',
+          'K18' => 'Tyler',
+          'U18' => 'Natchitoches',
+          'AF19' => 'Selma',
+          'Q22' => 'Lufkin',
+          'AG22' => 'Demopolis',
+          'AB25' => 'Biloxi',
+          'Q30' => 'Galveston',
+          'J37' => 'Brownsville',
         }.freeze
 
         HEXES = {
           white: {
             # ── Blank hexes — Row A (northern edge: TN / N. Arkansas) ──────────
-            %w[A28 A30 A32 A34 A36 A40 A42 A44 A46 A48 A50 A52 A56 A58 A60 A62
-               A64 A66 A68 A70] =>
+            %w[N1 O2 P1 Q2 R1 T1 U2 V1 W2 X1 Y2 Z1 AB1 AC2 AD1 AE2
+               AF1 AG2 AH1 AI2] =>
               '',
 
             # Row B
-            %w[B27 B29 B31 B33 B35 B37 B39 B41 B43 B45 B47 B49 B51 B53 B55
-               B57 B59 B61 B63 B65 B67 B69] =>
+            %w[N3 O4 P3 Q4 R3 S4 T3 U4 V3 W4 X3 Y4 Z3 AA4 AB3
+               AC4 AD3 AE4 AF3 AG4 AH3 AI4] =>
               '',
 
-            # Row C — minus C50 (Memphis) and C54 (Jackson TN)
-            %w[C26 C28 C30 C32 C34 C36 C38 C40 C42 C44 C46 C48 C52 C56 C58
-               C60 C62 C64 C66 C68 C70] =>
+            # Row C — minus Y6 (Memphis) and AA6 (Jackson TN)
+            %w[M6 N5 O6 P5 Q6 R5 S6 T5 U6 V5 W6 X5 Z5 AB5 AC6
+               AD5 AE6 AF5 AG6 AH5 AI6] =>
               '',
 
-            # Row D — minus D37/39 (Ozarks), D43 (LittleRock), D49 (river),
-            #          D65 (Chattanooga)
-            %w[D25 D27 D29 D31 D33 D35 D41 D45 D47 D51 D53 D55 D57 D59 D61
-               D63 D67 D69] =>
+            # Row D — minus S8/39 (Ozarks), V7 (LittleRock), Y8 (river),
+            #          AG8 (Chattanooga)
+            %w[M8 N7 O8 P7 Q8 R7 U8 W8 X7 Z7 AA8 AB7 AC8 AD7 AE8
+               AF7 AH7 AI8] =>
               '',
 
-            # Row E — minus E38/40 (Ozarks), E50 (river), E56 (Corinth town),
-            #          E62 (Huntsville), E64/66/68/70 (Appalachians)
-            %w[E22 E24 E26 E28 E30 E32 E34 E36 E42 E44 E46 E48 E52 E54 E58 E60] =>
+            # Row E — minus S10/40 (Ozarks), Y10 (river), AB9 (Corinth town),
+            #          AE10 (Huntsville), AF9/66/68/70 (Appalachians)
+            %w[K10 L9 M10 N9 O10 P9 Q10 R9 U10 V9 W10 X9 Z9 AA10 AC10 AD9] =>
               '',
 
-            # Row F — minus F37/39 (Ozarks), F43 (PineBluff), F51 (river),
-            #          F53 (Tupelo), F61 (Birmingham-Y), F65/67/69 (Appalachians),
-            #          F71 (Atlanta OB)
-            %w[F21 F23 F25 F27 F29 F31 F33 F35 F41 F45 F47 F49 F55 F57 F59 F63] =>
+            # Row F — minus S12/39 (Ozarks), V11 (PineBluff), Z11 (river),
+            #          AA12 (Tupelo), AE12 (Birmingham-Y), AG12/67/69 (Appalachians),
+            #          AJ11 (Atlanta OB)
+            %w[K12 L11 M12 N11 O12 P11 Q12 R11 U12 W12 X11 Y12 AB11 AC12 AD11 AF11] =>
               '',
 
-            # Row G — minus G36 (Texarkana), G44 (HotSprings), G48 (Vicksburg),
-            #          G56 (Columbus), G66 (Auburn), G68/70 (Appalachians)
-            %w[G20 G22 G24 G26 G28 G30 G32 G34 G38 G40 G42 G46 G50 G52 G54
-               G58 G60 G62 G64] =>
+            # Row G — minus R13 (Texarkana), V13 (HotSprings), X13 (Vicksburg),
+            #          AB13 (Columbus), AG14 (Auburn), AH13/70 (Appalachians)
+            %w[J13 K14 L13 M14 N13 O14 P13 Q14 S14 T13 U14 W14 Y14 Z13 AA14
+               AC14 AD13 AE14 AF13] =>
               '',
 
-            # Row H — minus H27 (Dallas-Y), H37 (Shreveport), H43 (Monroe),
-            #          H49 (JacksonMS), H51 (river)
-            %w[H19 H21 H23 H25 H29 H31 H33 H35 H39 H41 H45 H47 H53 H55 H57
-               H59 H61 H63 H65 H67 H69 H71] =>
+            # Row H — minus N15 (Dallas-Y), S16 (Shreveport), V15 (Monroe),
+            #          Y16 (JacksonMS), Z15 (river)
+            %w[J15 K16 L15 M16 O16 P15 Q16 R15 T15 U16 W16 X15 AA16 AB15 AC16
+               AD15 AE16 AF15 AG16 AH15 AI16 AJ15] =>
               '',
 
-            # Row I — minus I4 (ElPaso OB), I22 (Tyler), I42 (Natchitoches),
-            #          I50 (river), I58 (Meridian), I64 (Montgomery)
-            %w[I6 I8 I10 I12 I14 I16 I18 I20 I24 I26 I28 I30 I32 I34 I36 I38
-               I40 I44 I46 I48 I52 I54 I56 I60 I62 I66 I68 I70] =>
+            # Row I — minus B17 (ElPaso OB), K18 (Tyler), U18 (Natchitoches),
+            #          Y18 (river), AC18 (Meridian), AF17 (Montgomery)
+            %w[C18 D17 E18 F17 G18 H17 I18 J17 L17 M18 N17 O18 P17 Q18 R17 S18
+               T17 V17 W18 X17 Z17 AA18 AB17 AD17 AE18 AG18 AH17 AI18] =>
               '',
 
-            # Row J — minus J27 (Waco), J43 (Alexandria), J47 (Natchez),
-            #          J49 (river), J63 (Selma)
-            %w[J19 J21 J23 J25 J29 J31 J33 J35 J37 J39 J41 J45 J51 J53 J55
-               J57 J59 J61 J65 J67 J69 J71] =>
+            # Row J — minus N19 (Waco), V19 (Alexandria), X19 (Natchez),
+            #          Y20 (river), AF19 (Selma)
+            %w[J19 K20 L19 M20 O20 P19 Q20 R19 S20 T19 U20 W20 Z19 AA20 AB19
+               AC20 AD19 AE20 AG20 AH19 AI20 AJ19] =>
               '',
 
-            # Row K — minus K34 (Lufkin), K46 (bayou), K48 (river),
-            #          K52 (Hattiesburg), K60 (Mobile), K66 (Demopolis)
-            %w[K18 K20 K22 K24 K26 K28 K30 K32 K36 K38 K40 K42 K44 K50 K54
-               K56 K58 K62 K64 K68 K70] =>
+            # Row K — minus Q22 (Lufkin), W22 (bayou), X21 (river),
+            #          Z21 (Hattiesburg), AD21 (Mobile), AG22 (Demopolis)
+            %w[I22 J21 K22 L21 M22 N21 O22 P21 R21 S22 T21 U22 V21 Y22 AA22
+               AB21 AC22 AE22 AF21 AH21 AI22] =>
               '',
 
-            # Row L — minus L39 (LakeCharles), L43/45 (bayou), L47 (BatonRouge),
-            #          L49 (river), L61 (Pensacola), L71 (Florida OB)
-            %w[L17 L19 L21 L23 L25 L27 L29 L31 L33 L35 L37 L41 L51 L53 L55
-               L57 L59 L63 L65 L67 L69] =>
+            # Row L — minus T23 (LakeCharles), V23/45 (bayou), X23 (BatonRouge),
+            #          Y24 (river), AE24 (Pensacola), AJ23 (Florida OB)
+            %w[I24 J23 K24 L23 M24 N23 O24 P23 Q24 R23 S24 U24 Z23 AA24 AB23
+               AC24 AD23 AF23 AG24 AH23 AI24] =>
               '',
 
-            # Row M — minus M24 (Austin), M36 (Beaumont), M44 (Lafayette),
-            #          M50 (NewOrleans-Y), M56 (Biloxi)
-            %w[M14 M16 M18 M20 M22 M26 M28 M30 M32 M34 M38 M40 M42 M46 M48
-               M52 M54 M58 M60 M62 M64] =>
+            # Row M — minus L25 (Austin), R25 (Beaumont), V25 (Lafayette),
+            #          Y26 (NewOrleans-Y), AB25 (Biloxi)
+            %w[G26 H25 I26 J25 K26 M26 N25 O26 P25 Q26 S26 T25 U26 W26 X25
+               Z25 AA26 AC26 AD25 AE26 AF25] =>
               '',
 
-            # Row N — minus N19 (SanAntonio), N33 (Houston-Y),
-            #          N37/41/43 (swamp)
-            %w[N11 N13 N15 N17 N21 N23 N25 N27 N29 N31 N35 N39 N45 N47 N49
-               N51 N53 N55 N57 N59 N61 N63] =>
+            # Row N — minus J27 (SanAntonio), Q28 (Houston-Y),
+            #          S28/41/43 (swamp)
+            %w[F27 G28 H27 I28 K28 L27 M28 N27 O28 P27 R27 T27 W28 X27 Y28
+               Z27 AA28 AB27 AC28 AD27 AE28 AF27] =>
               '',
 
-            # Row O — minus O30/50/62 (blue Gulf), O34 (Galveston),
-            #          O38/40/42/46 (swamp)
-            %w[O10 O12 O14 O16 O18 O20 O22 O24 O26 O28 O32 O36 O44 O48 O52
-               O56 O58 O60 O64] =>
+            # Row O — minus O30/50/62 (blue Gulf), Q30 (Galveston),
+            #          S30/40/42/46 (swamp)
+            %w[E30 F29 G30 H29 I30 J29 K30 L29 M30 N29 P29 R29 V29 X29 Z29
+               AB29 AC30 AD29 AF29] =>
               '',
 
-            # Row P — minus P23 (CorpusChristi)
-            %w[P11 P13 P15 P17 P19 P21 P25 P27 P29 P31 P33 P35 P37 P39 P41
-               P43 P45 P47 P49 P51 P53 P55 P57 P59] =>
+            # Row P — minus L31 (CorpusChristi)
+            %w[F31 G32 H31 I32 J31 K32 M32 N31 O32 P31 Q32 R31 S32 T31 U32
+               V31 W32 X31 Y32 Z31 AA32 AB31 AC32 AD31] =>
               '',
 
-            # Row Q — minus Q18 (Laredo)
-            %w[Q8 Q10 Q12 Q14 Q16 Q20 Q22 Q24 Q26 Q28 Q30 Q32 Q34 Q36 Q38
-               Q40 Q42 Q44 Q46] =>
+            # Row Q — minus I34 (Laredo)
+            %w[D33 E34 F33 G34 H33 J33 K34 L33 M34 N33 O34 P33 Q34 R33 S34
+               T33 U34 V33 W34] =>
               '',
 
-            # Row R — minus R15/17 (Sierra Madre hills)
-            %w[R9 R11 R13 R19 R21 R23 R25 R27 R29 R31 R33 R35 R37 R39 R41
-               R43] =>
+            # Row R — minus H35/17 (Sierra Madre hills)
+            %w[E36 F35 G36 J35 K36 L35 M36 N35 O36 P35 Q36 R35 S36 T35 U36
+               V35] =>
               '',
 
-            # Row S — minus S14 (hill), S16 (mountain), S18 (hill), S20 (Brownsville)
-            %w[S8 S10 S12 S22 S24 S26 S28 S30 S32 S34 S36] =>
+            # Row S — minus G38 (hill), H37 (mountain), I38 (hill), J37 (Brownsville)
+            %w[D37 E38 F37 K38 L37 M38 N37 O38 P37 Q38 R37] =>
               '',
 
-            # Row T — minus T15 (Monterrey OB), T45 (Tampico OB)
-            %w[T9 T11 T13 T17 T19 T21 T23 T25 T27 T29 T31 T33 T35 T37 T39
-               T41 T43] =>
+            # Row T — minus H39 (Monterrey OB), W40 (Tampico OB)
+            %w[E40 F39 G40 I40 J39 K40 L39 M40 N39 O40 P39 Q40 R39 S40 T39
+               U40 V39] =>
               '',
 
             # Row U (southern Mexico fringe)
-            %w[U10 U12 U14 U16 U18 U20 U22 U24 U26 U28 U30 U32 U34 U36] =>
+            %w[E42 F41 G42 H41 I42 J41 K42 L41 M42 N41 O42 P41 Q42 R41] =>
               '',
 
             # ── Terrain: Mississippi River corridor ────────────────────────────
             # Blank crossing hexes between river cities — $40 to bridge.
-            %w[D49 F51 H51 I50 J49 K48 L49] =>
+            %w[Y8 Z11 Z15 Y18 Y20 X21 Y24] =>
               'upgrade=cost:40,terrain:river',
 
-            # E50: open river hex just south of Memphis
-            ['E50'] =>
+            # Y10: open river hex just south of Memphis
+            ['Y10'] =>
               'upgrade=cost:40,terrain:river',
 
             # ── Terrain: Ozark hills (NW Arkansas) ────────────────────────────
-            %w[D37 D39 F37 F39] =>
+            %w[S8 T7 S12 T11] =>
               'upgrade=cost:40,terrain:hill',
 
-            %w[E38 E40] =>
+            %w[S10 T9] =>
               'upgrade=cost:60,terrain:hill',
 
             # ── Terrain: Appalachian foothills / ridge (NE Alabama & Georgia) ──
-            %w[E64 F65 G68 G70 I70] =>
+            %w[AF9 AG12 AH13 AI14 AI18] =>
               'upgrade=cost:40,terrain:hill',
 
-            %w[E66 E68 E70 F67 F69] =>
+            %w[AG10 AH9 AI10 AH11 AI12] =>
               'upgrade=cost:80,terrain:mountain',
 
             # ── Terrain: Big Thicket / Louisiana bayou & swamp ────────────────
-            %w[N37 N41 N43 O38 O40 O42 O46] =>
+            %w[S28 U28 V27 S30 T29 U30 W30] =>
               'upgrade=cost:20,terrain:swamp',
 
-            %w[L43 L45 K46] =>
+            %w[V23 W24 W22] =>
               'upgrade=cost:20,terrain:swamp',
 
             # ── Terrain: Sierra Madre foothills (Northern Mexico) ─────────────
-            %w[R15 R17 S14 S18] =>
+            %w[H35 I36 G38 I38] =>
               'upgrade=cost:40,terrain:hill',
 
-            ['S16'] =>
+            ['H37'] =>
               'upgrade=cost:80,terrain:mountain',
 
             # ── Memphis — 6-slot London-equivalent hub ────────────────────────
             # Starts white with all six edges open; upgrades through the L-series.
             # upgrade=cost:20 models the Memphis rail bridge toll (Mississippi).
-            ['C50'] =>
+            ['Y6'] =>
               'city=revenue:20,groups:Memphis;city=revenue:20,groups:Memphis;' \
               'city=revenue:20,groups:Memphis;city=revenue:20,groups:Memphis;' \
               'city=revenue:20,groups:Memphis;city=revenue:20,groups:Memphis;' \
@@ -252,26 +252,26 @@ module Engine
               'upgrade=cost:20;label=L',
 
             # ── Minor company cities — plain ───────────────────────────────────
-            %w[C54 D43 E62 F43 F53 H37 H43 H49 I58 I64 J27 J43 K52 K60
-               L39 L61 M24 M36 M44 N19 P23 Q18] =>
+            %w[AA6 V7 AE10 V11 AA12 S16 V15 Y16 AC18 AF17 N19 V19 Z21 AD21
+               T23 AE24 L25 R25 V25 J27 L31 I34] =>
               'city=revenue:0',
 
             # Chattanooga: in the Appalachian foothills
-            ['D65'] =>
+            ['AG8'] =>
               'city=revenue:0;upgrade=cost:40,terrain:hill',
 
             # Cities on the Mississippi River (bridge cost applies)
-            ['G48'] =>
+            ['X13'] =>
               'city=revenue:0;upgrade=cost:40,terrain:river',
 
-            ['J47'] =>
+            ['X19'] =>
               'city=revenue:0;upgrade=cost:40,terrain:river',
 
-            ['L47'] =>
+            ['X23'] =>
               'city=revenue:0;upgrade=cost:40,terrain:river',
 
             # ── Towns ──────────────────────────────────────────────────────────
-            %w[E56 G36 G44 G56 G66 I22 I42 J63 K34 K66 M56 O34 S20] =>
+            %w[AB9 R13 V13 AB13 AG14 K18 U18 AF19 Q22 AG22 AB25 Q30 J37] =>
               'town=revenue:0',
           },
 
@@ -282,7 +282,7 @@ module Engine
             # Connects north toward Little Rock/Memphis (edge 0),
             # southeast toward Tyler/Houston (edge 2),
             # south toward Waco/San Antonio (edge 3).
-            ['H27'] =>
+            ['N15'] =>
               'city=revenue:30,slots:2;' \
               'path=a:0,b:_0;path=a:2,b:_0;path=a:3,b:_0;label=Y',
 
@@ -290,7 +290,7 @@ module Engine
             # Connects northwest toward Dallas (edge 5),
             # northeast toward Beaumont/New Orleans (edge 1),
             # south toward Gulf (edge 3).
-            ['N33'] =>
+            ['Q28'] =>
               'city=revenue:20,slots:1;' \
               'path=a:1,b:_0;path=a:3,b:_0;path=a:5,b:_0;label=Y',
 
@@ -298,7 +298,7 @@ module Engine
             # Connects north toward Memphis via the river (edge 0),
             # northwest toward Baton Rouge/Lafayette (edge 5),
             # east toward Mobile/Biloxi (edge 2).
-            ['M50'] =>
+            ['Y26'] =>
               'city=revenue:30,slots:2;' \
               'path=a:0,b:_0;path=a:2,b:_0;path=a:5,b:_0;label=Y',
 
@@ -306,7 +306,7 @@ module Engine
             # Connects west toward Memphis (edge 4),
             # north toward Nashville direction (edge 1),
             # south toward Montgomery (edge 3).
-            ['F61'] =>
+            ['AE12'] =>
               'city=revenue:30,slots:2;' \
               'path=a:1,b:_0;path=a:3,b:_0;path=a:4,b:_0;label=Y',
           },
@@ -315,37 +315,37 @@ module Engine
             # ── Offboards ──────────────────────────────────────────────────────
             #
             # Oklahoma City & St. Louis direction (north-central)
-            ['A38'] =>
+            ['S2'] =>
               'offboard=revenue:yellow_20|green_30|brown_40|gray_50,visit_cost:0;' \
               'path=a:3,b:_0,terminal:1',
 
             # Nashville & Knoxville (north-northeast — the primary Tennessee exit)
-            ['A54'] =>
+            ['AA2'] =>
               'offboard=revenue:yellow_30|green_40|brown_60|gray_80,visit_cost:0;' \
               'path=a:2,b:_0,terminal:1;path=a:3,b:_0,terminal:1',
 
             # Atlanta (east edge — major industrial market)
-            ['F71'] =>
+            ['AJ11'] =>
               'offboard=revenue:yellow_30|green_40|brown_60|gray_80,visit_cost:0;' \
               'path=a:0,b:_0,terminal:1;path=a:5,b:_0,terminal:1',
 
             # Tallahassee & Jacksonville (southeast edge — Florida coast)
-            ['L71'] =>
+            ['AJ23'] =>
               'offboard=revenue:yellow_20|green_30|brown_40|gray_60,visit_cost:0;' \
               'path=a:0,b:_0,terminal:1;path=a:1,b:_0,terminal:1',
 
             # El Paso & West Texas (west edge — transcontinental route)
-            ['I4'] =>
+            ['B17'] =>
               'offboard=revenue:yellow_10|green_20|brown_30|gray_40,visit_cost:0;' \
               'path=a:1,b:_0,terminal:1;path=a:2,b:_0,terminal:1',
 
             # Monterrey (south — Mexican interior market)
-            ['T15'] =>
+            ['H39'] =>
               'offboard=revenue:yellow_20|green_30|brown_50|gray_70,visit_cost:0;' \
               'path=a:0,b:_0,terminal:1;path=a:1,b:_0,terminal:1',
 
             # Tampico & Veracruz (south-central — Gulf of Mexico / Mexico routes)
-            ['T45'] =>
+            ['W40'] =>
               'offboard=revenue:yellow_20|green_30|brown_40|gray_50,visit_cost:0;' \
               'path=a:3,b:_0,terminal:1;path=a:4,b:_0,terminal:1',
           },
@@ -358,10 +358,10 @@ module Engine
             ['O30'] =>
               'junction;path=a:0,b:_0,terminal:1',
 
-            ['O50'] =>
+            ['Y30'] =>
               'junction;path=a:0,b:_0,terminal:1',
 
-            ['O62'] =>
+            ['AE30'] =>
               'junction;path=a:0,b:_0,terminal:1',
           },
         }.freeze
