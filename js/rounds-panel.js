@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504b
+// js/rounds-panel.js  v20260504c
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -192,10 +192,11 @@ function _renderInitialClassSection(r) {
   }
 
   if (cls === 'choices') {
-    lines.push('  <p class="mech-warn" style="color:var(--color-warning-text, #b8860b);font-size:11px;border-left:3px solid var(--color-warning-text, #b8860b);padding:6px 8px;background:var(--color-warning-bg, rgba(255,200,0,0.08));">Engine::Round::Choices has no <code>select_entities</code> default. Provide a custom subclass below.</p>');
+    lines.push('  <p class="mech-warn" style="color:var(--color-warning-text, #b8860b);font-size:11px;border-left:3px solid var(--color-warning-text, #b8860b);padding:6px 8px;background:var(--color-warning-bg, rgba(255,200,0,0.08));">Engine::Round::Choices has no <code>select_entities</code> default. Provide a custom subclass body in the "What happens at the end?" section below.</p>');
   }
 
-  lines.push(_renderSubclassEditor('initial', r));
+  // Subclass body editor moved to Tier C (Round End slot inside the
+  // accordion). Tier A is now class identity + opts only.
   lines.push('</div>');
   return lines.join('\n');
 }
@@ -213,9 +214,7 @@ function _renderVanillaOrCustomClassSection(type, r) {
   lines.push(`      <option value="custom"  ${sel('custom')}>Custom subclass</option>`);
   lines.push('    </select>');
   lines.push('  </label>');
-  if (cls === 'custom') {
-    lines.push(_renderSubclassEditor(type, r));
-  }
+  // Subclass body editor moved to Tier C accordion.
   lines.push('</div>');
   return lines.join('\n');
 }
@@ -259,7 +258,7 @@ function _renderMergerClassSection(r) {
     lines.push('  </label>');
   }
 
-  lines.push(_renderSubclassEditor('merger', m));
+  // Subclass body editor moved to Tier C accordion.
   lines.push('</div>');
   return lines.join('\n');
 }
@@ -706,8 +705,20 @@ const _ROUND_LABELS = {
 
 // ── Top-level STEPS panel renderer (replaces #stepsView innerHTML) ──────────
 // Called by wireStepsPanel() on icon click and after every state mutation that
-// affects step lists. Builds the full panel: title, sub-tabs, wizard, class
-// section (Tim), step section (Addy two-tier), live game.rb preview.
+// affects step lists. Builds the full panel:
+//   title + sub-tabs
+//   wizard card (collapsible explainer)
+//   Tier A — "When does this round run, and what kind of round is it?"
+//     (round class identity + opts; subclass body lives in Tier C)
+//   Tier B — "What can players do during it?"
+//     (Group A non-blocking pool + Group B sequenced timeline)
+//   Tier C — "What happens at the end?" (collapsed accordion)
+//     two slots: Round End (subclass-level finish_round / setup /
+//     or_round_finished) and Round Transition (game-class next_round! branch)
+//   live game.rb preview pane
+//
+// Step rendering inside Tier B is unchanged this PR — the Dividend "Rules"
+// pill hook from dividend-rules.js stays intact.
 function renderStepsPanelView() {
   const view = document.getElementById('stepsView');
   if (!view) return;
@@ -727,14 +738,23 @@ function renderStepsPanelView() {
     '  </div>',
     `  <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:18px 20px;background:var(--bg-elevated);">`,
          _renderWizardCard(activeTab, r),
+         _renderTierHeading('When does this round run, and what kind of round is it?'),
          _renderRoundClassSection(activeTab, r),
+         _renderTierHeading('What can players do during it?'),
          _renderRoundStepsSection(activeTab, r),
+         _renderTierC(activeTab, r),
          _renderStepsPreviewPane(activeTab, r),
     '  </div>',
     '</div>',
   ].join('\n');
 
   _attachStepsListeners(view);
+}
+
+// Question-form heading shown above each tier. Compact, no borders — the
+// existing tier content provides its own visual container.
+function _renderTierHeading(question) {
+  return `<h3 style="margin:14px 0 8px 0;font-size:12px;font-weight:600;color:var(--text-secondary);letter-spacing:.02em;">${question}</h3>`;
 }
 
 // Wizard card — collapsible explainer. Auto-open on first visit per session;
@@ -784,6 +804,148 @@ function _renderStepsPreviewPane(roundType, _r) {
   </div>`;
 }
 
+// ── Tier C — "What happens at the end?" accordion ───────────────────────────
+// Two named slots inside one collapsed-by-default accordion:
+//   - Round End  — endHook  (subclass-level finish_round / setup; for the
+//                  Operating tab, becomes a game-class or_round_finished)
+//   - Round Transition — transitionHook  (per-tab branch contributing to a
+//                  single game-class def next_round!)
+//
+// Per-tab emission targets (matches the per-system-review annotation in
+// EXPORT_COHERENCE.md §2):
+//   tab        | endHook becomes               | name field?
+//   ───────────┼───────────────────────────────┼────────────
+//   initial    | def setup (subclass)          | yes
+//   stock      | def finish_round (subclass)   | yes
+//   operating  | def or_round_finished (game)  | NO — game-class method
+//   merger     | def finish_round (subclass)   | yes
+
+// Per-tab metadata for the Round End slot. method = the Ruby method name the
+// body wraps as. subclass = whether non-empty body triggers a round-subclass
+// (and thus a name field). hint = user-facing description.
+const _END_HOOK_TARGETS = {
+  initial:   { method: 'setup',              subclass: true,  hint: 'Round-subclass setup hook (rare).' },
+  stock:     { method: 'finish_round',       subclass: true,  hint: 'Bidbox settlement, train export, loan interest, etc.' },
+  operating: { method: 'or_round_finished',  subclass: false, hint: 'Game-class hook — fires after each OR. 1817 train-export, 1867 phase-gated export.' },
+  merger:    { method: 'finish_round',       subclass: true,  hint: 'Per-game merger cleanup logic.' },
+};
+
+// Tier C accordion collapsed-state per round. Module-local; not persisted.
+// Defaults to collapsed (advanced section).
+let _tierCCollapsed = { initial: true, stock: true, operating: true, merger: true };
+
+// Reads either the new slot.endHook or the legacy slot.subclass during the
+// migration window. Returns { name, body } or null.
+function _readEndHook(slot) {
+  if (slot && slot.endHook) return { name: slot.endHook.name || '', body: slot.endHook.body || '' };
+  if (slot && slot.subclass) return { name: slot.subclass.name || '', body: slot.subclass.body || '' };
+  return null;
+}
+
+function _readTransitionHook(slot) {
+  if (slot && slot.transitionHook) return { body: slot.transitionHook.body || '' };
+  return null;
+}
+
+function _renderTierC(roundType, slot) {
+  const collapsed = !!_tierCCollapsed[roundType];
+  const endHook   = _readEndHook(slot);
+  const transHook = _readTransitionHook(slot);
+  const hasContent = !!((endHook && endHook.body) || (transHook && transHook.body));
+  const hint = hasContent
+    ? '<span class="mech-status-dot amber" style="display:inline-block;margin-left:6px;vertical-align:middle;" title="Custom Ruby will be emitted"></span>'
+    : '';
+
+  const lines = [];
+  lines.push('<div style="margin-top:14px;border:1px solid var(--border);border-radius:5px;background:var(--bg-surface);">');
+  lines.push(`  <button type="button" data-tierc-toggle="${roundType}" style="width:100%;background:transparent;border:none;color:var(--text-secondary);text-align:left;padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.02em;">`);
+  lines.push(`    <span style="font-size:9px;width:10px;display:inline-block;transform:${collapsed ? 'none' : 'rotate(90deg)'};transition:transform .15s;">▶</span>`);
+  lines.push(`    <span>What happens at the end? <span class="mech-hint-inline" style="font-weight:400;">— advanced; Ruby method bodies for round end + transition</span></span>`);
+  lines.push(`    ${hint}`);
+  lines.push('  </button>');
+
+  if (!collapsed) {
+    lines.push('  <div style="padding:6px 14px 14px;border-top:1px solid var(--border);">');
+    lines.push(_renderEndHookEditor(roundType, endHook));
+    lines.push(_renderTransitionHookEditor(roundType, transHook));
+    lines.push('  </div>');
+  }
+
+  lines.push('</div>');
+  return lines.join('\n');
+}
+
+// Round End editor — preset dropdown (placeholder for v2), optional name
+// field for tabs whose endHook becomes a subclass method, body textarea.
+function _renderEndHookEditor(roundType, endHook) {
+  const target = _END_HOOK_TARGETS[roundType] || { method: 'finish_round', subclass: false, hint: '' };
+  const body   = (endHook && endHook.body) || '';
+  const name   = (endHook && endHook.name) || '';
+  const hasBody = body.trim().length > 0;
+
+  // Default name = parent simple name (Stock / Operating / etc.) — only
+  // shown for tabs whose endHook generates a round subclass.
+  const defaultName = roundType.charAt(0).toUpperCase() + roundType.slice(1);
+
+  // For subclass-bearing tabs, surface the implicit class declaration so the
+  // designer sees what's being generated when body is non-empty.
+  const derivedClassLine = (target.subclass && hasBody)
+    ? `<div class="mech-hint" style="margin:0 0 6px;font-family:monospace;font-size:10px;color:var(--text-dim);">Will emit: <span style="color:var(--text-secondary);">G&lt;game&gt;::Round::<strong style="color:var(--accent);">${(name || defaultName).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</strong> &lt; Engine::Round::${defaultName}</span></div>`
+    : '';
+
+  const lines = [];
+  lines.push('<div class="mech-slot" style="margin-bottom:10px;">');
+  lines.push(`  <div class="mech-slot-num">Round End — <code>def ${target.method}</code> ${target.subclass ? 'on the round subclass' : 'on the game class'}</div>`);
+  lines.push(`  <p class="mech-hint" style="margin:0 0 8px;">${target.hint}</p>`);
+
+  // Preset picker — placeholder for v2 (presets list ships separately).
+  lines.push('  <label style="font-size:11px;color:var(--text-dim);">Starting from a preset');
+  lines.push(`    <select data-rkey="${roundType}.endHook.preset" style="background:var(--bg-elevated);border:1px solid var(--border-mid);border-radius:4px;color:var(--text-primary);padding:3px 6px;font-size:11px;max-width:280px;">`);
+  lines.push('      <option value="">Custom (start blank)</option>');
+  lines.push('      <option value="" disabled>(common patterns coming in v2 — 1822 bidbox, 1817 export, 1867 phase-gated, 1861 no-op)</option>');
+  lines.push('    </select>');
+  lines.push('  </label>');
+
+  // Subclass name field — only on tabs whose endHook generates a subclass.
+  if (target.subclass) {
+    lines.push('  <label style="font-size:11px;color:var(--text-dim);">Subclass name <span class="mech-hint-inline">(default = parent class simple name)</span>');
+    lines.push(`    <input type="text" data-rkey="${roundType}.endHook.name" value="${(name).replace(/"/g, '&quot;')}" placeholder="${defaultName}" style="font-family:monospace;max-width:240px;">`);
+    lines.push('  </label>');
+  }
+
+  if (derivedClassLine) lines.push('  ' + derivedClassLine);
+
+  // Method body textarea — raw Ruby, emitted verbatim. Lazy: no parsing.
+  lines.push(`  <label style="font-size:11px;color:var(--text-dim);">Method body <span class="mech-hint-inline">(raw Ruby — emitted verbatim inside <code>def ${target.method}</code>)</span>`);
+  lines.push(`    <textarea data-rkey="${roundType}.endHook.body" rows="6" placeholder="# e.g. minor.close! if minor.trains.empty?\n# @bidbox.refill!\n# @depot.export! if @phase.status.include?('export_train')" style="font-family:monospace;font-size:11px;line-height:1.5;background:var(--bg-elevated);border:1px solid var(--border-mid);border-radius:4px;color:var(--text-primary);padding:6px 8px;resize:vertical;min-height:80px;width:100%;box-sizing:border-box;">${body.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>`);
+  lines.push('  </label>');
+  lines.push('</div>');
+  return lines.join('\n');
+}
+
+// Round Transition editor — body only; appends one when-branch to the
+// generated def next_round! on the game class. No name field (next_round! is
+// always a single game-class method, never a subclass).
+function _renderTransitionHookEditor(roundType, transHook) {
+  const body    = (transHook && transHook.body) || '';
+  const lines   = [];
+  lines.push('<div class="mech-slot" style="margin-bottom:0;">');
+  lines.push('  <div class="mech-slot-num">Round Transition — branch in <code>def next_round!</code> on the game class</div>');
+  lines.push('  <p class="mech-hint" style="margin:0 0 8px;">Per-tab routing override. The emit module merges all four tabs\' transitionHook bodies into a single <code>def next_round!</code> with one <code>when</code> branch per non-null slot. 1846 player-count branching at init, 1867 merger insertion between OR sets, 1822 SR→Choices nominate.</p>');
+  lines.push(`  <label style="font-size:11px;color:var(--text-dim);">Branch body <span class="mech-hint-inline">(raw Ruby — runs when current round is ${roundType})</span>`);
+  lines.push(`    <textarea data-rkey="${roundType}.transitionHook.body" rows="4" placeholder="# e.g. @round_history.last.is_a?(Round::Operating) ? new_stock_round : new_operating_round(@round.round_num + 1)" style="font-family:monospace;font-size:11px;line-height:1.5;background:var(--bg-elevated);border:1px solid var(--border-mid);border-radius:4px;color:var(--text-primary);padding:6px 8px;resize:vertical;min-height:60px;width:100%;box-sizing:border-box;">${body.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>`);
+  lines.push('  </label>');
+  lines.push('</div>');
+  return lines.join('\n');
+}
+
+function onTierCToggle(e) {
+  const t = e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.tiercToggle;
+  if (!t) return;
+  _tierCCollapsed[t] = !_tierCCollapsed[t];
+  renderStepsPanelView();
+}
+
 // Re-attach event listeners after every render. Mirror of mechanics-panel.js's
 // approach — innerHTML wipe destroys old listeners, so re-bind here.
 function _attachStepsListeners(root) {
@@ -796,6 +958,9 @@ function _attachStepsListeners(root) {
   });
   root.querySelectorAll('[data-skey]').forEach(btn => {
     btn.addEventListener('click', onRoundsStepAction);
+  });
+  root.querySelectorAll('[data-tierc-toggle]').forEach(btn => {
+    btn.addEventListener('click', onTierCToggle);
   });
   root.querySelectorAll('[data-wizard-toggle]').forEach(btn => {
     btn.addEventListener('click', onWizardToggle);
