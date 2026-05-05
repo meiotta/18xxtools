@@ -1,4 +1,4 @@
-// js/export-game.js  v20260504a
+// js/export-game.js  v20260504b
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -493,16 +493,42 @@ function _grbInheritsBaseDefault(roundType, steps) {
 
 // init_round — emit only when departing from base.rb:2626 default (which
 // returns new_auction_round with [CompanyPendingPar, WaterfallAuction]).
-function _grbInitRoundBody(rounds) {
-  const r        = rounds.initial || {};
-  const cls      = r.class || 'auction';
-  const steps    = r.steps || [];
-  const optsStr  = _grbRoundOpts(r.opts);
-  const subclass = r.subclass;
+// Returns the user-typed Round End body for a slot (post-migration), or '' if
+// the slot has no endHook / empty body. Cutover-tolerant: also reads the
+// legacy `slot.subclass.body` if `slot.endHook` is missing.
+function _grbReadEndHookBody(slot) {
+  if (!slot) return '';
+  if (slot.endHook && typeof slot.endHook.body === 'string')   return slot.endHook.body;
+  if (slot.subclass && typeof slot.subclass.body === 'string') return slot.subclass.body;
+  return '';
+}
 
-  // Vanilla auction with no opts/subclass and steps either empty or matching
-  // the base.rb default → inherit silently.
-  if (cls === 'auction' && !optsStr && !subclass &&
+function _grbReadEndHookName(slot, fallback) {
+  if (!slot) return fallback || '';
+  if (slot.endHook && slot.endHook.name)  return slot.endHook.name;
+  if (slot.subclass && slot.subclass.name) return slot.subclass.name;
+  return fallback || '';
+}
+
+function _grbReadTransitionHookBody(slot) {
+  if (!slot) return '';
+  if (slot.transitionHook && typeof slot.transitionHook.body === 'string') return slot.transitionHook.body;
+  return '';
+}
+
+// init_round — emit when class != auction, opts non-default, endHook present,
+// or steps differ from base.rb:3170 default.
+function _grbInitRoundBody(rounds) {
+  const r           = rounds.initial || {};
+  const cls         = r.class || 'auction';
+  const steps       = r.steps || [];
+  const optsStr     = _grbRoundOpts(r.opts);
+  const endBody     = _grbReadEndHookBody(r).trim();
+  const hasEndHook  = !!endBody;
+
+  // Vanilla auction with no opts, no endHook, and steps either empty or
+  // matching base.rb default → inherit silently.
+  if (cls === 'auction' && !optsStr && !hasEndHook &&
       (steps.length === 0 || _grbInheritsBaseDefault('initial', steps))) {
     return null;
   }
@@ -510,7 +536,11 @@ function _grbInitRoundBody(rounds) {
   // No-auction games delegate to stock_round (1822 pattern, g_1822/game.rb:1055-1057).
   if (cls === 'stock_direct') return 'stock_round';
 
-  const className = (subclass && subclass.name) || _GRB_INITIAL_CLASS[cls];
+  // Subclass naming: when endHook content exists, the factory references the
+  // user-named subclass. Otherwise it references the engine class directly.
+  const className = hasEndHook
+    ? _grbReadEndHookName(r, _grbCapitalize(cls))
+    : _GRB_INITIAL_CLASS[cls];
   if (!className) return `# TODO: unknown initial round class '${cls}'`;
 
   const parts = [_grbStepArrayLiteral(steps)];
@@ -518,61 +548,115 @@ function _grbInitRoundBody(rounds) {
   return `${className}.new(self, ${parts.join(', ')})`;
 }
 
-// stock_round — emit only when subclass set or steps differ from base.rb:3183.
+// stock_round — emit when endHook present or steps differ from base.rb:3183.
 function _grbStockRoundBody(rounds) {
-  const r        = rounds.stock || {};
-  const steps    = r.steps || [];
-  const subclass = r.subclass;
-  if (!subclass && (steps.length === 0 || _grbInheritsBaseDefault('stock', steps))) return null;
-  const className = (subclass && subclass.name) || 'Engine::Round::Stock';
+  const r           = rounds.stock || {};
+  const steps       = r.steps || [];
+  const endBody     = _grbReadEndHookBody(r).trim();
+  const hasEndHook  = !!endBody;
+  if (!hasEndHook && (steps.length === 0 || _grbInheritsBaseDefault('stock', steps))) return null;
+  const className   = hasEndHook ? _grbReadEndHookName(r, 'Stock') : 'Engine::Round::Stock';
   return `${className}.new(self, ${_grbStepArrayLiteral(steps)})`;
 }
 
-// operating_round(round_num) — emit only when subclass set or steps differ
-// from base.rb:3198-3211.
+// operating_round(round_num) — emit when steps differ from base.rb:3198-3211.
+// NOTE: OR endHook routes to `def or_round_finished` on the GAME class (see
+// _grbOrRoundFinishedBody), not a round subclass. So an OR-tab endHook by
+// itself does NOT trigger factory emission — only step-list customization does.
 function _grbOperatingRoundBody(rounds) {
-  const r        = rounds.operating || {};
-  const steps    = r.steps || [];
-  const subclass = r.subclass;
-  if (!subclass && (steps.length === 0 || _grbInheritsBaseDefault('operating', steps))) return null;
-  const className = (subclass && subclass.name) || 'Engine::Round::Operating';
-  return `${className}.new(self, ${_grbStepArrayLiteral(steps)}, round_num: round_num)`;
+  const r     = rounds.operating || {};
+  const steps = r.steps || [];
+  if (steps.length === 0 || _grbInheritsBaseDefault('operating', steps)) return null;
+  return `Engine::Round::Operating.new(self, ${_grbStepArrayLiteral(steps)}, round_num: round_num)`;
 }
 
-// new_merger_round — required when merger.enabled. Round::Merger is abstract
+// new_merger_round — emitted when merger.enabled. Round::Merger is abstract
 // (round/merger.rb:13), so we always reference the named subclass.
 function _grbMergerRoundBody(merger) {
-  const className = (merger.subclass && merger.subclass.name) || merger.name || 'Merger';
+  const className = _grbReadEndHookName(merger, merger.name || 'Merger');
   return `${className}.new(self, ${_grbStepArrayLiteral(merger.steps || [])}, round_num: round_num)`;
 }
 
+// or_round_finished — emit on the GAME class (not a round subclass) when the
+// Operating tab's endHook.body is non-empty. 1817/1867 pattern.
+function _grbOrRoundFinishedBody(rounds) {
+  const body = _grbReadEndHookBody(rounds.operating).trim();
+  if (!body) return null;
+  // If the user typed the full def-block (post-migration content), strip the
+  // outer `def or_round_finished ... end` so _grbWrapMethod can re-wrap it.
+  // Otherwise emit the bare body verbatim.
+  return _grbStripOuterDefIfMatches(body, 'or_round_finished');
+}
+
+function _grbCapitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// If `body` consists of a single `def NAME ... end` block (post-migration
+// shape), return the unwrapped inner body so callers can re-wrap with their
+// own `def`. Otherwise return body unchanged. Conservative — only strips if
+// the outer block is unambiguous and matches the expected method name.
+function _grbStripOuterDefIfMatches(body, methodName) {
+  const re = new RegExp('^\\s*def\\s+(?:self\\.)?' + methodName + '\\b[^\\n]*\\n([\\s\\S]*)\\n\\s*end\\s*$');
+  const m = body.match(re);
+  if (!m) return body;
+  // Strip 2 leading spaces from each line (the indent _grbWrapMethod will re-add).
+  return m[1].split('\n').map(l => l.replace(/^ {2}/, '')).join('\n');
+}
+
 // next_round! — emit only when departing from base.rb:2921-2943. Triggers:
-// merger enabled (must splice merger round into the loop) or customNextRound
-// override. For auction/draft/stock_direct/choices initial rounds, base's
-// next_round! works as-is (init_round.class fallthrough at L2938 covers them).
+//   - any tab has transitionHook.body content (per-tab override)
+//   - merger enabled (must splice merger round into the loop)
+//   - legacy customNextRound override
+// For auction/draft/stock_direct/choices initial rounds with no other
+// customization, base's next_round! works as-is.
+//
+// Per-tab transitionHook bodies become individual `when` branches in the
+// assembled `def next_round!`. Tabs without transitionHook content fall back
+// to a synthesized vanilla branch.
 function _grbNextRoundBody(rounds) {
+  // Legacy escape hatch: if a fully-formed customNextRound string is present,
+  // emit it verbatim. Pre-migration saves may carry this; post-migration the
+  // user authors via per-tab transitionHook.
   if (rounds.customNextRound && typeof rounds.customNextRound === 'string' && rounds.customNextRound.trim()) {
     return rounds.customNextRound;
   }
-  if (!rounds.merger || !rounds.merger.enabled) return null;
 
-  const merger     = rounds.merger;
-  const mergerCls  = (merger.subclass && merger.subclass.name) || merger.name || 'Merger';
-  const branches   = [];
+  const initTrans   = _grbReadTransitionHookBody(rounds.initial).trim();
+  const stockTrans  = _grbReadTransitionHookBody(rounds.stock).trim();
+  const opTrans     = _grbReadTransitionHookBody(rounds.operating).trim();
+  const mergerTrans = _grbReadTransitionHookBody(rounds.merger).trim();
+  const anyTrans    = !!(initTrans || stockTrans || opTrans || mergerTrans);
 
-  // SR → start OR set (mirrors base.rb:2924-2927).
+  const mergerEnabled = !!(rounds.merger && rounds.merger.enabled);
+  if (!anyTrans && !mergerEnabled) return null;
+
+  const mergerCls = mergerEnabled
+    ? _grbReadEndHookName(rounds.merger, rounds.merger.name || 'Merger')
+    : null;
+
+  const branches = [];
+
+  // ── when Engine::Round::Stock ─────────────────────────────────────────────
   branches.push(`when Engine::Round::Stock`);
-  branches.push(`  @operating_rounds = @phase.operating_rounds`);
-  branches.push(`  reorder_players`);
-  branches.push(`  new_operating_round`);
+  if (stockTrans) {
+    stockTrans.split('\n').forEach(l => branches.push('  ' + l));
+  } else {
+    // Vanilla SR → start OR set (base.rb:2924-2927).
+    branches.push(`  @operating_rounds = @phase.operating_rounds`);
+    branches.push(`  reorder_players`);
+    branches.push(`  new_operating_round`);
+  }
 
-  // OR → next OR / merger / SR — branch on merger position+trigger.
+  // ── when Engine::Round::Operating ─────────────────────────────────────────
   branches.push(`when Engine::Round::Operating`);
-  if (merger.position === 'between_ors') {
-    // 1817 (always) / 1867 (phase_in) pattern. g_1867/game.rb:905-911.
+  if (opTrans) {
+    opTrans.split('\n').forEach(l => branches.push('  ' + l));
+  } else if (mergerEnabled && rounds.merger.position === 'between_ors') {
+    // 1817 / 1867 pattern. g_1867/game.rb:905-911.
     branches.push(`  or_round_finished`);
-    if (merger.trigger === 'phase_in' && merger.triggerCondition && merger.triggerCondition.phases && merger.triggerCondition.phases.length) {
-      const phaseList = merger.triggerCondition.phases.map(p => `'${String(p).replace(/'/g, "\\'")}'`).join(', ');
+    if (rounds.merger.trigger === 'phase_in' && rounds.merger.triggerCondition && rounds.merger.triggerCondition.phases && rounds.merger.triggerCondition.phases.length) {
+      const phaseList = rounds.merger.triggerCondition.phases.map(p => `'${String(p).replace(/'/g, "\\'")}'`).join(', ');
       branches.push(`  if [${phaseList}].include?(phase.name)`);
       branches.push(`    new_merger_round(@round.round_num)`);
       branches.push(`  elsif @round.round_num < @operating_rounds`);
@@ -583,10 +667,9 @@ function _grbNextRoundBody(rounds) {
       branches.push(`    new_stock_round`);
       branches.push(`  end`);
     } else {
-      // 1817-style — always splice merger after every OR.
       branches.push(`  new_merger_round(@round.round_num)`);
     }
-  } else {
+  } else if (mergerEnabled) {
     // after_or_set / before_sr — merger fires once before next SR.
     branches.push(`  or_round_finished`);
     branches.push(`  if @round.round_num < @operating_rounds`);
@@ -595,66 +678,119 @@ function _grbNextRoundBody(rounds) {
     branches.push(`    or_set_finished`);
     branches.push(`    new_merger_round`);
     branches.push(`  end`);
-  }
-
-  // Merger → return to OR loop or advance to SR.
-  branches.push(`when ${mergerCls}`);
-  if (merger.position === 'between_ors') {
+  } else {
+    // Vanilla (base.rb:2929-2937).
     branches.push(`  if @round.round_num < @operating_rounds`);
+    branches.push(`    or_round_finished`);
     branches.push(`    new_operating_round(@round.round_num + 1)`);
     branches.push(`  else`);
     branches.push(`    @turn += 1`);
+    branches.push(`    or_round_finished`);
     branches.push(`    or_set_finished`);
     branches.push(`    new_stock_round`);
     branches.push(`  end`);
-  } else {
-    branches.push(`  @turn += 1`);
-    branches.push(`  new_stock_round`);
   }
 
-  // init_round.class fallthrough (base.rb:2938-2941) — covers
-  // Auction/Draft/Choices first-round-only transition into SR.
+  // ── when <MergerClass> (when merger enabled) ─────────────────────────────
+  if (mergerEnabled) {
+    branches.push(`when ${mergerCls}`);
+    if (mergerTrans) {
+      mergerTrans.split('\n').forEach(l => branches.push('  ' + l));
+    } else if (rounds.merger.position === 'between_ors') {
+      branches.push(`  if @round.round_num < @operating_rounds`);
+      branches.push(`    new_operating_round(@round.round_num + 1)`);
+      branches.push(`  else`);
+      branches.push(`    @turn += 1`);
+      branches.push(`    or_set_finished`);
+      branches.push(`    new_stock_round`);
+      branches.push(`  end`);
+    } else {
+      branches.push(`  @turn += 1`);
+      branches.push(`  new_stock_round`);
+    }
+  }
+
+  // ── when init_round.class — fallthrough for first-round transition ───────
   branches.push(`when init_round.class`);
-  branches.push(`  init_round_finished`);
-  branches.push(`  reorder_players`);
-  branches.push(`  new_stock_round`);
+  if (initTrans) {
+    initTrans.split('\n').forEach(l => branches.push('  ' + l));
+  } else {
+    branches.push(`  init_round_finished`);
+    branches.push(`  reorder_players`);
+    branches.push(`  new_stock_round`);
+  }
 
   return `@round =\n  case @round\n  ${branches.join('\n  ')}\n  end`;
 }
 
-// Custom subclass class definitions — emitted into round_methods slot before
-// the factory methods so the classes are defined when the factories reference
-// them. Bodies are user-provided raw Ruby; for merger, an automatic
-// `self.round_name` override is supplied if the user didn't include one.
+// Custom round-subclass class definitions — emitted into the round_methods
+// slot before the factory methods so the classes are defined when the
+// factories reference them.
+//
+// Per-tab routing (matches js/rounds-panel.js _END_HOOK_TARGETS):
+//   initial   → def setup        on G<game>::Round::<Name> < Engine::Round::<Class>
+//   stock     → def finish_round on G<game>::Round::<Name> < Engine::Round::Stock
+//   merger    → def finish_round on G<game>::Round::<Name> < Engine::Round::Merger
+//   operating → NOT in this function — emits as def or_round_finished on the
+//               game class via _grbOrRoundFinishedBody (no subclass).
+//
+// endHook.body shape: bare statements (Addy's UI placeholder convention) OR
+// pre-wrapped def-blocks (post-migration content). We detect via a regex and
+// either pass through or wrap with the per-tab method name.
 function _grbCustomSubclasses(rounds) {
   const blocks = [];
-  const candidates = [
-    { key: 'initial',   parent: _GRB_INITIAL_CLASS[(rounds.initial && rounds.initial.class) || 'auction'] || 'Engine::Round::Auction' },
-    { key: 'stock',     parent: 'Engine::Round::Stock' },
-    { key: 'operating', parent: 'Engine::Round::Operating' },
+
+  const tabs = [
+    { key: 'initial',   wrapMethod: 'setup',        parentResolve: r => _GRB_INITIAL_CLASS[(r && r.class) || 'auction'] || 'Engine::Round::Auction' },
+    { key: 'stock',     wrapMethod: 'finish_round', parentResolve: () => 'Engine::Round::Stock' },
+    // operating is intentionally absent — its endHook routes to or_round_finished on the game class.
   ];
-  candidates.forEach(({ key, parent }) => {
-    const r = rounds[key];
-    if (!r || !r.subclass || !r.subclass.body) return;
-    const name = r.subclass.name || `Custom${key.charAt(0).toUpperCase() + key.slice(1)}`;
-    const body = _grbIndent(2, r.subclass.body);
-    blocks.push(`# Custom ${key}-round subclass.\nclass ${name} < ${parent}\n${body}\nend`);
+
+  tabs.forEach(({ key, wrapMethod, parentResolve }) => {
+    const r       = rounds[key];
+    const endBody = _grbReadEndHookBody(r).trim();
+    if (!endBody) return;
+    const parent  = parentResolve(r);
+    const name    = _grbReadEndHookName(r, _grbCapitalize(key));
+    const wrapped = _grbWrapAsMethodBody(endBody, wrapMethod);
+    const indented = _grbIndent(2, wrapped);
+    blocks.push(`# Custom ${key}-round subclass.\nclass ${name} < ${parent}\n${indented}\nend`);
   });
+
   if (rounds.merger && rounds.merger.enabled) {
-    const m = rounds.merger;
-    const name = (m.subclass && m.subclass.name) || m.name || 'Merger';
-    let body = (m.subclass && m.subclass.body) || '';
-    // Merger is abstract — round_name MUST be defined. If user didn't include
-    // it, supply the default from m.name.
-    if (!/def\s+self\.round_name/.test(body)) {
+    const m       = rounds.merger;
+    const name    = _grbReadEndHookName(m, m.name || 'Merger');
+    let endBody   = _grbReadEndHookBody(m);
+    let wrapped   = _grbWrapAsMethodBody(endBody, 'finish_round', { allowEmpty: true });
+
+    // Merger is abstract — round_name MUST be defined. Auto-supply if missing.
+    if (!/def\s+self\.round_name/.test(wrapped)) {
       const roundName = (m.name || 'Merger').replace(/'/g, "\\'");
       const auto = `def self.round_name\n  '${roundName}'\nend`;
-      body = body.trim() ? body.trim() + '\n\n' + auto : auto;
+      wrapped = wrapped.trim() ? wrapped.trim() + '\n\n' + auto : auto;
     }
-    body = _grbIndent(2, body);
-    blocks.push(`# Merger round subclass — Engine::Round::Merger is abstract\n# (round/merger.rb:13 raises NotImplementedError on round_name).\nclass ${name} < Engine::Round::Merger\n${body}\nend`);
+
+    const indented = _grbIndent(2, wrapped);
+    blocks.push(`# Merger round subclass — Engine::Round::Merger is abstract\n# (round/merger.rb:13 raises NotImplementedError on round_name).\nclass ${name} < Engine::Round::Merger\n${indented}\nend`);
   }
+
   return blocks.length ? blocks.join('\n\n') : null;
+}
+
+// Wrap user-typed body content as a Ruby method definition, OR pass through
+// verbatim if the body already contains one or more `def NAME ... end` blocks.
+// Used for both Round End emission (subclass body) and OR or_round_finished.
+//
+// opts.allowEmpty: if true, return '' on empty/whitespace input rather than
+// emitting a method with an empty body. Used for merger where the auto
+// round_name override may be the only required content.
+function _grbWrapAsMethodBody(body, methodName, opts) {
+  const text = (body || '').trim();
+  if (!text) return (opts && opts.allowEmpty) ? '' : `def ${methodName}\nend`;
+  // If the body already has at least one top-level method def, emit verbatim.
+  if (/^\s*def\s+/m.test(body)) return text;
+  // Bare statements — wrap in `def methodName ... end` with 2-space indent.
+  return `def ${methodName}\n${_grbIndent(2, text)}\nend`;
 }
 
 // ── Module registry ───────────────────────────────────────────────────────────
@@ -968,11 +1104,19 @@ const _GRB_MODULES = [
     },
   },
 
-  // ── Round Methods (Tim PR1a) ─────────────────────────────────────────────────
-  // Emits def init_round / def stock_round / def operating_round / def next_round!
-  // and custom round subclass definitions into {{SLOT_ROUND_METHODS}}. Emit only
-  // when the user has actively customized a round — empty step lists, vanilla
-  // class, no subclass, no merger = no Ruby produced (1830-vanilla case).
+  // ── Round Methods ────────────────────────────────────────────────────────────
+  // Emits round-class subclasses + factory methods + game-class hooks
+  // (or_round_finished, next_round!) into {{SLOT_ROUND_METHODS}}. Emits only
+  // when state actively departs from base.rb defaults — vanilla 1830 produces
+  // no Ruby here.
+  //
+  // Order in the slot:
+  //   1. Custom round subclasses (from non-OR endHook content)
+  //   2. Round factory methods (init_round / stock_round / operating_round)
+  //   3. Merger factory method (when merger enabled)
+  //   4. or_round_finished (game-class hook from OR endHook)
+  //   5. next_round! (game-class loop control from per-tab transitionHook +
+  //      merger position/trigger)
   {
     id: 'round_methods',
     emit(state) {
@@ -995,6 +1139,9 @@ const _GRB_MODULES = [
         const mergerBody = _grbMergerRoundBody(rounds.merger);
         out.push(_grbWrapMethod('new_merger_round', 'round_num = 1', mergerBody));
       }
+
+      const orFinishedBody = _grbOrRoundFinishedBody(rounds);
+      if (orFinishedBody !== null) out.push(_grbWrapMethod('or_round_finished', null, orFinishedBody));
 
       const nextBody = _grbNextRoundBody(rounds);
       if (nextBody !== null) out.push(_grbWrapMethod('next_round!', null, nextBody));

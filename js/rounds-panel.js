@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504c
+// js/rounds-panel.js  v20260504d
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -29,13 +29,17 @@
 // ── State init / migration ──────────────────────────────────────────────────
 // state.mechanics.rounds is seeded by initMechanicsState() (mechanics-panel.js)
 // for fresh states. For existing saves that predate the rounds schema, we seed
-// defaults here on first access. Step arrays are also seeded from
-// _BASE_RB_DEFAULTS (declared later in this file — same module scope, so it's
-// accessible at call time even though declared below) so the step-list
-// renderer can be purely reactive against state without re-deriving defaults.
+// defaults here on first access. Step arrays are seeded from _BASE_RB_DEFAULTS
+// so the step-list renderer can be purely reactive.
 //
-// Legacy-field migration (initialRound, stockRoundsPerSet, mergerRound,
-// orSteps → rounds.*) is pending.
+// Schema migration (one-way, idempotent):
+//   slot.subclass: { name, body } → slot.endHook + slot.transitionHook
+//   - `def finish_round` blocks   → endHook.body
+//   - `def or_round_finished`     → transitionHook.body
+//   - everything else             → endHook.body (free-text fallback)
+//
+// Legacy-field migration of mechanics.{initialRound, stockRoundsPerSet,
+// mergerRound, orSteps} is still pending — that's a separate concern.
 function initRoundsState() {
   if (typeof state === 'undefined' || !state.mechanics) return;
   if (!state.mechanics.rounds) {
@@ -49,12 +53,8 @@ function initRoundsState() {
     };
   }
 
-  // Seed step arrays from _BASE_RB_DEFAULTS (declared in the step-list section
-  // below). Same-file module scope — `const _BASE_RB_DEFAULTS` is hoisted at
-  // evaluation time and resolves at runtime; only fails inside the temporal
-  // dead zone, which doesn't apply here (initRoundsState is called after
-  // module load). Defensive deep-copy each entry so user edits don't mutate
-  // the catalog.
+  // Seed step arrays from _BASE_RB_DEFAULTS. Defensive deep-copy each entry so
+  // user edits don't mutate the catalog.
   if (typeof _BASE_RB_DEFAULTS !== 'undefined') {
     ['initial', 'stock', 'operating'].forEach(type => {
       const slot = state.mechanics.rounds[type] || (state.mechanics.rounds[type] = {});
@@ -65,16 +65,108 @@ function initRoundsState() {
         }));
       }
     });
-    // merger: no engine default (always game-custom). Initialize as empty
-    // array so the renderer can iterate without null-checks.
     if (state.mechanics.rounds.merger && !Array.isArray(state.mechanics.rounds.merger.steps)) {
       state.mechanics.rounds.merger.steps = [];
     }
   }
 
-  // TODO: migrate legacy state.mechanics.{initialRound, stockRoundsPerSet,
-  // mergerRound, orSteps} into state.mechanics.rounds.* and remove the legacy
-  // keys.
+  // Subclass → endHook / transitionHook migration. Idempotent: skips slots
+  // that already have `endHook` (already migrated) or no `subclass` (fresh
+  // state). Strips the old `subclass` field after a successful migration.
+  ['initial', 'stock', 'operating'].forEach(type => {
+    _migrateSubclassToHooks(state.mechanics.rounds[type]);
+  });
+  _migrateSubclassToHooks(state.mechanics.rounds.merger);
+
+  // TODO: legacy mechanics.{initialRound, stockRoundsPerSet, mergerRound,
+  // orSteps} migration is a separate concern and lives elsewhere.
+}
+
+// Mutate a round slot in place: route legacy `subclass.body` content into
+// `endHook.body` / `transitionHook.body` per the def-block name found.
+// Idempotent — no-op when slot already has `endHook` or no legacy subclass.
+//
+// Routing rule:
+//   - `def finish_round` blocks         → endHook.body (round-subclass method)
+//   - `def or_round_finished` blocks    → endHook.body (game-class method,
+//                                          emitted via _grbOrRoundFinishedBody;
+//                                          NOT a transitionHook because that
+//                                          slot's body becomes a `when` branch
+//                                          inside `next_round!`, where a `def`
+//                                          would be invalid Ruby)
+//   - everything else (other def blocks, free-text remainder) → endHook.body
+//
+// transitionHook is populated only by deliberate user authorship of routing
+// logic via the Tier C UI; legacy `subclass.body` content never auto-migrates
+// there because legacy bodies wrote method definitions, not branch bodies.
+function _migrateSubclassToHooks(slot) {
+  if (!slot || typeof slot !== 'object') return;
+  if (slot.endHook) return;            // already migrated
+  if (!slot.subclass) return;          // never had a subclass
+
+  const sourceName = (slot.subclass && slot.subclass.name) || '';
+  const sourceBody = (slot.subclass && slot.subclass.body) || '';
+
+  // Empty legacy body — just plant an empty endHook and clear subclass.
+  if (!sourceBody.trim()) {
+    slot.endHook = { name: sourceName, body: '', preset: '' };
+    delete slot.subclass;
+    return;
+  }
+
+  // All def blocks plus any non-def remainder go into endHook.body verbatim.
+  // The emit module routes by sub-tab: Stock/Init/Merger endHook content
+  // wraps inside a round subclass; Operating endHook content emits as
+  // `def or_round_finished` on the game class.
+  slot.endHook = { name: sourceName, body: sourceBody.trim(), preset: '' };
+  delete slot.subclass;
+}
+
+// Parse a Ruby blob for top-level `def NAME ... end` blocks and return them
+// as `{ name, full }` records. Naive depth tracking — handles common Ruby
+// idioms (nested if/case/do-blocks) but assumes no here-docs and no comment
+// lines containing `end` at column 0.
+function _parseRubyDefBlocks(text) {
+  if (!text || typeof text !== 'string') return [];
+  const blocks = [];
+  const lines  = text.split('\n');
+
+  for (let start = 0; start < lines.length; start++) {
+    const m = /^\s*def\s+(?:self\.)?(\w+)/.exec(lines[start]);
+    if (!m) continue;
+
+    let depth = 1;
+    let endIdx = -1;
+    for (let i = start + 1; i < lines.length; i++) {
+      const line    = lines[i];
+      const trimmed = line.trim();
+
+      // Strip line comments before keyword detection.
+      const code = line.replace(/(^|[^"'])#.*$/, '$1');
+
+      // Block-opening keywords (start of a statement).
+      if (/^\s*(class|module|def|if|unless|case|begin|while|until|for)\b/.test(code)) depth++;
+      // do-blocks (do at end of line, with optional |args| and optional comment).
+      if (/\bdo\b\s*(\|[^|]*\|)?\s*(?:#.*)?$/.test(code)) depth++;
+
+      // Closing `end` (standalone or with trailing comment).
+      if (/^\s*end\b\s*(?:#.*)?$/.test(line) && trimmed.startsWith('end')) {
+        depth--;
+        if (depth === 0) { endIdx = i; break; }
+      }
+    }
+
+    if (endIdx >= 0) {
+      blocks.push({
+        name: m[1],
+        full: lines.slice(start, endIdx + 1).join('\n'),
+      });
+      start = endIdx;            // skip past closed block
+    }
+    // Unclosed def: leave it; caller treats remainder as endHook.body.
+  }
+
+  return blocks;
 }
 
 // ── Top-level panel renderer ────────────────────────────────────────────────
@@ -202,19 +294,18 @@ function _renderInitialClassSection(r) {
 }
 
 function _renderVanillaOrCustomClassSection(type, r) {
-  const cls = r.class || 'vanilla';
-  const sel = v => cls === v ? 'selected' : '';
+  // No vanilla|custom choice. The engine has one Stock and one Operating
+  // round class; the user doesn't pick. Subclass emission becomes implicit
+  // from non-empty Round End content in the Tier C accordion below.
   const baseClass = type === 'stock' ? 'Engine::Round::Stock' : 'Engine::Round::Operating';
+  const label     = type === 'stock' ? 'Stock' : 'Operating';
   const lines = [];
   lines.push(`<div class="rounds-class-section" data-round-type="${type}">`);
-  lines.push('  <h4 class="rounds-section-title">Class</h4>');
-  lines.push(`  <label>${type === 'stock' ? 'Stock' : 'Operating'} round class`);
-  lines.push(`    <select data-rkey="${type}.class">`);
-  lines.push(`      <option value="vanilla" ${sel('vanilla')}>Vanilla — ${baseClass}</option>`);
-  lines.push(`      <option value="custom"  ${sel('custom')}>Custom subclass</option>`);
-  lines.push('    </select>');
-  lines.push('  </label>');
-  // Subclass body editor moved to Tier C accordion.
+  lines.push(`  <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;">`);
+  lines.push(`    <span style="color:var(--text-secondary);">${label} round class:</span>`);
+  lines.push(`    <code style="color:var(--text-primary);font-family:monospace;">${baseClass}</code>`);
+  lines.push(`  </div>`);
+  lines.push(`  <p class="mech-hint" style="margin:4px 0 0;">No options. Customize via the step list (Tier B) or end-of-round behavior (Tier C below).</p>`);
   lines.push('</div>');
   return lines.join('\n');
 }
@@ -730,7 +821,8 @@ function renderStepsPanelView() {
   view.innerHTML = [
     '<div style="max-width:980px;margin:0 auto;">',
     `  <h2 style="margin:0 0 4px 0;font-weight:500;letter-spacing:.04em;color:var(--text-primary);">Round Steps</h2>`,
-    `  <p class="mech-hint" style="margin:0 0 16px;">Configure the order of actions in each round. Empty step lists fall through to base.rb defaults.</p>`,
+    `  <p class="mech-hint" style="margin:0 0 12px;">Configure the order of actions in each round. Empty step lists fall through to base.rb defaults.</p>`,
+       _renderRoundFlowDiagram(rounds, activeTab),
     `  <div class="corp-tab-bar" style="margin-bottom:0;">`,
          _ROUND_SUB_TABS.map(t =>
            `    <button type="button" class="corp-tab-btn${t.id === activeTab ? ' active' : ''}" data-rounds-tab="${t.id}">${t.label}</button>`
@@ -1040,6 +1132,54 @@ if (typeof document !== 'undefined') {
   } else {
     wireStepsPanel();
   }
+}
+
+// ── Round-flow diagram ──────────────────────────────────────────────────────
+// Pill row above the sub-tabs. Renders the assembled `next_round!` topology:
+// Init → SR → OR×N → (Merger if enabled) → ↻ SR. Each node is a click-to-tab
+// shortcut (uses the existing data-rounds-tab handler), and gets a "*" suffix
+// + accent border when its tab has a non-empty transitionHook (i.e. its
+// when-branch in the assembled `def next_round!` has been customized).
+function _renderRoundFlowDiagram(rounds, activeTab) {
+  const initTrans   = _slotHasTransition(rounds.initial);
+  const stockTrans  = _slotHasTransition(rounds.stock);
+  const opTrans     = _slotHasTransition(rounds.operating);
+  const mergerEnabled = !!(rounds.merger && rounds.merger.enabled);
+  const mergerTrans = mergerEnabled && _slotHasTransition(rounds.merger);
+
+  const node = (label, modified, type) => {
+    const isActive = type === activeTab;
+    const baseStyle = modified
+      ? 'background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);'
+      : 'background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);';
+    const weightStyle = isActive ? 'font-weight:700;' : 'font-weight:400;';
+    return `<button type="button" data-rounds-tab="${type}" style="${baseStyle}${weightStyle}padding:3px 9px;border-radius:4px;font-family:monospace;font-size:11px;cursor:pointer;">${label}${modified ? ' *' : ''}</button>`;
+  };
+  const arrow = '<span style="color:var(--text-dim);font-family:monospace;">→</span>';
+
+  const parts = [
+    node('Init', initTrans, 'initial'),
+    arrow,
+    node('SR', stockTrans, 'stock'),
+    arrow,
+    node('OR×N', opTrans, 'operating'),
+  ];
+  if (mergerEnabled) {
+    parts.push(arrow, node('Merger', mergerTrans, 'merger'));
+  }
+  parts.push('<span style="color:var(--text-dim);font-family:monospace;">↻ SR</span>');
+
+  return [
+    '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:5px;">',
+    '  <span style="color:var(--text-dim);font-size:10px;letter-spacing:0.05em;text-transform:uppercase;margin-right:4px;">Round flow</span>',
+    '  ' + parts.join(' '),
+    '  <span style="margin-left:auto;color:var(--text-dim);font-size:10px;">* = custom transition</span>',
+    '</div>',
+  ].join('\n');
+}
+
+function _slotHasTransition(slot) {
+  return !!(slot && slot.transitionHook && slot.transitionHook.body && slot.transitionHook.body.trim());
 }
 
 // Listener handlers — attached by mechanics-panel.js after each renderRight,
