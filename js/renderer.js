@@ -100,7 +100,7 @@ window.debugHex = function(key, label) {
 // ─── DSL HEX COLORS ───────────────────────────────────────────────────────────
 // Source: tobymao lib/hex.rb Lib::Hex::COLOR — must match TILE_HEX_COLORS in constants.js
 const STATIC_BG_COLORS = {
-  white:  '#EAE0C8',
+  white:  '#ffffff',
   yellow: '#fde900',
   green:  '#71BF44',
   brown:  '#CB7745',
@@ -558,7 +558,7 @@ function _terrainIconSvg(terrain, S, dx, dy) {
              ` fill="#4e983b"/>` + // hill.svg green
              `<rect x="${px}" y="${(dy+S/2).toFixed(2)}"` +
              ` width="${S.toFixed(2)}" height="${(S/2).toFixed(2)}"` +
-             ` fill="${TERRAIN_COLORS[''] || '#c8a87a'}"/>`; // hex bg colour clips dome base
+             ` fill="${TERRAIN_COLORS[''] || '#ffffff'}"/>`; // hex bg colour clips dome base
 
     case 'swamp':
     case 'marsh':
@@ -2583,6 +2583,9 @@ function buildHexSvg(r, c, hex) {
         : hex.nodes.some(n => n.type === 'city' || n.type === 'town')
           ? (hex.cityName || '')
           : '';
+    // Deferred: written to locNameSvg and appended after hexToSvgInner so the
+    // name renders on top of city circles (tobymao order: Track → Cities → LocationName).
+    let locNameSvg = '';
     if (locName) {
       // ── tobymao location_name.rb preferred_render_locations ─────────────────
       // CRITICAL: hex.feature is set to 'offboard' for red hexes and 'none' for
@@ -2709,13 +2712,13 @@ function buildHexSvg(r, c, hex) {
       const _bw   = _maxC * _cw + _padX;
       const _bh   = _segs.length * _lh + _padY;
       // Rect centered on ny (tobymao box_dimensions + render_background_box logic)
-      g += `<rect x="${(-_bw / 2).toFixed(1)}" y="${(ny - _bh / 2).toFixed(1)}" ` +
+      locNameSvg += `<rect x="${(-_bw / 2).toFixed(1)}" y="${(ny - _bh / 2).toFixed(1)}" ` +
            `width="${_bw.toFixed(1)}" height="${_bh.toFixed(1)}" ` +
            `fill="white" fill-opacity="0.5" stroke="none"/>`;
       // Text segments vertically centered around ny, one per line
       for (let i = 0; i < _segs.length; i++) {
         const _ty = ny + (i - (_segs.length - 1) / 2) * _lh;
-        g += `<text x="0" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
+        locNameSvg += `<text x="0" y="${_ty.toFixed(1)}" font-family="Lato,Arial,sans-serif" ` +
              `font-size="${_fz}" font-weight="bold" fill="#111" stroke-width="0.5" ` +
              `text-anchor="middle" dominant-baseline="middle">${escSvg(_segs[i])}</text>`;
       }
@@ -2823,6 +2826,9 @@ function buildHexSvg(r, c, hex) {
         }
       }
     }
+
+    // Location name on top of track + cities (tobymao: LocationName renders last).
+    g += locNameSvg;
 
     // Part::Blocker, Part::Reservation, Part::Assignments — game-state pipeline.
     // Port of tobymao blocker.rb, reservation.rb, assignments.rb (source files read above).

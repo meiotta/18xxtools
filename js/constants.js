@@ -8,7 +8,7 @@ const TERRAIN_COLORS = {
   // All terrain types use the standard plains background.
   // Visual differentiation is through the terrain icon/badge only — no colored
   // hex backgrounds.  The offmap key is the only exception (black = off the board).
-  '': '#c8a87a',
+  '': '#ffffff',
   offmap: '#1a1a1a',
 };
 
@@ -23,4 +23,4 @@ const EDGE_MIDPOINTS = [
 ];
 
 // Tile hex fill colors by upgrade era — source: tobymao lib/hex.rb Lib::Hex::COLOR
-const TILE_HEX_COLORS = { white: '#EAE0C8', yellow: '#fde900', green: '#71BF44', brown: '#CB7745', grey: '#BCBDC0', blue:'#399db6' };
+const TILE_HEX_COLORS = { white: '#ffffff', yellow: '#fde900', green: '#71BF44', brown: '#CB7745', grey: '#BCBDC0', blue:'#399db6' };

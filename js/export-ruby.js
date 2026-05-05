@@ -108,6 +108,23 @@ function hexToDslCode(hex) {
     // Tile not found in registry — fall through and export static hex fields as-is
   }
 
+  // Apply rotation to static hex geometry (no tile placement).
+  // The renderer visually rotates all hexes via hex.rotation; mirror that in the export.
+  if (!hex.tile && hex.rotation) {
+    const R = hex.rotation;
+    hex = {
+      ...hex,
+      nodes:   (hex.nodes   || []).map(n => ({ ...n, locStr: _rotateLocStr(n.locStr, R) })),
+      paths:   (hex.paths   || []).map(p => ({
+        ...p,
+        a: p.a?.type === 'edge' ? { type: 'edge', n: _rotateEdge(p.a.n, R) } : p.a,
+        b: p.b?.type === 'edge' ? { type: 'edge', n: _rotateEdge(p.b.n, R) } : p.b,
+      })),
+      stubs:   (hex.stubs   || []).map(s => ({ ...s, edge: _rotateEdge(s.edge, R) })),
+      borders: (hex.borders || []).map(b => ({ ...b, edge: _rotateEdge(b.edge, R) })),
+    };
+  }
+
   const parts = [];
 
   // Offboard declaration (revenue stored at hex level, not in a node)
