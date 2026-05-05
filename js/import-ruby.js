@@ -1030,10 +1030,10 @@ function _rbParseAbilityHash(h) {
 
   // Integer scalars — base.rb: count, count_per_or; token.rb: price, teleport_price,
   //   discount, city; tile_lay.rb: discount, cost, lay_count, upgrade_count;
-  //   tile_income.rb: income; reservation: slot, city
+  //   tile_income.rb: income, amount; reservation: slot, city
   for (const k of [
     'count', 'count_per_or', 'discount', 'price', 'teleport_price',
-    'lay_count', 'upgrade_count', 'cost', 'income', 'slot', 'city',
+    'lay_count', 'upgrade_count', 'cost', 'income', 'slot', 'city', 'amount',
   ]) {
     const v = _rbNum(h, k);
     if (v !== null) ab[k] = v;
@@ -1145,9 +1145,28 @@ function _rbParseCompany(hashStr) {
 }
 
 function _rbParseCorp(hashStr) {
+  // Strip the abilities: [...] block before extracting corp-level fields so that
+  // ability type: values don't pollute the corp-level type lookup.
+  const abIdx = hashStr.indexOf('abilities:');
+  let metaStr = hashStr;
+  if (abIdx !== -1) {
+    const brIdx = hashStr.indexOf('[', abIdx);
+    if (brIdx !== -1) {
+      let d = 0, ei = brIdx;
+      while (ei < hashStr.length) {
+        if (hashStr[ei] === '[') d++;
+        else if (hashStr[ei] === ']') { d--; if (d === 0) break; }
+        ei++;
+      }
+      metaStr = hashStr.slice(0, abIdx) + hashStr.slice(ei + 1);
+    }
+  }
+
   const sym         = _rbStr(hashStr, 'sym')          || '';
   const name        = _rbStr(hashStr, 'name')         || '';
-  const type        = _rbStr(hashStr, 'type')         || 'minor';
+  // Use metaStr (abilities stripped) for type so ability type: values don't leak.
+  // Default to 'major' — standard public companies omit type: in tobymao.
+  const type        = _rbStr(metaStr, 'type')         || 'major';
   const color       = _rbStr(hashStr, 'color')        || '#ffffff';
   const textColor   = _rbStr(hashStr, 'text_color')   || '#000000';
   const coordinates     = _rbStr(hashStr, 'coordinates')          || '';
@@ -1171,26 +1190,38 @@ function _rbParseCorp(hashStr) {
 
   const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens, abilities: storedAbilities };
   if (destCoordinates)   co.destinationCoordinates = destCoordinates;
-  if (floatPct !== null) co.floatPctOverride        = floatPct;
+  // Only store as override when it explicitly differs from the engine default (60).
+  // float_percent: 60 in entities.rb is redundant — the engine defaults to 60, so
+  // the exporter elides it. Storing it here would cause a spurious round-trip diff.
+  if (floatPct !== null && floatPct !== 60) co.floatPctOverride = floatPct;
   if (associatedMajor)   co.associatedMajor         = associatedMajor;
   return { co, type };
 }
 
 function importEntitiesRb(content) {
-  // Normalize: join Ruby string-continuation lines, strip comments
+  // Normalize: join Ruby string-continuation lines, strip full-line comments only.
+  // Do NOT use /#[^\n]*/g — that strips #RRGGBB hex color values inside strings.
   const src = content
     .replace(/'\s*\\\s*\n\s*'/g, '')
-    .replace(/#[^\n]*/g, '');
+    .replace(/^\s*#[^\n]*/gm, '');
 
   const privates = _rbSplitHashes(_rbExtractArray(src, 'COMPANIES'))
     .map(_rbParseCompany)
     .filter(p => !/^(MINOR|REGIONAL):/.test(p.name));
 
   const corpsByType = {};
+  // Parse CORPORATIONS block (majors, nationals, etc.)
   _rbSplitHashes(_rbExtractArray(src, 'CORPORATIONS')).forEach(hashStr => {
     const { co, type } = _rbParseCorp(hashStr);
     if (!corpsByType[type]) corpsByType[type] = [];
     corpsByType[type].push(co);
+  });
+  // Parse MINORS block — entries here are always minor type regardless of what
+  // _rbParseCorp infers, since tobymao minors in MINORS blocks omit type:.
+  _rbSplitHashes(_rbExtractArray(src, 'MINORS')).forEach(hashStr => {
+    const { co } = _rbParseCorp(hashStr);
+    if (!corpsByType['minor']) corpsByType['minor'] = [];
+    corpsByType['minor'].push(co);
   });
 
   const packs = Object.entries(corpsByType).map(([type, companies]) =>
