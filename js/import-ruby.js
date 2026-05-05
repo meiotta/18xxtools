@@ -1794,7 +1794,7 @@ function importGameRb(content) {
   //   PRIVATE_MAIL_CONTRACTS = %w[P6 P7].freeze
   // Source: lib/engine/game/g_1822/game.rb:1831 mail_contract_bonus
   //   subsidy = (first_stop + last_stop) / 2  → formula: 'first_last_half'
-  // Back-populates state.privates[] so Jenny's panel can display the toggle.
+  // Back-populates state.privates[] mailContract fields from PRIVATE_MAIL_CONTRACTS.
   // Runs after entities.rb import; no-ops silently if privates not yet loaded.
   const mailSyms = _rbConstWordArray(src, 'PRIVATE_MAIL_CONTRACTS');
   if (mailSyms.length && typeof state !== 'undefined' && state.privates) {
@@ -1837,8 +1837,7 @@ function _rbParseCompanyTrains(src) {
 // in the supplied privates list (defaults to state.privates when omitted).
 // Names are a snapshot — if a private is renamed after import, use g.name || g.sym
 // for display (sym is the stable identifier). This should NOT be hooked into the
-// Companies panel save path; Evan's display code already has the g.name || g.sym
-// fallback.
+// Companies panel save path; display code reads g.name || g.sym as fallback.
 function _resolveGrantedByNames(trains, privates) {
   const privList = privates || (typeof state !== 'undefined' && state.privates) || [];
   (trains || (typeof state !== 'undefined' && state.trains) || []).forEach(tr => {
@@ -2132,7 +2131,7 @@ function applyGameImport(content, sourceName) {
       if (typeof initMechanicsState === 'function') initMechanicsState();
       else state.mechanics = {};
     }
-    // Merge mechanics fields — preserve functionMap so Jenny's COMPANIES ref and any
+    // Merge mechanics fields — preserve functionMap so the COMPANIES ref and any
     // other agent registrations are not overwritten by a game.rb import.
     const existingFunctionMap = state.mechanics.functionMap;
     Object.assign(state.mechanics, mechanics);
@@ -2165,8 +2164,8 @@ function applyGameImport(content, sourceName) {
     if (!state.financials) state.financials = {};
     state.financials.bank = mechanics.bankCash;
   }
-  // Wire TRAINS and PHASES into Evan's functionMap as ref entries.
-  // Schema per Anthony's brief: { type: 'ref', agent, stateKey, serializer }
+  // Wire TRAINS and PHASES into the functionMap as ref entries.
+  // Schema: { type: 'ref', agent, stateKey, serializer }
   if (!state.mechanics) state.mechanics = {};
   if (!state.mechanics.functionMap) state.mechanics.functionMap = {};
   state.mechanics.functionMap.TRAINS = { type: 'ref', agent: 'farrah', stateKey: 'trains',  serializer: 'trains'  };
