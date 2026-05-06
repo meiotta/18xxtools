@@ -50,7 +50,7 @@ const PHASE_COLORS = { yellow:'#fde900', green:'#71BF44', brown:'#CB7745', gray:
 
 // Color rail definitions (no "Blank" option)
 const BG_OPTS = [
-  { v:'white',  label:'White',  hex:'#ffffff', border:'#bba060', title:'White — upgrades to Yellow'  },
+  { v:'white',  label:'White',  hex:'#EAE0C8', border:'#bba060', title:'White — upgrades to Yellow'  },
   { v:'yellow', label:'Yellow', hex:'#fde900', border:'#c8a800', title:'Yellow — upgrades to Green'  },
   { v:'green',  label:'Green',  hex:'#71BF44', border:'#3a8a1a', title:'Green — upgrades to Brown'   },
   { v:'brown',  label:'Brown',  hex:'#CB7745', border:'#8a4010', title:'Brown — fully upgraded'      },
@@ -639,7 +639,7 @@ function _buildPanel() {
 }
 
 function _bgHexColor() {
-  return BG_OPTS.find(o => o.v === _bg)?.hex || '#ffffff';
+  return BG_OPTS.find(o => o.v === _bg)?.hex || '#EAE0C8';
 }
 
 function _bordersHtml() {

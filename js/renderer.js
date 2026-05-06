@@ -100,7 +100,7 @@ window.debugHex = function(key, label) {
 // ─── DSL HEX COLORS ───────────────────────────────────────────────────────────
 // Source: tobymao lib/hex.rb Lib::Hex::COLOR — must match TILE_HEX_COLORS in constants.js
 const STATIC_BG_COLORS = {
-  white:  '#ffffff',
+  white:  '#EAE0C8',
   yellow: '#fde900',
   green:  '#71BF44',
   brown:  '#CB7745',
@@ -558,7 +558,7 @@ function _terrainIconSvg(terrain, S, dx, dy) {
              ` fill="#4e983b"/>` + // hill.svg green
              `<rect x="${px}" y="${(dy+S/2).toFixed(2)}"` +
              ` width="${S.toFixed(2)}" height="${(S/2).toFixed(2)}"` +
-             ` fill="${TERRAIN_COLORS[''] || '#ffffff'}"/>`; // hex bg colour clips dome base
+             ` fill="${TERRAIN_COLORS[''] || '#EAE0C8'}"/>`; // hex bg colour clips dome base
 
     case 'swamp':
     case 'marsh':
