@@ -279,6 +279,9 @@ function _loadFromModel(h) {
           edges.push(p.a.n);
           if (totalLanes > 1) { if (!_nodeEdgeLane[nodeId]) _nodeEdgeLane[nodeId] = {}; _nodeEdgeLane[nodeId][p.a.n] = totalLanes; }
         }
+        // Propagate terminal from path to node (terminal lives on the path in DSL but on
+        // the node in the builder model — node.terminal marks all its exits as terminal).
+        if (p.terminal) { const nd = _nodes.find(n => n.id === nodeId); if (nd) nd.terminal = true; }
       }
     } else if (aNode && bEdge) {
       const nodeId = nodeIdByIndex[p.a.n];
@@ -290,6 +293,7 @@ function _loadFromModel(h) {
           edges.push(p.b.n);
           if (totalLanes > 1) { if (!_nodeEdgeLane[nodeId]) _nodeEdgeLane[nodeId] = {}; _nodeEdgeLane[nodeId][p.b.n] = totalLanes; }
         }
+        if (p.terminal) { const nd = _nodes.find(n => n.id === nodeId); if (nd) nd.terminal = true; }
       }
     } else if (aNode && bNode) {
       // Node-to-node path (e.g. Swansea city↔town)
@@ -461,6 +465,7 @@ function _buildFinalModel() {
                       : null,
       terminal:     n.terminal || false,
       phaseMode:    isPhase,
+      groups:       n.groups || undefined,
     };
   });
 
