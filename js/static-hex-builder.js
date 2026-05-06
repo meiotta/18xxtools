@@ -1436,7 +1436,12 @@ function _refreshNodeConfig() {
   const cfg = document.getElementById('hbNodeConfig');
   if (!cfg) return;
   cfg.innerHTML = _nodeConfigHtml();
-  _bindNodeConfig();
+  // Do NOT call _bindNodeConfig() here.  The listeners are event-delegated to
+  // the cfg container element, which is attached once per full panel rebuild
+  // in _bindPanel().  Calling _bindNodeConfig() on every refresh stacks another
+  // listener set on the same element, causing revenue/slot/terminal events to
+  // fire N times after N refreshes.  innerHTML replacement recreates children
+  // but leaves the container (and its listeners) intact — delegation keeps working.
   _updateDslPreview();
 }
 
