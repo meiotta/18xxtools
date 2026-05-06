@@ -307,23 +307,29 @@ function buildManifestView() {
     }
   }
 
-  // Grid-level drag target (catches drops that miss a card)
-  grid.addEventListener('dragover', e => {
-    if (e.dataTransfer.types.includes('text/plain')) {
+  // Grid-level drag target (catches drops that miss a card).
+  // Guard: attach only once — buildManifestView() is called on every rebuild
+  // and without the guard each call stacks another set of listeners, causing
+  // the drop count to grow by one extra increment for every prior rebuild.
+  if (!grid._dropHandlersAttached) {
+    grid._dropHandlersAttached = true;
+    grid.addEventListener('dragover', e => {
+      if (e.dataTransfer.types.includes('text/plain')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        grid.classList.add('accepting');
+      }
+    });
+    grid.addEventListener('dragleave', e => {
+      if (!grid.contains(e.relatedTarget)) grid.classList.remove('accepting');
+    });
+    grid.addEventListener('drop', e => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      grid.classList.add('accepting');
-    }
-  });
-  grid.addEventListener('dragleave', e => {
-    if (!grid.contains(e.relatedTarget)) grid.classList.remove('accepting');
-  });
-  grid.addEventListener('drop', e => {
-    e.preventDefault();
-    grid.classList.remove('accepting');
-    const id = e.dataTransfer.getData('text/plain');
-    if (id && _getTileDef(id)) addOrIncrement(id);
-  });
+      grid.classList.remove('accepting');
+      const id = e.dataTransfer.getData('text/plain');
+      if (id && _getTileDef(id)) addOrIncrement(id);
+    });
+  }
 }
 
 // ── Card factory ──────────────────────────────────────────────────────────────
