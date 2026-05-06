@@ -2005,9 +2005,15 @@ window.staticHexCode = function staticHexCode(hex) {
   const savedPaths = hex.paths || [];
 
   // ── Revenue string helper ─────────────────────────────────────────────────
+  // Phase mode is determined by phaseMode flag OR by phaseRevenue having
+  // non-zero values — BUT only when flat is absent (null/undefined).
+  // parseDslHex nodes carry a populated phaseRevenue even for simple revenue
+  // (parsePhaseRevenue('20') fills all four phase slots with 20); the presence
+  // of a numeric flat value is the correct discriminator.
   function nodeRevStr(node) {
     const isPhase = node.phaseMode ||
-      (node.phaseRevenue !== null && node.phaseRevenue !== undefined &&
+      (node.flat == null &&
+       node.phaseRevenue !== null && node.phaseRevenue !== undefined &&
        Object.values(node.phaseRevenue || {}).some(v => v > 0));
     if (isPhase && node.phaseRevenue) {
       const pr   = node.phaseRevenue;
