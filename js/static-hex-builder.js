@@ -333,16 +333,11 @@ function _toDslHex() {
   // Build nodes[] and paths[] that hexToSvgInner understands.
   // Path endpoint convention: { type:'edge'|'node', n:int }
   const nodes = _nodes.map(n => {
-    // Towns at the center snap must NOT carry locStr:'center' — that forces the
-    // preview to (0,0) and bypasses computeTownPos, which picks the arc-midpoint
-    // position from connected edges (gentle/sharp/straight curve).  The DSL emitter
-    // already omits loc: for center towns, so the placed tile is always computed
-    // correctly; the preview should match.  Omitting the key entirely (not setting
-    // it to undefined) is the correct form — matching what parseDSL produces when
-    // there is no loc: in the DSL string.
-    // Cities keep locStr (including 'center') — a center city genuinely means
-    // "pin to origin", and edge cities carry an explicit numeric locStr.
-    const ls = (n.type === 'town' && n.locStr === 'center') ? null : (n.locStr || 'center');
+    // Never emit locStr:'center' — it pins nodes to (0,0) in hexToSvgInner, bypassing
+    // computePreferredEdges. Without it, single cities → center via special-case; multi-city
+    // hexes (e.g. Memphis 6×city) → each city at its preferred exit edge. Numeric locStr
+    // is always kept for explicitly placed edge-adjacent nodes.
+    const ls = (n.locStr === 'center') ? null : n.locStr;
     const node = { type: n.type, slots: n.slots ?? 1 };
     if (ls) node.locStr = ls;
     return node;
