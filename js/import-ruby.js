@@ -480,13 +480,13 @@ function parseTilesBlock(content) {
     }
   }
 
-  // Simple form: 'id' => integer
+  // Simple form: 'id' => integer  OR  'id' => 'unlimited'
   // Strip complex-entry inner hashes first so we never match 'count' => N
   // that lives inside a complex entry's inner hash.
   const simpleBody = body.replace(/'[^']+'\s*=>\s*\{[^}]+\}/g, '');
-  const simpleRe   = /'([^']+)'\s*=>\s*(\d+)/g;
+  const simpleRe   = /'([^']+)'\s*=>\s*(?:'(unlimited)'|(\d+))/g;
   while ((m = simpleRe.exec(simpleBody)) !== null) {
-    if (!manifest[m[1]]) manifest[m[1]] = parseInt(m[2]);
+    if (!manifest[m[1]]) manifest[m[1]] = m[2] === 'unlimited' ? null : parseInt(m[3]);
   }
 
   const tileCount = Object.keys(manifest).length;
