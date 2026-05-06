@@ -2079,7 +2079,9 @@ window.staticHexCode = function staticHexCode(hex) {
     const groupsAttr = node.groups ? `,groups:${node.groups}` : '';
 
     if      (origType === 'junction') parts.push(`junction`);
-    else if (origType === 'offboard') parts.push(`offboard=revenue:${rev}${termAttr}${locAttr}`);
+    // offboard= has no terminal: attribute in tobymao DSL — terminal lives only on
+    // the path directives and is already emitted there via p.terminal.
+    else if (origType === 'offboard') parts.push(`offboard=revenue:${rev}${locAttr}`);
     else if (origType === 'city')     parts.push(`city=revenue:${rev}${slotAttr}${groupsAttr}${locAttr}`);
     else if (origType === 'town')     parts.push(`town=revenue:${rev}${groupsAttr}${locAttr}`);
   });
