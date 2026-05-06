@@ -781,10 +781,14 @@ function _nodeConfigHtml() {
         </div>`).join('')}
     </div></div>`;
 
-  // Junction nodes have no revenue or slots — show a simple info panel
+  // Junction nodes have no revenue or slots — show a simple info panel with terminal option
   if (node.type === 'junction') {
     return `<div class="hb-section-label">Node Config — <span style="color:#ffd700;">Junction</span></div>
-      <div class="hb-hint">Junctions pass routes through without tokens or revenue.<br>Use Track tool or click edge dots to connect edges.</div>`;
+      <div class="hb-hint">Junctions pass routes through without tokens or revenue.<br>Use Track tool or click edge dots to connect edges.</div>
+      <div class="hb-check-row">
+        <input type="checkbox" id="hbTerminal" ${node.terminal ? 'checked' : ''}>
+        <label for="hbTerminal">Terminal (dead-end spike)</label>
+      </div>`;
   }
 
   let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>
