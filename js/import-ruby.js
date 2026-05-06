@@ -294,10 +294,11 @@ function parseDslHex(code, bg, locationName) {
       const { phases, active } = parsePhaseRevenue(revStr);
       const flatVal = !revStr.includes('_') ? (parseInt(revStr) || 0) : null;
       const locStr  = (part.match(/loc:([\w.]+)/) || [])[1];
+      const groups  = (part.match(/groups:([^,;]+)/) || [])[1];
       const nodeActive = (Object.values(active).some(Boolean))
         ? active : { yellow:true, green:true, brown:true, gray:true };
       hex.nodes.push({ type: 'city', slots, flat: flatVal,
-        phaseRevenue: phases, activePhases: nodeActive, locStr });
+        phaseRevenue: phases, activePhases: nodeActive, locStr, groups });
 
     } else if (part.startsWith('offboard=')) {
       const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
@@ -310,10 +311,11 @@ function parseDslHex(code, bg, locationName) {
     } else if (part.startsWith('town=')) {
       const revStr = (part.match(/revenue:([\d|_.a-z]+)/) || [])[1] || '0';
       const locStr = (part.match(/loc:([\w.]+)/) || [])[1];
+      const groups = (part.match(/groups:([^,;]+)/) || [])[1];
       const { phases, active } = parsePhaseRevenue(revStr);
       const rev = !revStr.includes('_') ? (parseInt(revStr) || 0) : null;
       hex.nodes.push({ type: 'town', flat: rev, phaseRevenue: phases,
-        activePhases: active, locStr });
+        activePhases: active, locStr, groups });
 
     } else if (part.startsWith('path=')) {
       // Parse path=a:X,b:Y[,terminal:N][,lanes:N][,a_lane:T.I][,b_lane:T.I]

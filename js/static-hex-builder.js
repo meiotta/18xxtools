@@ -221,6 +221,7 @@ function _loadFromModel(h) {
       phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0, ...(sn.phaseRevenue || {}) },
       terminal:     !!(sn.terminal),
       phaseMode:    hasPhaseRev,
+      groups:       sn.groups || undefined,
     });
     _nodeEdges[nodeId] = [];
   });
@@ -2012,14 +2013,15 @@ window.staticHexCode = function staticHexCode(hex) {
     const locAttr  = (node.locStr && node.locStr !== 'center') ? `,loc:${node.locStr}` : '';
     const slots    = node.slots ?? 1;
     const slotAttr = slots !== 1 ? `,slots:${slots}` : ''; // emits slots:0 for port cities, slots:N for multi-slot
-    const termAttr = node.terminal ? ',terminal:1' : '';
-    const rev      = nodeRevStr(node);
-    const origType = node.originalType || node.type;
+    const termAttr   = node.terminal ? ',terminal:1' : '';
+    const rev        = nodeRevStr(node);
+    const origType   = node.originalType || node.type;
+    const groupsAttr = node.groups ? `,groups:${node.groups}` : '';
 
     if      (origType === 'junction') parts.push(`junction`);
     else if (origType === 'offboard') parts.push(`offboard=revenue:${rev}${termAttr}${locAttr}`);
-    else if (origType === 'city')     parts.push(`city=revenue:${rev}${slotAttr}${locAttr}`);
-    else if (origType === 'town')     parts.push(`town=revenue:${rev}${locAttr}`);
+    else if (origType === 'city')     parts.push(`city=revenue:${rev}${slotAttr}${groupsAttr}${locAttr}`);
+    else if (origType === 'town')     parts.push(`town=revenue:${rev}${groupsAttr}${locAttr}`);
   });
 
   // ── Path directives ───────────────────────────────────────────────────────
