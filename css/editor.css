@@ -921,23 +921,39 @@ canvas { display: block; }
 .hb-phase-label { font-size: 12px; color: #ccc; text-transform: capitalize; min-width: 50px; }
 
 /* Slot buttons */
-.hb-slot-btns { display: flex; gap: 5px; }
+.hb-slot-btns { display: flex; gap: 5px; flex-wrap: wrap; }
 .hb-slot-btn {
   background: #2c2c2c;
   border: 1.5px solid #484848;
   color: #bbb;
-  width: 34px;
+  min-width: 30px;
   height: 30px;
+  padding: 0 9px;
   border-radius: 5px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
   transition: background 0.1s, border-color 0.1s;
 }
 .hb-slot-btn:hover { background: #3a3a3a; border-color: #666; }
 .hb-slot-btn.active { border-color: #ffd700; color: #ffd700; background: #252010; }
+
+/* Hex-level properties separator — visually separates node config from hex-wide fields */
+.hb-hex-props-sep {
+  padding: 5px 16px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #484848;
+  background: #1a1a1a;
+  border-bottom: 1px solid #252525;
+  flex-shrink: 0;
+  user-select: none;
+}
 
 /* Checkbox rows */
 .hb-check-row {

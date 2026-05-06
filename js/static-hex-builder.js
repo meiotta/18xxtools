@@ -661,6 +661,7 @@ function _panelHtml() {
         <div id="hbNodeConfig" class="hb-section">
           ${_nodeConfigHtml()}
         </div>
+        <div class="hb-hex-props-sep">Hex</div>
         <div class="hb-section">
           <div class="hb-section-label">Label</div>
           <input type="text" id="hbLabelInput" class="hb-text-input" value="${_esc(_label)}"
@@ -791,14 +792,13 @@ function _nodeConfigHtml() {
       </div>`;
   }
 
-  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>
-    <div class="hb-hint" style="margin-bottom:4px;">Click edge dots to connect/disconnect</div>`;
+  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>`;
 
   if (isRedOrOff) {
     // Red / offboard: phase revenue always shown, no toggle
     html += phaseGrid();
   } else if (canOptPhase) {
-    // Gray non-offboard: optional phase revenue (could be terminal tile or permanent board feature)
+    // Gray non-offboard: optional phase revenue
     html += `<div class="hb-check-row">
       <input type="checkbox" id="hbPhaseMode" ${node.phaseMode ? 'checked' : ''}>
       <label for="hbPhaseMode">Phase revenue</label>
@@ -819,11 +819,21 @@ function _nodeConfigHtml() {
     </div>`;
   }
 
+  // Revenue group — city/town only (groups: DSL attribute; e.g. groups:London)
+  if (node.type === 'city' || node.type === 'town') {
+    html += `<div class="hb-field">
+      <div class="hb-field-label">Revenue group</div>
+      <input type="text" id="hbGroupsInput" class="hb-text-input"
+        value="${_esc(node.groups || '')}" placeholder="e.g. London"
+        autocomplete="off" maxlength="40">
+    </div>`;
+  }
+
   if (node.type === 'city') {
     html += `<div class="hb-field">
       <div class="hb-field-label">Slots</div>
       <div class="hb-slot-btns">
-        ${[0, 1, 2, 3, 4].map(s => `<button class="hb-slot-btn${(node.slots ?? 1) === s ? ' active' : ''}" data-slots="${s}">${s === 0 ? '0 (port)' : s}</button>`).join('')}
+        ${[0, 1, 2, 3, 4].map(s => `<button class="hb-slot-btn${(node.slots ?? 1) === s ? ' active' : ''}" data-slots="${s}" title="${s === 0 ? 'Port city — no token slots' : s + ' token slot' + (s !== 1 ? 's' : '')}">${s === 0 ? 'Port' : s}</button>`).join('')}
       </div>
     </div>`;
   }
@@ -1346,6 +1356,12 @@ function _bindNodeConfig() {
       const prev = node.revenue;
       node.revenue = parseInt(e.target.value) || 0;
       window.HBD?.log('node', `Node ${node.id} revenue: ${prev} → ${node.revenue}`);
+      _updateDslPreview();
+    }
+    if (e.target.id === 'hbGroupsInput') {
+      const prev = node.groups;
+      node.groups = e.target.value.trim() || undefined;
+      window.HBD?.log('node', `Node ${node.id} groups: ${prev} → ${node.groups}`);
       _updateDslPreview();
     }
     if (e.target.dataset.phase) {
