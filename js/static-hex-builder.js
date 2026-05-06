@@ -385,61 +385,25 @@ function _toDslHex() {
   // parallel tracks are drawn at shared endpoint edges.
   // (_buildFinalModel also expands to N aLane:[N,i] paths, so placed hex renders correctly.)
 
-  // Build per-edge max explicit lane value (0-indexed; total = max + 1)
+  // Build per-edge max explicit lane value (0-indexed; total = max + 1).
+  // Mirrors _buildFinalModel() exactly — only explicit laneA/laneB are emitted,
+  // no auto-detect. This keeps the preview consistent with what is saved to the map.
   const _rEdgeMax = {};
   _segments.forEach(seg => {
     if (seg.laneA != null) _rEdgeMax[seg.ea] = Math.max(_rEdgeMax[seg.ea] || 0, seg.laneA);
     if (seg.laneB != null) _rEdgeMax[seg.eb] = Math.max(_rEdgeMax[seg.eb] || 0, seg.laneB);
   });
 
-  // Fallback auto-detect for legacy segments without explicit laneA/laneB.
-  // An edge is "explicitly assigned" only when at least one segment at that edge
-  // has a lane index > 0 (above the default).  lane=0 on its own doesn't count —
-  // it would block auto-detection but also fail the explicit emission check
-  // (_rEdgeMax > 0 is false when all lanes are 0), leaving both paths dead.
-  const _rHasExplicit = edge =>
-    _segments.some(s => (s.ea === edge && s.laneA > 0) || (s.eb === edge && s.laneB > 0));
-
-  const _rAutoMap = new Map();
-  _segments.forEach((seg, si) => {
-    if ((seg.lanes || 1) > 1) return;
-    [seg.ea, seg.eb].forEach((edge, ki) => {
-      if (_rHasExplicit(edge)) return;
-      if (!_rAutoMap.has(edge)) _rAutoMap.set(edge, []);
-      _rAutoMap.get(edge).push({ si, isA: ki === 0 });
-    });
-  });
-  const _rAutoA = {}, _rAutoB = {};
-  _rAutoMap.forEach((entries, sharedEdge) => {
-    if (entries.length < 2) return;
-    entries.sort((x, y) => {
-      const ox = x.isA ? _segments[x.si].eb : _segments[x.si].ea;
-      const oy = y.isA ? _segments[y.si].eb : _segments[y.si].ea;
-      const dx = (ox - sharedEdge + 6) % 6;
-      const dy = (oy - sharedEdge + 6) % 6;
-      return dx - dy;
-    });
-    entries.forEach(({ si, isA }, idx) => {
-      if (isA) _rAutoA[si] = [entries.length, idx];
-      else     _rAutoB[si] = [entries.length, idx];
-    });
-  });
-
-  _segments.forEach((seg, si) => {
+  _segments.forEach(seg => {
     const a = { type: 'edge', n: seg.ea };
     const b = { type: 'edge', n: seg.eb };
     const lanes = seg.lanes || 1;
     if (lanes <= 1) {
       const p = { a, b };
-      // Explicit lane model: laneA is 0-indexed, total = _rEdgeMax[ea] + 1
       if (seg.laneA != null && _rEdgeMax[seg.ea] > 0)
         p.aLane = [_rEdgeMax[seg.ea] + 1, seg.laneA];
-      else if (_rAutoA[si])
-        p.aLane = _rAutoA[si];
       if (seg.laneB != null && _rEdgeMax[seg.eb] > 0)
         p.bLane = [_rEdgeMax[seg.eb] + 1, seg.laneB];
-      else if (_rAutoB[si])
-        p.bLane = _rAutoB[si];
       paths.push(p);
     } else {
       for (let i = 0; i < lanes; i++) {
@@ -462,8 +426,12 @@ function _toDslHex() {
   // 'offboard' is the only feature value the renderer and exporter branch on.
   const feature = _nodes.some(n => n.type === 'offboard') ? 'offboard' : 'none';
 
+  // Pass through stubs from the original hex (not editable in builder — shown read-only on canvas).
+  const stubs = (_hexId && state.hexes[_hexId]?.stubs) || undefined;
+
   return { nodes, paths, exits, blankPaths, feature, bg: _bg,
-           terrain: _terrain || undefined, terrainCost: _terrainCost || undefined };
+           terrain: _terrain || undefined, terrainCost: _terrainCost || undefined,
+           stubs: stubs?.length ? stubs : undefined };
 }
 
 // ── Final model builder ───────────────────────────────────────────────────────

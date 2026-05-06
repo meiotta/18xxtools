@@ -418,6 +418,15 @@ function showContextMenu(x, y, hexId) {
     }
   );
 
+  if (hex.terrain) {
+    addItem('✕ Remove terrain', () => {
+      ensureHex(hexId);
+      state.hexes[hexId].terrain     = '';
+      state.hexes[hexId].terrainCost = 0;
+      render(); autosave();
+    });
+  }
+
   // ── Revenue Center quick-set ──────────────────────────────────────────────
   // Sets the hex as a city/town stub (white base-map style: no tile, city circle
   // or town bar drawn directly, revenue:0 placeholder).  Mirrors tobymao DSL:
@@ -548,6 +557,15 @@ function showMultiContextMenu(x, y, hexIds) {
       });
     }
   );
+
+  if (hexIds.some(id => state.hexes[id]?.terrain)) {
+    addItem(`✕ Remove terrain (${n})`, () => {
+      applyToAll(id => {
+        state.hexes[id].terrain     = '';
+        state.hexes[id].terrainCost = 0;
+      });
+    });
+  }
 
   addSep();
 
