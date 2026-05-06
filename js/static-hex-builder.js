@@ -226,6 +226,25 @@ function _loadFromModel(h) {
     _nodeEdges[nodeId] = [];
   });
 
+  // parseDslHex stores offboard data on h.feature/h.phaseRevenue rather than in
+  // h.nodes[] (offboard= never calls hex.nodes.push).  The path directive still
+  // references _0 (node index 0), so nodeIdByIndex[0] must exist before paths are
+  // processed — otherwise every path=a:X,b:_0 is silently dropped.
+  // Synthesize the missing offboard node from the top-level fields.
+  if (h.feature === 'offboard' && nodeIdByIndex[0] === undefined) {
+    const pr  = h.phaseRevenue || {};
+    const hasPhaseRev = Object.values(pr).some(v => v > 0);
+    const nodeId = _nextId();
+    nodeIdByIndex[0] = nodeId;
+    _nodes.push({
+      id: nodeId, type: 'offboard', slots: 1, locStr: 'center',
+      revenue:      pr.yellow ?? 0,
+      phaseRevenue: { yellow: 0, green: 0, brown: 0, gray: 0, ...pr },
+      terminal: false, phaseMode: hasPhaseRev, groups: undefined,
+    });
+    _nodeEdges[nodeId] = [];
+  }
+
   // Build connections from DSL paths.
   // Edge-to-edge paths are grouped by endpoint pair first because parseDslHex
   // expands lanes:N into N separate path objects (each with aLane/bLane).
@@ -429,9 +448,19 @@ function _toDslHex() {
   // Pass through stubs from the original hex (not editable in builder — shown read-only on canvas).
   const stubs = (_hexId && state.hexes[_hexId]?.stubs) || undefined;
 
+  // For offboard hexes the renderer reads h.phaseRevenue / h.activePhases directly
+  // (the feature model, not from nodes[]).  Pass them through so the canvas preview
+  // shows the colored revenue bubbles.
+  const offboardNode = _nodes.find(n => n.type === 'offboard');
+  const phaseRevenue = offboardNode?.phaseRevenue ?? undefined;
+  const activePhases = offboardNode
+    ? { yellow: true, green: true, brown: true, gray: true }
+    : undefined;
+
   return { nodes, paths, exits, blankPaths, feature, bg: _bg,
            terrain: _terrain || undefined, terrainCost: _terrainCost || undefined,
-           stubs: stubs?.length ? stubs : undefined };
+           stubs: stubs?.length ? stubs : undefined,
+           phaseRevenue, activePhases };
 }
 
 // ── Final model builder ───────────────────────────────────────────────────────
