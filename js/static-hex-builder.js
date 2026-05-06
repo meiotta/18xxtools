@@ -56,7 +56,7 @@ const BG_OPTS = [
   { v:'brown',  label:'Brown',  hex:'#CB7745', border:'#8a4010', title:'Brown — fully upgraded'      },
   { v:'gray',   label:'Gray',   hex:'#BCBDC0', border:'#888',    title:'Gray — cannot be upgraded'   },
   { v:'red',    label:'Red',    hex:'#E05050', border:'#900',    title:'Red — cannot be upgraded'    },
-  { v:'blue',   label:'Blue',   hex:'#4080c0', border:'#205090', title:'Blue — water hex'            },
+  { v:'blue',   label:'Blue',   hex:'#35A7FF', border:'#1070cc', title:'Blue — water hex'            },
 ];
 
 // Canvas geometry — flat-top hex, 280×300 canvas
