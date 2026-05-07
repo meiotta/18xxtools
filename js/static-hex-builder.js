@@ -782,13 +782,36 @@ function _toolbarHtml() {
   </div>`;
 }
 
+// Node type icons for the picker row
+const _NODE_ICON = { city: '○', town: '♦', junction: '⊕', offboard: '★' };
+
+function _nodePickerHtml() {
+  if (_nodes.length === 0) return '';
+  const btns = _nodes.map((n, i) => {
+    const icon    = _NODE_ICON[n.type] || '○';
+    // Prefer the snap label (e.g. "3") over "center"; fall back to 1-based index
+    const locName = (n.locStr && n.locStr !== 'center') ? n.locStr : String(i + 1);
+    const isActive = n.id === _selectedNodeId;
+    const rev = (n.phaseMode || n.type === 'offboard')
+      ? `${n.phaseRevenue?.yellow ?? 0}…`
+      : String(n.revenue ?? 0);
+    return `<button class="hb-node-pick-btn${isActive ? ' active' : ''}"
+      data-pick-node="${n.id}"
+      title="${n.type} at ${n.locStr || 'center'} — revenue ${rev}">${icon}<span>${locName}</span></button>`;
+  }).join('');
+  return `<div class="hb-node-picker">${btns}</div>`;
+}
+
 function _nodeConfigHtml() {
   const node = _nodes.find(n => n.id === _selectedNodeId);
   if (!node) {
     return `<div class="hb-section-label">Node Config</div>
-      <div class="hb-node-empty">
-        <div class="hb-node-empty-icon">&#9675;</div>
-        <div>Click a city or town on the canvas to set revenue, slots, and more</div>
+      ${_nodePickerHtml()}
+      <div class="hb-node-empty" style="${_nodes.length ? 'margin-top:8px;' : ''}">
+        ${_nodes.length
+          ? '<div style="color:#555;font-size:12px;line-height:1.5;">Select a node above to configure it</div>'
+          : '<div class="hb-node-empty-icon">&#9675;</div><div>Place a city or town to configure it</div>'
+        }
       </div>`;
   }
   // Phase revenue rules:
@@ -821,7 +844,8 @@ function _nodeConfigHtml() {
       </div>`;
   }
 
-  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>`;
+  let html = `<div class="hb-section-label">Node Config — <span style="text-transform:capitalize;color:#ffd700;">${node.type}</span></div>
+    ${_nodePickerHtml()}`;
 
   if (isRedOrOff) {
     // Red / offboard: phase revenue always shown, no toggle
@@ -1419,6 +1443,15 @@ function _bindNodeConfig() {
   });
 
   cfg.addEventListener('click', e => {
+    // Node picker — select any node by clicking its pill
+    const pickBtn = e.target.closest('[data-pick-node]');
+    if (pickBtn) {
+      _selectedNodeId = parseInt(pickBtn.dataset.pickNode);
+      _refreshNodeConfig();
+      _renderCanvas();
+      return;
+    }
+
     const slotBtn = e.target.closest('[data-slots]');
     if (!slotBtn) return;
     const node = _nodes.find(n => n.id === _selectedNodeId);

@@ -898,6 +898,31 @@ canvas { display: block; }
 .hb-tool-btn[data-tool="erase"]:hover   { border-color: #d06060; color: #ff8080; background: rgba(160,50,50,0.18); }
 .hb-tool-btn[data-tool="erase"].active  { border-color: #d06060; color: #ff9090; background: rgba(160,50,50,0.22); }
 
+/* Node picker row */
+.hb-node-picker {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.hb-node-pick-btn {
+  background: #2a2a2a;
+  border: 1.5px solid #444;
+  color: #777;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.hb-node-pick-btn:hover { border-color: #666; color: #ccc; background: #333; }
+.hb-node-pick-btn.active { border-color: #ffd700; color: #ffd700; background: #252010; }
+.hb-node-pick-btn span { font-size: 10px; opacity: 0.7; }
+
 /* Node config — empty state */
 .hb-node-empty {
   display: flex;
