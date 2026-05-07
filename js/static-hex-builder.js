@@ -484,10 +484,16 @@ function _buildFinalModel() {
   // Revenue uses the same field names as parseDslHex: flat (non-phase) / phaseRevenue.
   const nodes = _nodes.map(n => {
     const isPhase = n.phaseMode || n.type === 'offboard';
+    // Never store locStr:'center' — it pins nodes to (0,0) in hexToSvgInner, bypassing
+    // computePreferredEdges.  Mirror _toDslHex: omit locStr for center nodes so the
+    // renderer computes positions from connected edges (single city → center via special-
+    // case; multi-city → each city at its preferred exit edge).  Numeric locStr is
+    // always kept for explicitly placed edge-adjacent nodes.
+    const _ls = (n.locStr && n.locStr !== 'center') ? n.locStr : undefined;
     return {
       type:         n.type,
       slots:        n.slots  ?? 1,
-      locStr:       n.locStr || 'center',
+      locStr:       _ls,
       flat:         isPhase ? null : (n.revenue || 0),
       phaseRevenue: isPhase
                       ? { yellow: 0, green: 0, brown: 0, gray: 0, ...(n.phaseRevenue || {}) }

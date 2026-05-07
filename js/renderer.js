@@ -2443,6 +2443,30 @@ function _buildLabelSvg(label, nodes, paths, sz, totalDeg = 0, cityName = '') {
     else      { for (const r of _CTR) _ru[r] += 1; } // center-placed city
   }
 
+  // ── Simulate Part::Revenue increment_cost (single-stop tiles, flat layout) ────
+  // tobymao render order: Track → Cities (+ inline revenue) → LocationName → Label.
+  // For single-stop tiles should_render_revenue?=false — the city renders its OWN
+  // revenue and calls increment_weight_for_regions before the label runs.
+  // source: city.rb render_revenue (@num_cts==1, flat):
+  //   1-slot: { [9,16]=>1.0, [10,17]=>0.5, [11,18]=>0.25 }
+  //   multi-slot: [11,18] weight 1.0
+  // Without this the label may pick the right side and collide with the revenue bubble.
+  if (_cityTowns.length === 1) {
+    const _ct = _cityTowns[0];
+    const _rev = (_ct.flat != null ? _ct.flat : _ct.revenue) ?? 0;
+    if (_rev !== 0 && _rev !== null && _rev !== undefined) {
+      const _slots = _ct.type === 'city' ? (_ct.slots || 1) : 1;
+      if (_slots === 1) {
+        _ru[ 9] += 1.0; _ru[16] += 1.0;
+        _ru[10] += 0.5; _ru[17] += 0.5;
+        _ru[11] += 0.25; _ru[18] += 0.25;
+      } else {
+        // multi-slot city: OO_REVENUE_REGIONS clears right side
+        _ru[11] += 1.0; _ru[18] += 1.0;
+      }
+    }
+  }
+
   // ── Simulate Part::LocationName placement ────────────────────────────────────
   // tobymao render order: Track → Cities → LocationName → Label.
   // When a city name is present on a multi-city tile, the LocationName part runs
