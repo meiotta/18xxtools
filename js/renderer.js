@@ -3065,8 +3065,38 @@ function _onPickMove(world) {
   if (!_hexPickCb) return;
   const ph  = pixelToHex(world.x, world.y, HEX_SIZE, state.meta.orientation);
   const hid = hexId(ph.row, ph.col);
-  if (hid === _hexPickHover) return; // no change
-  _hexPickHover = hid;
+
+  // For multi-city hexes, track which city circle the cursor is closest to.
+  let nearestCity = null;
+  if (hid) {
+    const hex = (state.hexes || {})[hid] || null;
+    const cityNodes = (hex?.nodes || [])
+      .map((n, i) => ({ n, i }))
+      .filter(({ n }) => n.type === 'city');
+    if (cityNodes.length > 1) {
+      const isPointy  = state.meta.orientation === 'pointy';
+      const orientOff = isPointy ? 30 : 0;
+      const sc        = HEX_SIZE / 50;
+      const center    = getHexCenter(ph.row, ph.col, HEX_SIZE, state.meta.orientation);
+      const cos_      = Math.cos(orientOff * Math.PI / 180);
+      const sin_      = Math.sin(orientOff * Math.PI / 180);
+      let bestDist = Infinity;
+      for (const { i: _i } of cityNodes) {
+        const lp = _getCityLocalPos(hex, _i);
+        const wx = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
+        const wy = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
+        const d  = Math.hypot(world.x - wx, world.y - wy);
+        if (d < bestDist) { bestDist = d; nearestCity = _i; }
+      }
+    }
+  }
+
+  const hexChanged  = hid !== _hexPickHover;
+  const cityChanged = nearestCity !== _hexPickHoverCity;
+  if (!hexChanged && !cityChanged) return; // no change
+
+  _hexPickHover     = hid;
+  _hexPickHoverCity = nearestCity;
   _updatePickLayer();
 }
 
@@ -3162,15 +3192,21 @@ function _updatePickLayer() {
   const ringColor = valid ? '#4488ff' : '#cc3333';
   let s = `<polygon points="${pts}" fill="${valid ? 'rgba(68,136,255,0.12)' : 'rgba(204,51,51,0.12)'}" stroke="${ringColor}" stroke-width="2.5" stroke-dasharray="4,3"/>`;
 
-  // City-circle highlights (multi-city only — single city already obvious from hex ring)
+  // City-circle highlights (multi-city only — single city already obvious from hex ring).
+  // The city nearest the cursor (_hexPickHoverCity) gets a solid ring; others are dimmed.
   if (valid && cityNodes.length > 1) {
+    const cos_ = Math.cos(orientOff * Math.PI / 180);
+    const sin_ = Math.sin(orientOff * Math.PI / 180);
+    const r_   = (sz * 0.28).toFixed(1);
     for (const { i: _i } of cityNodes) {
-      const lp   = _getCityLocalPos(hex, _i);
-      const cos_ = Math.cos(orientOff * Math.PI / 180);
-      const sin_ = Math.sin(orientOff * Math.PI / 180);
-      const wx   = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
-      const wy   = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
-      s += `<circle cx="${wx.toFixed(1)}" cy="${wy.toFixed(1)}" r="${(sz * 0.28).toFixed(1)}" fill="rgba(68,136,255,0.25)" stroke="#4488ff" stroke-width="1.5"/>`;
+      const lp      = _getCityLocalPos(hex, _i);
+      const wx      = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
+      const wy      = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
+      const focused = (_hexPickHoverCity === _i);
+      const fill    = focused ? 'rgba(68,136,255,0.35)' : 'rgba(68,136,255,0.12)';
+      const stroke  = focused ? '#4488ff' : 'rgba(68,136,255,0.5)';
+      const sw      = focused ? '2' : '1';
+      s += `<circle cx="${wx.toFixed(1)}" cy="${wy.toFixed(1)}" r="${r_}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${focused ? '3,2' : 'none'}"/>`;
     }
   }
 
