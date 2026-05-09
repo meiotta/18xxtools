@@ -67,7 +67,10 @@ function renderMinorsTable() {
 
     const needsHome = co.locationMechanism === 'fixed' && !co.homeHex;
     const warning = needsHome ? '<span title="Home Hex Required" style="color:#ff4444;margin-right:4px;cursor:help;">⚠️</span>' : '';
-    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:var(--border-mid);margin-top:4px;font-size:10px;">${co.homeHex || 'Place'}</button>` : '<span style="color:var(--text-secondary);font-size:10px;">-</span>';
+    const _placeLabel = co.homeHex
+      ? (co.homeCityIndex !== undefined ? co.homeHex + String.fromCharCode(183) + co.homeCityIndex : co.homeHex)
+      : 'Place ⊕';
+    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:var(--border-mid);margin-top:4px;font-size:10px;">${_placeLabel}</button>` : '<span style="color:var(--text-secondary);font-size:10px;">-</span>';
 
     tr.innerHTML = `
       <td><input type="color" class="co-color"></td>
