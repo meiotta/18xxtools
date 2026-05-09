@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504g
+// js/rounds-panel.js  v20260504h
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -1170,28 +1170,84 @@ const _ROUND_LABELS = {
 
 // ── Export-validity signal (per EXPORT_COHERENCE.md §4) ─────────────────────
 // Aggregate validator across all three concerns:
-//   - validateStepConstraints        (this file, defined above)
-//   - _validateRoundClass            (round-system, when exposed)
-//   - _validateEndHook               (round-system, when exposed)
-// The optional helpers are picked up via typeof checks so the aggregate is
-// tolerant of partial implementation. Returns a flat findings[] array.
+//   - validateStepConstraints  — this file, takes (state), returns flat findings.
+//   - _validateRoundClass      — mechanics-panel.js:532, takes (slot) per round.
+//                                Returns slot-scoped findings; aggregate tags
+//                                each with `round` and a `path` so they sort
+//                                into the same buckets as step findings.
+//   - _validateEndHook         — mechanics-panel.js:570, takes (slot, roundType)
+//                                per round. Returns slot-scoped findings; tagged
+//                                the same way.
+// All three helpers are optional — picked up via `typeof` so the aggregate
+// stays tolerant of partial implementation. Each helper is called inside a
+// try/catch so a crashing validator becomes a finding, not a blank panel.
+//
+// Severity normalisation: round-system uses 'warn'; step-system uses
+// 'warning'. The aggregate translates 'warn' → 'warning' so _signalSeverity's
+// downstream comparisons don't have to handle both spellings.
 function validateExportCoherence(state) {
   const findings = [];
+
+  // Step-system validator — already takes (state) and emits per-step findings.
   if (typeof validateStepConstraints === 'function') {
     try { findings.push(...(validateStepConstraints(state) || [])); }
     catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+      path: 'validateStepConstraints',
       message: 'validateStepConstraints crashed: ' + (e && e.message) }); }
   }
-  if (typeof _validateRoundClass === 'function') {
-    try { findings.push(...(_validateRoundClass(state) || [])); }
-    catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
-      message: '_validateRoundClass crashed: ' + (e && e.message) }); }
-  }
-  if (typeof _validateEndHook === 'function') {
-    try { findings.push(...(_validateEndHook(state) || [])); }
-    catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
-      message: '_validateEndHook crashed: ' + (e && e.message) }); }
-  }
+
+  // Round-system validators — per-slot fanout. Iterate over each round slot,
+  // call each helper, normalise the returned findings to the aggregate shape
+  // (severity, code, message, path, round).
+  const rounds = (state && state.mechanics && state.mechanics.rounds) || {};
+  ['initial', 'stock', 'operating', 'merger'].forEach(roundType => {
+    const slot = rounds[roundType];
+    if (!slot) return;
+    // Skip merger when not enabled — _validateEndHook bails on missing
+    // endHook anyway, but _validateRoundClass would emit a "class is null"
+    // finding for the disabled merger slot.
+    const mergerActive = roundType === 'merger' && (slot.enabled === true || !!slot.class);
+    if (roundType === 'merger' && !mergerActive) return;
+
+    const slotPath = `mechanics.rounds.${roundType}`;
+
+    if (typeof _validateRoundClass === 'function') {
+      try {
+        (_validateRoundClass(slot) || []).forEach(f => {
+          findings.push({
+            severity: f.severity === 'warn' ? 'warning' : f.severity,
+            code:     f.code || 'ROUND_CLASS',
+            message:  f.message,
+            path:     slotPath + (slot && slot.class === null ? '.class' : ''),
+            round:    roundType,
+          });
+        });
+      } catch (e) {
+        findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+          path: slotPath, round: roundType,
+          message: `_validateRoundClass(${roundType}) crashed: ` + (e && e.message) });
+      }
+    }
+
+    if (typeof _validateEndHook === 'function') {
+      try {
+        (_validateEndHook(slot, roundType) || []).forEach(f => {
+          findings.push({
+            severity: f.severity === 'warn' ? 'warning' : f.severity,
+            code:     f.code || 'END_HOOK',
+            message:  f.message,
+            path:     `${slotPath}.endHook`,
+            round:    roundType,
+          });
+        });
+      } catch (e) {
+        findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+          path: `${slotPath}.endHook`, round: roundType,
+          message: `_validateEndHook(${roundType}) crashed: ` + (e && e.message) });
+      }
+    }
+  });
+
   return findings;
 }
 
