@@ -195,6 +195,15 @@ function runRoundTripTest(gameName, originalSrc) {
     fail(`top-level trains: original=${origTopLevel.length} round-trip=${rtTopLevel.length}`);
   }
 
+  // Variant train count — separate from top-level; previously not checked explicitly
+  const origVariants = (orig.trains || []).filter(t => t.isVariant);
+  const rtVariants   = (rt.trains  || []).filter(t => t.isVariant);
+  if (origVariants.length === rtVariants.length) {
+    log(`variant train count preserved: ${origVariants.length}`);
+  } else {
+    fail(`variant trains: original=${origVariants.length} round-trip=${rtVariants.length}`);
+  }
+
   // Phase count
   if (orig.phases.length === rt.phases.length) {
     log(`phase count preserved: ${orig.phases.length}`);
