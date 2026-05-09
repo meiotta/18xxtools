@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504f
+// js/rounds-panel.js  v20260504g
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -1221,7 +1221,10 @@ function _signalCounts(findings) {
 }
 
 // Header dot + label rendered next to the panel title. Always shown — green
-// when nothing is wrong, amber for warnings, red for blocking errors.
+// when nothing is wrong, amber for warnings, red for blocking errors. When
+// findings exist (sev is amber or red), the dot+label is a clickable button
+// that expands the validity-detail accordion and scrolls it into view. When
+// green, it's an inert label (nothing to expand to).
 function _renderExportValiditySignal(findings) {
   const sev = _signalSeverity(findings);
   const c   = _signalCounts(findings);
@@ -1233,7 +1236,14 @@ function _renderExportValiditySignal(findings) {
   } else {
     label = 'Export ready';
   }
-  return `<span class="mech-status-dot ${sev}" style="display:inline-block;vertical-align:middle;margin:0 6px 0 4px;" title="${label}"></span><span style="font-size:11px;color:var(--text-dim);font-weight:400;letter-spacing:0;">${label}</span>`;
+  const dotHTML   = `<span class="mech-status-dot ${sev}" style="display:inline-block;vertical-align:middle;margin:0 6px 0 4px;" title="${label}"></span>`;
+  const labelHTML = `<span style="font-size:11px;color:var(--text-dim);font-weight:400;letter-spacing:0;">${label}</span>`;
+  if (sev === 'green') {
+    return dotHTML + labelHTML;
+  }
+  // Clickable: expand + scroll the accordion. Inline button styling so the
+  // affordance reads as part of the title rather than a competing element.
+  return `<button type="button" data-validity-expand title="Click to view ${sev === 'red' ? 'errors' : 'warnings'}" style="background:transparent;border:none;cursor:pointer;padding:0;display:inline-flex;align-items:center;font:inherit;color:inherit;">${dotHTML}${labelHTML}<span style="margin-left:4px;font-size:10px;color:var(--text-muted);">▾</span></button>`;
 }
 
 // Module state for the validity-detail accordion at the bottom of the panel.
@@ -1291,6 +1301,26 @@ function _renderExportValidityAccordion(findings) {
 function onValidityAccordionToggle(_e) {
   _validityAccordionCollapsed = !_validityAccordionCollapsed;
   renderStepsPanelView();
+}
+
+// Header-signal click — always EXPAND the accordion (regardless of prior
+// state), then scroll it into view so the user sees the issue list without
+// having to scroll the panel manually. Wired separately from the accordion's
+// own toggle button so the header is "show me" while the accordion header
+// is "toggle".
+function onValidityHeaderExpand(_e) {
+  _validityAccordionCollapsed = false;
+  renderStepsPanelView();
+  // Scroll the accordion into view after the re-render. Defer to next tick
+  // so the new DOM is in place before scrollIntoView runs.
+  setTimeout(() => {
+    const view = document.getElementById('stepsView');
+    if (!view) return;
+    const accordion = view.querySelector('[data-validity-toggle]');
+    if (accordion && accordion.scrollIntoView) {
+      accordion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 0);
 }
 
 // ── Top-level STEPS panel renderer (replaces #stepsView innerHTML) ──────────
@@ -1715,6 +1745,9 @@ function _attachStepsListeners(root) {
   });
   root.querySelectorAll('[data-validity-toggle]').forEach(btn => {
     btn.addEventListener('click', onValidityAccordionToggle);
+  });
+  root.querySelectorAll('[data-validity-expand]').forEach(btn => {
+    btn.addEventListener('click', onValidityHeaderExpand);
   });
   root.querySelectorAll('[data-wizard-toggle]').forEach(btn => {
     btn.addEventListener('click', onWizardToggle);
