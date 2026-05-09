@@ -25,7 +25,7 @@ function renderCompaniesTable() {
     inputs[0].addEventListener('change', (e) => { state.companies[idx].color = e.target.value; autosave(); });
     inputs[1].addEventListener('change', (e) => { state.companies[idx].name = e.target.value; autosave(); });
     inputs[2].addEventListener('change', (e) => { state.companies[idx].abbr = e.target.value; autosave(); });
-    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value.toUpperCase(); autosave(); });
+    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value.toUpperCase(); autosave(); if (typeof render === 'function') render(); });
     inputs[3].addEventListener('input', (e) => {
       const val = e.target.value.toUpperCase();
       if (!val) { e.target.style.borderColor = ''; e.target.title = ''; return; }
