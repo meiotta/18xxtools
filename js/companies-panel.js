@@ -1452,6 +1452,35 @@ function validateMinors() {
   return result;
 }
 
+// ── Corp home-hex UI helpers ──────────────────────────────────────────────────
+
+function _validateCoord(hexId) {
+  if (!hexId) return null;
+  const hex = (state.hexes || {})[hexId];
+  if (!hex) return 'unknown hex';
+  const cities = (hex.nodes || []).filter(n => n.type === 'city');
+  if (!cities.length) return 'no city at ' + hexId;
+  return null;
+}
+
+function _showCoordErr(input, errEl, msg) {
+  input.classList.add('cp-co-coords--invalid');
+  errEl.textContent   = msg;
+  errEl.style.display = 'block';
+}
+
+function _clearCoordErr(input, errEl) {
+  input.classList.remove('cp-co-coords--invalid');
+  errEl.textContent   = '';
+  errEl.style.display = 'none';
+}
+
+function _updatePlaceBtn(btn, co) {
+  btn.textContent = co.coordinates
+    ? co.coordinates + ' · ' + ((co.city || 0) + 1)
+    : 'Place ⊕';
+}
+
 // ── Main render entry point ───────────────────────────────────────────────────
 function renderCorpsSection() {
   const wrap = document.getElementById('corpCorpsSection');
@@ -1715,9 +1744,11 @@ function _buildCompanyDetailEl(pi, ci) {
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Home hex</label>
           <input type="text" class="cp-co-coords" placeholder="e.g. D12" value="${escHtml(company.coordinates || '')}">
-          <label class="cp-co-field-label" style="margin-left:12px;">City slot</label>
+          <button class="cp-co-place-btn" title="Pick home hex on map">${company.coordinates ? escHtml(company.coordinates) + ' · ' + ((company.city || 0) + 1) : 'Place ⊕'}</button>
+          <label class="cp-co-field-label" style="margin-left:4px;">City slot</label>
           <input type="number" class="cp-co-city" min="0" max="5" value="${company.city !== '' ? (company.city || 0) : ''}" placeholder="0">
         </div>
+        <div class="cp-co-coords-err"></div>
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Logo path</label>
           <input type="text" class="cp-co-logo" placeholder="e.g. 1882/NYC" value="${escHtml(company.logo || '')}">
@@ -1790,8 +1821,62 @@ function _buildCompanyDetailEl(pi, ci) {
     autosave();
   });
   _wireColorPicker(el, 'co-textcolor', hex => { company.textColor = hex; autosave(); });
-  el.querySelector('.cp-co-coords').addEventListener('change',    e => { company.coordinates  = e.target.value;                 autosave(); });
-  el.querySelector('.cp-co-city').addEventListener('change',      e => { company.city         = parseInt(e.target.value) || 0;  autosave(); });
+  const coordInput = el.querySelector('.cp-co-coords');
+  const cityInput  = el.querySelector('.cp-co-city');
+  const placeBtnEl = el.querySelector('.cp-co-place-btn');
+  const coordErrEl = el.querySelector('.cp-co-coords-err');
+
+  coordInput.addEventListener('input', e => {
+    const err = _validateCoord(e.target.value.trim());
+    if (err) _showCoordErr(coordInput, coordErrEl, err);
+    else     _clearCoordErr(coordInput, coordErrEl);
+  });
+  coordInput.addEventListener('change', e => {
+    company.coordinates = e.target.value.trim();
+    _updatePlaceBtn(placeBtnEl, company);
+    autosave();
+    if (typeof render === 'function') render();
+  });
+  cityInput.addEventListener('change', e => {
+    company.city = parseInt(e.target.value) || 0;
+    _updatePlaceBtn(placeBtnEl, company);
+    autosave();
+    if (typeof render === 'function') render();
+  });
+
+  placeBtnEl.addEventListener('click', () => {
+    isPlacementMode = true;
+    document.getElementById('placementOverlay').style.display = 'flex';
+    document.getElementById('placementText').textContent =
+      'Select home hex for ' + (company.sym || company.name || 'Corp');
+    document.body.style.cursor = 'crosshair';
+    updateStatus('Placement mode: ' + (company.sym || 'Corp'));
+
+    if (typeof window.startHexPick !== 'function') {
+      console.warn('[companies-panel] window.startHexPick not yet available');
+      return;
+    }
+
+    window.startHexPick(
+      ({ hexId, cityIndex, error }) => {
+        exitPlacementMode();
+        if (error === 'no_city_slot') {
+          _showCoordErr(coordInput, coordErrEl, 'No free slot at ' + hexId);
+          return;
+        }
+        company.coordinates = hexId;
+        company.city        = cityIndex;
+        coordInput.value    = hexId;
+        cityInput.value     = cityIndex;
+        _clearCoordErr(coordInput, coordErrEl);
+        _updatePlaceBtn(placeBtnEl, company);
+        autosave();
+        if (typeof render === 'function') render();
+      },
+      () => exitPlacementMode()
+    );
+  });
+
   el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });
 
   const assocMajorEl = el.querySelector('.cp-co-assoc-major');

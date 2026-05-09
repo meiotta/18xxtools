@@ -56,7 +56,10 @@ const _EI_DEFAULT_SHARES = JSON.stringify([20, 10, 10, 10, 10, 10, 10, 10, 10]);
 
 function _eiAbilityLine(ab) {
   const kv = [];
-  const push = (k, v) => kv.push(k + ': ' + v);
+  const push  = (k, v) => kv.push(k + ': ' + v);
+  const pushB = (k)    => { if (ab[k] != null) push(k, ab[k] ? 'true' : 'false'); };
+  const pushN = (k)    => { if (ab[k] != null) push(k, String(ab[k])); };
+  const pushS = (k)    => { if (ab[k])         push(k, _eiStr(ab[k])); };
 
   if (ab.type)                                    push('type',             _eiStr(ab.type));
   if (ab.owner_type)                              push('owner_type',       _eiStr(ab.owner_type));
@@ -64,23 +67,29 @@ function _eiAbilityLine(ab) {
   if (wen)                                        push('when',             wen);
   if (ab.hexes && ab.hexes.length)                push('hexes',            _eiStrArr(ab.hexes));
   if (ab.corporations && ab.corporations.length)  push('corporations',     _eiStrArr(ab.corporations));
-  if (ab.count        != null)                    push('count',            String(ab.count));
-  if (ab.count_per_or != null)                    push('count_per_or',     String(ab.count_per_or));
-  if (ab.cost         != null)                    push('cost',             String(ab.cost));
-  if (ab.discount     != null)                    push('discount',         String(ab.discount));
-  if (ab.amount       != null)                    push('amount',           String(ab.amount));
-  if (ab.price        != null)                    push('price',            String(ab.price));
+  if (ab.combo_entities && ab.combo_entities.length) push('combo_entities', _eiStrArr(ab.combo_entities));
+  pushN('count');        pushN('count_per_or');
+  pushN('cost');         pushN('discount');      pushN('amount');
+  pushN('price');        pushN('teleport_price');
+  pushN('lay_count');    pushN('upgrade_count');
+  pushN('income');       pushN('slot');          pushN('city');
   if (ab.from != null) {
     push('from', Array.isArray(ab.from) ? _eiStrArr(ab.from) : _eiStr(ab.from));
   }
-  if (ab.terrain)                                 push('terrain',          _eiStr(ab.terrain));
+  pushS('terrain');      pushS('partition_type');  pushS('hex');
   if (ab.tiles && ab.tiles.length)                push('tiles',            _eiStrArr(ab.tiles));
-  if (ab.corporation)                             push('corporation',      _eiStr(ab.corporation));
-  if (ab.shares != null)                           push('shares', Array.isArray(ab.shares) ? _eiStrArr(ab.shares) : _eiStr(ab.shares));
-  if (ab.description)                             push('description',      _eiStr(ab.description));
-  if (ab.closed_when_used_up != null)             push('closed_when_used_up', ab.closed_when_used_up ? 'true' : 'false');
-  if (ab.free      != null)                       push('free',             ab.free      ? 'true' : 'false');
-  if (ab.reachable != null)                       push('reachable',        ab.reachable ? 'true' : 'false');
+  pushS('corporation');
+  if (ab.shares != null) push('shares', Array.isArray(ab.shares) ? _eiStrArr(ab.shares) : _eiStr(ab.shares));
+  pushS('description');  pushS('desc_detail');
+  pushS('remove');       pushS('on_phase');       pushS('after_phase');
+  pushB('closed_when_used_up');  pushB('free');        pushB('reachable');
+  pushB('special');      pushB('connect');        pushB('passive');
+  pushB('must_lay_together');    pushB('must_lay_all');
+  pushB('consume_tile_lay');     pushB('blocks');
+  pushB('extra_action');         pushB('from_owner');  pushB('special_only');
+  pushB('extra_slot');           pushB('neutral');     pushB('check_tokenable');
+  pushB('connected');            pushB('same_hex_allowed');
+  pushB('use_across_ors');       pushB('hidden');
 
   return '{ ' + kv.join(', ') + ' }';
 }
@@ -110,8 +119,10 @@ function _eiCorpEntry(co, pack, gameCap) {
   if (co.logo)
     lines.push(i4 + 'logo: ' + _eiStr(co.logo));
   lines.push(i4 + 'color: ' + _eiColor(co.color || '#666666'));
-  if (co.textColor && co.textColor !== '#ffffff' && co.textColor !== '#FFFFFF')
-    lines.push(i4 + 'text_color: ' + _eiColor(co.textColor));
+  // Corp textColor default is #000000 — omit if default.
+  // Use _eiStr (not _eiColor) so named colors like 'black' round-trip as quoted strings.
+  if (co.textColor && co.textColor !== '#000000' && co.textColor !== '#000000'.toUpperCase())
+    lines.push(i4 + 'text_color: ' + _eiStr(co.textColor));
   lines.push(i4 + 'tokens: ' + _eiNumArr(tokens));
   if (co.coordinates)
     lines.push(i4 + 'coordinates: ' + _eiStr(co.coordinates));
@@ -173,15 +184,35 @@ function _eiPrivateEntry(priv) {
 
   lines.push(i4 + 'sym: ' + _eiStr(priv.sym || ''));
 
-  if (priv.minPrice != null) lines.push(i4 + 'min_price: ' + priv.minPrice);
-  if (priv.maxPrice != null) lines.push(i4 + 'max_price: ' + priv.maxPrice);
+  if (priv.minPrice    != null) lines.push(i4 + 'min_price: '   + priv.minPrice);
+  if (priv.maxPrice    != null) lines.push(i4 + 'max_price: '   + priv.maxPrice);
+  if (priv.discount    != null) lines.push(i4 + 'discount: '    + priv.discount);
+  if (priv.minPlayers  != null) lines.push(i4 + 'min_players: ' + priv.minPlayers);
 
   // Color — omit if it's the default placeholder gray
   if (priv.color && priv.color !== '#666666' && priv.color !== '#000000')
     lines.push(i4 + 'color: ' + _eiColor(priv.color));
 
-  // Abilities
-  const abilities = priv.abilities || [];
+  // Private textColor default is #ffffff — omit if default.
+  // Use _eiStr so named colors like 'white' round-trip as quoted strings.
+  if (priv.textColor && priv.textColor !== '#ffffff' && priv.textColor !== '#FFFFFF')
+    lines.push(i4 + 'text_color: ' + _eiStr(priv.textColor));
+
+  // Abilities — for concessions, reconstruct the exchange ability that was
+  // extracted at import time into linkedMajor / blocksHexes.
+  const abilities = (priv.abilities || []).slice();
+  if (priv.companyType === 'concession') {
+    if (priv.linkedMajor) {
+      abilities.unshift({
+        type: 'exchange', from: 'par', owner_type: 'player',
+        corporations: [priv.linkedMajor],
+      });
+    }
+    if (priv.blocksHexes && priv.blocksHexes.length) {
+      abilities.push({ type: 'blocks_hexes', owner_type: 'player', hexes: priv.blocksHexes });
+    }
+  }
+
   if (abilities.length) {
     lines.push(i4 + 'abilities: [');
     abilities.forEach(ab => lines.push(i4 + '  ' + _eiAbilityLine(ab) + ','));
