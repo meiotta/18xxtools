@@ -25,7 +25,22 @@ function renderCompaniesTable() {
     inputs[0].addEventListener('change', (e) => { state.companies[idx].color = e.target.value; autosave(); });
     inputs[1].addEventListener('change', (e) => { state.companies[idx].name = e.target.value; autosave(); });
     inputs[2].addEventListener('change', (e) => { state.companies[idx].abbr = e.target.value; autosave(); });
-    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value; autosave(); });
+    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value.toUpperCase(); autosave(); });
+    inputs[3].addEventListener('input', (e) => {
+      const val = e.target.value.toUpperCase();
+      if (!val) { e.target.style.borderColor = ''; e.target.title = ''; return; }
+      const hex = (state.hexes || {})[val];
+      if (!hex) {
+        e.target.style.borderColor = 'var(--error,#f44)';
+        e.target.title = 'Unknown hex: ' + val;
+      } else if (!(hex.nodes || []).some(n => n.type === 'city')) {
+        e.target.style.borderColor = 'var(--error,#f44)';
+        e.target.title = val + ' has no city';
+      } else {
+        e.target.style.borderColor = '';
+        e.target.title = '';
+      }
+    });
     inputs[4].addEventListener('change', (e) => { state.companies[idx].parValue = parseInt(e.target.value) || 100; autosave(); });
     inputs[5].addEventListener('change', (e) => { state.companies[idx].tokens = parseInt(e.target.value) || 5; autosave(); });
     inputs[6].addEventListener('change', (e) => { state.companies[idx].floatPct = parseInt(e.target.value) || 60; autosave(); });
