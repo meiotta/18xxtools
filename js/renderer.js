@@ -2872,6 +2872,34 @@ function buildHexSvg(r, c, hex) {
     g += `<polygon points="${hexPts}" fill="rgba(0,0,0,0.55)"/>`;
   }
 
+  // ── Company home markers ─────────────────────────────────────────────────────
+  // Rendered on top of all tile content. Reads state.companies (homeHex) and
+  // state.minors (coordinates || homeHex). Chip: colored circle + sym text.
+  // Positioned at the city node's computed hex-local coords (50-unit space).
+  {
+    const _markers = [];
+    for (const co of (state.companies || [])) {
+      const _hid = co.homeHex || co.coordinates;
+      if (_hid === id) _markers.push({ sym: co.sym || co.abbr || '?', color: co.color || '#888', textColor: co.textColor || null, cityIndex: co.city ?? 0 });
+    }
+    for (const co of (state.minors || [])) {
+      const _hid = co.coordinates || co.homeHex;
+      if (_hid === id) _markers.push({ sym: co.sym || co.abbr || '?', color: co.color || '#888', textColor: co.textColor || null, cityIndex: co.city ?? 0 });
+    }
+    if (_markers.length > 0) {
+      const _hex = hex || null;
+      g += `<g transform="rotate(${orientOff}) scale(${sc.toFixed(4)})">`;
+      for (const _m of _markers) {
+        const _lp = _getCityLocalPos(_hex, _m.cityIndex);
+        const _r  = 9;                       // chip radius in 50-unit space
+        const _tc = _m.textColor || _textContrastColor(_m.color);
+        g += `<circle cx="${_lp.x.toFixed(1)}" cy="${_lp.y.toFixed(1)}" r="${_r}" fill="${escSvg(_m.color)}" stroke="rgba(0,0,0,0.5)" stroke-width="1.2"/>`;
+        g += `<text x="${_lp.x.toFixed(1)}" y="${_lp.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="7" font-weight="bold" fill="${escSvg(_tc)}" text-anchor="middle" dominant-baseline="middle">${escSvg((_m.sym).slice(0,3))}</text>`;
+      }
+      g += '</g>';
+    }
+  }
+
   // Coordinate label
   g += `<text x="0" y="${(-sz*0.62).toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="7" fill="rgba(140,140,140,0.7)" text-anchor="middle" dominant-baseline="middle">${escSvg(id)}</text>`;
 
@@ -2886,8 +2914,10 @@ function updateViewport() {
   const t = `scale(${zoom}) translate(${panX},${panY})`;
   const vp = document.getElementById('mapViewport');
   const ll = document.getElementById('lassoLayer');
+  const pl = document.getElementById('pickLayer');
   if (vp) vp.setAttribute('transform', t);
   if (ll) ll.setAttribute('transform', t);
+  if (pl) pl.setAttribute('transform', t);
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
@@ -2961,4 +2991,163 @@ function render() {
 // SVG fills container automatically; just re-render on resize.
 function resizeCanvas() {
   render();
+}
+
+// ─── COMPANY MARKER HELPERS ───────────────────────────────────────────────────
+
+// Auto-contrast text color from a hex background color string.
+// Used as fallback when co.textColor is null or empty.
+function _textContrastColor(hexColor) {
+  try {
+    const c = (hexColor || '#888888').replace(/^#/, '');
+    const r = parseInt(c.substr(0, 2), 16) / 255;
+    const g = parseInt(c.substr(2, 2), 16) / 255;
+    const b = parseInt(c.substr(4, 2), 16) / 255;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.4 ? '#000000' : '#ffffff';
+  } catch (_) { return '#ffffff'; }
+}
+
+// City center in hex-local 50-unit space for a given hex model and node index.
+// Mirrors the city positioning logic in hexToSvgInner:
+//   explicit numeric locStr → cityEdgePos
+//   explicit 'center' / missing → computePreferredEdges → cityEdgePos or origin
+function _getCityLocalPos(hex, nodeIndex) {
+  if (!hex || !hex.nodes) return { x: 0, y: 0 };
+  const node = hex.nodes[nodeIndex];
+  if (!node) return { x: 0, y: 0 };
+  if (node.locStr && node.locStr !== 'center' && !isNaN(parseFloat(node.locStr))) {
+    return cityEdgePos(parseFloat(node.locStr));
+  }
+  if (node.locStr === 'center') return { x: 0, y: 0 };
+  const pe = computePreferredEdges(hex)[nodeIndex];
+  return (pe !== null && pe !== undefined) ? cityEdgePos(pe) : { x: 0, y: 0 };
+}
+
+// ─── HEX PICK MODE ────────────────────────────────────────────────────────────
+// API for Jenny's panel: call startHexPick(onPick, onCancel) to enter interactive
+// city-slot selection.  The user hovers (ring appears) and clicks a city circle
+// (or anywhere on a single-city hex).  onPick receives { hexId, cityIndex } on
+// valid picks, or { hexId, error:'no_city_slot' } when the hex has no city node.
+// Escape key and cancelHexPick() both fire onCancel and exit cleanly.
+
+let _hexPickCb    = null;   // { onPick, onCancel } while active, else null
+let _hexPickHover = null;   // hexId currently under cursor during pick mode
+
+window.startHexPick = function(onPick, onCancel) {
+  _hexPickCb    = { onPick, onCancel };
+  _hexPickHover = null;
+  _updatePickLayer();
+};
+
+window.cancelHexPick = function() {
+  if (_hexPickCb?.onCancel) _hexPickCb.onCancel();
+  _hexPickCb    = null;
+  _hexPickHover = null;
+  _updatePickLayer();
+};
+
+// Called by canvas-input.js mousemove when pick mode is active.
+// world: { x, y } in mapViewport world coords.
+function _onPickMove(world) {
+  if (!_hexPickCb) return;
+  const ph  = pixelToHex(world.x, world.y, HEX_SIZE, state.meta.orientation);
+  const hid = hexId(ph.row, ph.col);
+  if (hid === _hexPickHover) return; // no change
+  _hexPickHover = hid;
+  _updatePickLayer();
+}
+
+// Called by canvas-input.js click handler when pick mode is active.
+// world: { x, y } in mapViewport world coords.
+function _onPickClick(world) {
+  if (!_hexPickCb) return;
+  const ph  = pixelToHex(world.x, world.y, HEX_SIZE, state.meta.orientation);
+  const hid = hexId(ph.row, ph.col);
+  const hex = (state.hexes || {})[hid] || null;
+
+  // Check for city nodes on this hex
+  const cityNodes = (hex?.nodes || [])
+    .map((n, i) => ({ n, i }))
+    .filter(({ n }) => n.type === 'city' || n.type === 'town');
+
+  if (cityNodes.length === 0) {
+    _hexPickCb.onPick({ hexId: hid, error: 'no_city_slot' });
+    return;
+  }
+
+  // For multi-city hexes: find which city circle was clicked (closest within radius).
+  // For single-city: always resolve to cityIndex 0 (or the only node).
+  const isPointy  = state.meta.orientation === 'pointy';
+  const orientOff = isPointy ? 30 : 0;
+  const sc        = HEX_SIZE / 50;
+  const center    = getHexCenter(ph.row, ph.col, HEX_SIZE, state.meta.orientation);
+  const HIT_R     = HEX_SIZE * 0.35; // hit radius in world pixels
+
+  let bestIdx = cityNodes[0].i;
+  if (cityNodes.length > 1) {
+    let bestDist = Infinity;
+    for (const { n: _n, i: _i } of cityNodes) {
+      const lp   = _getCityLocalPos(hex, _i);
+      const cos_ = Math.cos(orientOff * Math.PI / 180);
+      const sin_ = Math.sin(orientOff * Math.PI / 180);
+      const wx   = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
+      const wy   = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
+      const d    = Math.hypot(world.x - wx, world.y - wy);
+      if (d < bestDist) { bestDist = d; bestIdx = _i; }
+    }
+  }
+
+  const cb = _hexPickCb;
+  _hexPickCb    = null;
+  _hexPickHover = null;
+  _updatePickLayer();
+  cb.onPick({ hexId: hid, cityIndex: bestIdx });
+}
+
+// Redraws the #pickLayer SVG group: hover ring + city-circle highlights.
+function _updatePickLayer() {
+  const pl = document.getElementById('pickLayer');
+  if (!pl) return;
+  if (!_hexPickCb || !_hexPickHover) { pl.innerHTML = ''; return; }
+
+  const ph  = (() => {
+    for (let r = 0; r < state.meta.rows; r++)
+      for (let c = 0; c < state.meta.cols; c++)
+        if (hexId(r, c) === _hexPickHover) return { row: r, col: c };
+    return null;
+  })();
+  if (!ph) { pl.innerHTML = ''; return; }
+
+  const isPointy  = state.meta.orientation === 'pointy';
+  const orientOff = isPointy ? 30 : 0;
+  const sc        = HEX_SIZE / 50;
+  const sz        = HEX_SIZE;
+  const center    = getHexCenter(ph.row, ph.col, sz, state.meta.orientation);
+  const hex       = (state.hexes || {})[_hexPickHover] || null;
+  const cityNodes = (hex?.nodes || [])
+    .map((n, i) => ({ n, i }))
+    .filter(({ n }) => n.type === 'city' || n.type === 'town');
+  const valid = cityNodes.length > 0;
+
+  // Hex outline ring
+  const pts = Array.from({ length: 6 }, (_, k) => {
+    const a = (orientOff + k * 60) * Math.PI / 180;
+    return `${(center.x + sz * Math.cos(a)).toFixed(1)},${(center.y + sz * Math.sin(a)).toFixed(1)}`;
+  }).join(' ');
+  const ringColor = valid ? '#4488ff' : '#cc3333';
+  let s = `<polygon points="${pts}" fill="${valid ? 'rgba(68,136,255,0.12)' : 'rgba(204,51,51,0.12)'}" stroke="${ringColor}" stroke-width="2.5" stroke-dasharray="4,3"/>`;
+
+  // City-circle highlights (multi-city only — single city already obvious from hex ring)
+  if (valid && cityNodes.length > 1) {
+    for (const { i: _i } of cityNodes) {
+      const lp   = _getCityLocalPos(hex, _i);
+      const cos_ = Math.cos(orientOff * Math.PI / 180);
+      const sin_ = Math.sin(orientOff * Math.PI / 180);
+      const wx   = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
+      const wy   = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
+      s += `<circle cx="${wx.toFixed(1)}" cy="${wy.toFixed(1)}" r="${(sz * 0.28).toFixed(1)}" fill="rgba(68,136,255,0.25)" stroke="#4488ff" stroke-width="1.5"/>`;
+    }
+  }
+
+  pl.innerHTML = s;
 }

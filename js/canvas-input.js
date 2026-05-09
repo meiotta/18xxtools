@@ -133,7 +133,15 @@ function _lassoUp(e) {
     // Dismiss any open context menu
     if (typeof removeContextMenu === 'function') removeContextMenu();
 
-    // Placement mode intercept
+    // startHexPick intercept (renderer.js API — takes priority over legacy isPlacementMode)
+    if (typeof _hexPickCb !== 'undefined' && _hexPickCb) {
+      _onPickClick(startWp);
+      _lassoJustCompleted = true;
+      _updateLassoSvg();
+      return;
+    }
+
+    // Placement mode intercept (legacy path — kept for backward compat)
     if (isPlacementMode && pendingMinorIndex !== null) {
       const ph = pixelToHex(startWp.x, startWp.y, HEX_SIZE, state.meta.orientation);
       const pid = hexId(ph.row, ph.col);
@@ -546,3 +554,18 @@ mapSvg.addEventListener('touchend', (e) => {
     _ts.startPanY = panY;
   }
 }, { passive: true });
+
+// ── Hex-pick hover ring ───────────────────────────────────────────────────────
+// Feeds world-space mouse position to renderer.js _onPickMove when pick mode is
+// active.  Lightweight: _onPickMove bails immediately if hexId hasn't changed.
+mapSvg.addEventListener('mousemove', (e) => {
+  if (typeof _hexPickCb === 'undefined' || !_hexPickCb) return;
+  _onPickMove(clientToWorld(e.clientX, e.clientY));
+});
+
+// Escape key also cancels pick mode (in addition to companies-panel.js keydown).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && typeof _hexPickCb !== 'undefined' && _hexPickCb) {
+    window.cancelHexPick();
+  }
+}, { capture: true });
