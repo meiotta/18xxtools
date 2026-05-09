@@ -135,9 +135,53 @@ function _lassoUp(e) {
 
     // Placement mode intercept
     if (isPlacementMode && pendingMinorIndex !== null) {
-      const ph = pixelToHex(startWp.x, startWp.y, HEX_SIZE, state.meta.orientation);
+      const ph  = pixelToHex(startWp.x, startWp.y, HEX_SIZE, state.meta.orientation);
       const pid = hexId(ph.row, ph.col);
-      state.minors[pendingMinorIndex].homeHex = pid;
+
+      // Validate: hex must exist and have at least one city node
+      const clickedHex = state.hexes && state.hexes[pid];
+      const cityNodes  = clickedHex ? (clickedHex.nodes || []).filter(n => n.type === 'city') : [];
+
+      const _showPlaceError = (msg) => {
+        const btn = document.querySelector(`.place-btn[data-idx="${pendingMinorIndex}"]`);
+        if (btn) {
+          const prev = btn.textContent;
+          const prevColor = btn.style.color;
+          btn.textContent = msg;
+          btn.style.color = '#ff6666';
+          setTimeout(() => { btn.textContent = prev; btn.style.color = prevColor; }, 2000);
+        }
+        _lassoJustCompleted = true;
+        _updateLassoSvg();
+        // Stay in placement mode so the user can retry
+      };
+
+      if (!cityNodes.length) {
+        _showPlaceError(`No city at ${pid}`);
+        return;
+      }
+
+      // Find first city-node index not already occupied by another corp/minor
+      const takenCityIdxs = new Set(
+        [...(state.minors || []), ...(state.companies || [])]
+          .filter((c, i) => {
+            // Skip the minor being placed (it may already have a homeHex from before)
+            const isCurrentMinor = (state.minors || []).indexOf(c) === pendingMinorIndex &&
+                                   (state.minors || []).includes(c);
+            return !isCurrentMinor && c.homeHex === pid && c.homeCityIndex !== undefined;
+          })
+          .map(c => c.homeCityIndex)
+      );
+      let freeCityIdx = 0;
+      while (freeCityIdx < cityNodes.length && takenCityIdxs.has(freeCityIdx)) freeCityIdx++;
+
+      if (freeCityIdx >= cityNodes.length) {
+        _showPlaceError(`No free slot at ${pid}`);
+        return;
+      }
+
+      state.minors[pendingMinorIndex].homeHex      = pid;
+      state.minors[pendingMinorIndex].homeCityIndex = freeCityIdx;
       renderMinorsTable();
       autosave();
       exitPlacementMode();
