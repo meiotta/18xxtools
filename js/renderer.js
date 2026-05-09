@@ -6,7 +6,7 @@
 // updateViewport()  — updates viewport transform only (pan/zoom, no content rebuild)
 // resizeCanvas()    — legacy name; calls render() for compat with setup.js/io.js
 // buildHexSvg(r,c,hex) — returns SVG string for one hex group
-// hexToSvgInner(hex,tileDef) — inner track/city/town geometry (shared with swatches)
+// hexToSvgInner(hex,tileDef,chips) — inner track/city/town geometry (shared with swatches)
 
 const RENDERER_VERSION = '2026-04-26-center-loc-fix';
 console.log(`[renderer] loaded version=${RENDERER_VERSION}`);
@@ -697,6 +697,14 @@ function ep(edge) {
   return { x: -Math.sin(a) * 43.5, y: Math.cos(a) * 43.5 };
 }
 
+function _isDarkColor(hex) {
+  const c = (hex || '#888').replace('#', '');
+  const r = parseInt(c.slice(0,2), 16) || 0;
+  const g = parseInt(c.slice(2,4), 16) || 0;
+  const b = parseInt(c.slice(4,6), 16) || 0;
+  return (r * 0.299 + g * 0.587 + b * 0.114) < 160;
+}
+
 // ── Lane helpers ──────────────────────────────────────────────────────────────
 // Tobymao formula (view/game/part/track_node_path.rb TrackNodePath#calculate_shift):
 //   shift = ((idx * 2) - total + 1) * (width + PARALLEL_SPACING[total-2]) / 2.0
@@ -954,7 +962,7 @@ function _exitsFromPaths(paths) {
   return [...s];
 }
 
-function hexToSvgInner(hex, tileDef) {
+function hexToSvgInner(hex, tileDef, chips) {
   let svg = '';
 
   // ── Canonical path unification ────────────────────────────────────────────
@@ -1290,6 +1298,7 @@ function hexToSvgInner(hex, tileDef) {
     // Edge-to-edge paths alongside nodes are already rendered by STEP 1 above.
 
     // ── STEP 2: Draw nodes — rendered OVER tracks ───────────────────────────
+    let _citySeen = 0;
     for (let ni = 0; ni < hex.nodes.length; ni++) {
       const node = hex.nodes[ni];
       const pos  = nodePos[ni];
@@ -1376,6 +1385,22 @@ function hexToSvgInner(hex, tileDef) {
           svg += `<circle cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${DSL_SLOT_R}" fill="white" stroke="#000" stroke-width="1.5"/>`;
         }
         // slots === 0: no visual — tobymao (0..(num_slots-1)) produces empty range → no children.
+
+        // Home token chips — one per minor/company assigned to this city node.
+        if (chips && chips.length) {
+          const _chipsHere = chips.filter(ch => (ch.cityIdx ?? 0) === _citySeen);
+          _chipsHere.forEach((ch, _ci) => {
+            const _cr = DSL_SLOT_R * 0.78;
+            const _cx = pos.x + (_chipsHere.length > 1 ? (_ci - (_chipsHere.length - 1) / 2) * _cr * 1.1 : 0);
+            const _cy = pos.y;
+            const _dark = _isDarkColor(ch.color);
+            const _tx = ch.abbr || '?';
+            const _fs = _tx.length <= 2 ? 7 : _tx.length === 3 ? 5.5 : 4.5;
+            svg += `<circle cx="${_cx.toFixed(1)}" cy="${_cy.toFixed(1)}" r="${_cr.toFixed(1)}" fill="${ch.color}" stroke="#000" stroke-width="1"/>`;
+            svg += `<text x="${_cx.toFixed(1)}" y="${_cy.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="${_fs}" font-weight="bold" fill="${_dark ? '#fff' : '#000'}" text-anchor="middle" dominant-baseline="middle">${escSvg(_tx)}</text>`;
+          });
+        }
+        _citySeen++;
 
       } else if (node.type === 'town') {
         // tobymao town.rb: rect? = @style ? (@style == :rect) : (!paths.empty? && paths.size < 3)
@@ -2773,7 +2798,17 @@ function buildHexSvg(r, c, hex) {
     if (tileDef || hasDslContent) {
       const tileDeg  = (hex?.rotation || 0) * 60;
       const totalDeg = orientOff + tileDeg;
-      const inner    = hexToSvgInner(hex, tileDef);
+
+      // Collect home token chips for this hex from minors + companies.
+      const _hexChips = [];
+      (state.minors || []).forEach(co => {
+        if (co.homeHex === id && co.color) _hexChips.push({ color: co.color, abbr: co.abbr || co.name || '?', cityIdx: co.homeCityIndex ?? 0 });
+      });
+      (state.companies || []).forEach(co => {
+        if (co.homeHex === id && co.color) _hexChips.push({ color: co.color, abbr: co.abbr || co.name || '?', cityIdx: 0 });
+      });
+
+      const inner    = hexToSvgInner(hex, tileDef, _hexChips.length ? _hexChips : null);
 
       // Clipped rotated tile content — uses shared #tile-clip from mapDefs
       g += `<g clip-path="url(#tile-clip)"><g transform="rotate(${totalDeg}) scale(${sc.toFixed(4)})">${inner}</g></g>`;
