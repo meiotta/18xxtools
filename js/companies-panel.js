@@ -1845,6 +1845,9 @@ function _buildCompanyDetailEl(pi, ci) {
   });
 
   placeBtnEl.addEventListener('click', () => {
+    // Switch to map so the canvas is visible for picking.
+    document.querySelector('.nav-rail-btn[data-lsec="map"]')?.click();
+
     isPlacementMode = true;
     document.getElementById('placementOverlay').style.display = 'flex';
     document.getElementById('placementText').textContent =
@@ -1852,28 +1855,38 @@ function _buildCompanyDetailEl(pi, ci) {
     document.body.style.cursor = 'crosshair';
     updateStatus('Placement mode: ' + (company.sym || 'Corp'));
 
+    // Return to Companies → Corporations tab and restore the editor.
+    // The corps-tab click calls renderCorpsSection() which rebuilds the DOM,
+    // so coordInput/coordErrEl refs are stale after this — use fresh queries.
+    const returnToEditor = () => {
+      exitPlacementMode();
+      document.querySelector('.nav-rail-btn[data-lsec="companies"]')?.click();
+      document.querySelector('.corp-tab-btn[data-corp-tab="corps"]')?.click();
+    };
+
     if (typeof window.startHexPick !== 'function') {
       console.warn('[companies-panel] window.startHexPick not yet available');
+      returnToEditor();
       return;
     }
 
     window.startHexPick(
       ({ hexId, cityIndex, error }) => {
-        exitPlacementMode();
         if (error === 'no_city_slot') {
-          _showCoordErr(coordInput, coordErrEl, 'No free slot at ' + hexId);
+          returnToEditor();
+          // Query fresh refs after DOM rebuild
+          const inp = document.querySelector('.cp-co-coords');
+          const err = document.querySelector('.cp-co-coords-err');
+          if (inp && err) _showCoordErr(inp, err, 'No free slot at ' + hexId);
           return;
         }
         company.coordinates = hexId;
         company.city        = cityIndex;
-        coordInput.value    = hexId;
-        cityInput.value     = cityIndex;
-        _clearCoordErr(coordInput, coordErrEl);
-        _updatePlaceBtn(placeBtnEl, company);
         autosave();
         if (typeof render === 'function') render();
+        returnToEditor();
       },
-      () => exitPlacementMode()
+      () => returnToEditor()
     );
   });
 
