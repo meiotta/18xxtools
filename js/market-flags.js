@@ -222,6 +222,18 @@ function getParPrices(market) {
   return Array.from(set).sort((a, b) => a - b);
 }
 
+// Cheap accessors for the bounds — convenient for "Par range: $X–$Y" displays
+// and for export emitters that only need the extremes. Both return null when
+// no par-flagged cell is present.
+function getParMin(market) {
+  const prices = getParPrices(market);
+  return prices.length ? prices[0] : null;
+}
+function getParMax(market) {
+  const prices = getParPrices(market);
+  return prices.length ? prices[prices.length - 1] : null;
+}
+
 // Per-par-type breakdown — useful when a game has multiple par categories
 // (1822: 'par' for minors, 'par_1' for majors). Returns
 //   { par: [60, 70, 80], par_1: [100], ... }
@@ -289,3 +301,5 @@ window.cellStrToggleFlag = cellStrToggleFlag;
 window.PAR_TYPES = PAR_TYPES;
 window.getParPrices = getParPrices;
 window.getParPricesByType = getParPricesByType;
+window.getParMin = getParMin;
+window.getParMax = getParMax;
