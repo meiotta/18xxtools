@@ -3040,19 +3040,22 @@ function _getCityLocalPos(hex, nodeIndex) {
 // valid picks, or { hexId, error:'no_city_slot' } when the hex has no city node.
 // Escape key and cancelHexPick() both fire onCancel and exit cleanly.
 
-let _hexPickCb    = null;   // { onPick, onCancel } while active, else null
-let _hexPickHover = null;   // hexId currently under cursor during pick mode
+let _hexPickCb        = null;   // { onPick, onCancel } while active, else null
+let _hexPickHover     = null;   // hexId currently under cursor during pick mode
+let _hexPickHoverCity = null;   // node index of closest city in multi-city hover
 
 window.startHexPick = function(onPick, onCancel) {
-  _hexPickCb    = { onPick, onCancel };
-  _hexPickHover = null;
+  _hexPickCb        = { onPick, onCancel };
+  _hexPickHover     = null;
+  _hexPickHoverCity = null;
   _updatePickLayer();
 };
 
 window.cancelHexPick = function() {
   if (_hexPickCb?.onCancel) _hexPickCb.onCancel();
-  _hexPickCb    = null;
-  _hexPickHover = null;
+  _hexPickCb        = null;
+  _hexPickHover     = null;
+  _hexPickHoverCity = null;
   _updatePickLayer();
 };
 
@@ -3075,50 +3078,57 @@ function _onPickClick(world) {
   const hid = hexId(ph.row, ph.col);
   const hex = (state.hexes || {})[hid] || null;
 
-  // Check for city nodes on this hex
+  // Valid target: city nodes only. Towns, offboards, and empty hexes are invalid.
   const cityNodes = (hex?.nodes || [])
     .map((n, i) => ({ n, i }))
-    .filter(({ n }) => n.type === 'city' || n.type === 'town');
+    .filter(({ n }) => n.type === 'city');
+  const isValid = cityNodes.length > 0 && hex?.feature !== 'offboard';
 
-  if (cityNodes.length === 0) {
+  if (!isValid) {
     _hexPickCb.onPick({ hexId: hid, error: 'no_city_slot' });
     return;
   }
 
-  // For multi-city hexes: find which city circle was clicked (closest within radius).
-  // For single-city: always resolve to cityIndex 0 (or the only node).
-  const isPointy  = state.meta.orientation === 'pointy';
-  const orientOff = isPointy ? 30 : 0;
-  const sc        = HEX_SIZE / 50;
-  const center    = getHexCenter(ph.row, ph.col, HEX_SIZE, state.meta.orientation);
-  const HIT_R     = HEX_SIZE * 0.35; // hit radius in world pixels
-
-  let bestIdx = cityNodes[0].i;
-  if (cityNodes.length > 1) {
+  // Use tracked hover city for multi-city hexes; fall back to closest on click.
+  let bestIdx = (_hexPickHoverCity !== null && _hexPickHoverCity !== undefined)
+    ? _hexPickHoverCity : cityNodes[0].i;
+  if (cityNodes.length > 1 && (bestIdx === null || bestIdx === undefined)) {
+    const isPointy  = state.meta.orientation === 'pointy';
+    const orientOff = isPointy ? 30 : 0;
+    const sc        = HEX_SIZE / 50;
+    const center    = getHexCenter(ph.row, ph.col, HEX_SIZE, state.meta.orientation);
+    const cos_      = Math.cos(orientOff * Math.PI / 180);
+    const sin_      = Math.sin(orientOff * Math.PI / 180);
     let bestDist = Infinity;
-    for (const { n: _n, i: _i } of cityNodes) {
-      const lp   = _getCityLocalPos(hex, _i);
-      const cos_ = Math.cos(orientOff * Math.PI / 180);
-      const sin_ = Math.sin(orientOff * Math.PI / 180);
-      const wx   = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
-      const wy   = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
-      const d    = Math.hypot(world.x - wx, world.y - wy);
+    for (const { i: _i } of cityNodes) {
+      const lp = _getCityLocalPos(hex, _i);
+      const wx = center.x + (lp.x * cos_ - lp.y * sin_) * sc;
+      const wy = center.y + (lp.x * sin_ + lp.y * cos_) * sc;
+      const d  = Math.hypot(world.x - wx, world.y - wy);
       if (d < bestDist) { bestDist = d; bestIdx = _i; }
     }
   }
 
   const cb = _hexPickCb;
-  _hexPickCb    = null;
-  _hexPickHover = null;
+  _hexPickCb        = null;
+  _hexPickHover     = null;
+  _hexPickHoverCity = null;
   _updatePickLayer();
   cb.onPick({ hexId: hid, cityIndex: bestIdx });
 }
 
 // Redraws the #pickLayer SVG group: hover ring + city-circle highlights.
+// Also manages mapSvg cursor: crosshair when hovering a valid city hex,
+// not-allowed when hovering invalid terrain (town, offboard, empty).
 function _updatePickLayer() {
-  const pl = document.getElementById('pickLayer');
+  const pl  = document.getElementById('pickLayer');
+  const svg = document.getElementById('mapSvg');
   if (!pl) return;
-  if (!_hexPickCb || !_hexPickHover) { pl.innerHTML = ''; return; }
+  if (!_hexPickCb || !_hexPickHover) {
+    pl.innerHTML = '';
+    if (svg) svg.style.cursor = '';
+    return;
+  }
 
   const ph  = (() => {
     for (let r = 0; r < state.meta.rows; r++)
@@ -3126,7 +3136,7 @@ function _updatePickLayer() {
         if (hexId(r, c) === _hexPickHover) return { row: r, col: c };
     return null;
   })();
-  if (!ph) { pl.innerHTML = ''; return; }
+  if (!ph) { pl.innerHTML = ''; if (svg) svg.style.cursor = ''; return; }
 
   const isPointy  = state.meta.orientation === 'pointy';
   const orientOff = isPointy ? 30 : 0;
@@ -3134,10 +3144,15 @@ function _updatePickLayer() {
   const sz        = HEX_SIZE;
   const center    = getHexCenter(ph.row, ph.col, sz, state.meta.orientation);
   const hex       = (state.hexes || {})[_hexPickHover] || null;
+
+  // Valid: city nodes only — towns, offboards, and blank terrain are rejected.
   const cityNodes = (hex?.nodes || [])
     .map((n, i) => ({ n, i }))
-    .filter(({ n }) => n.type === 'city' || n.type === 'town');
-  const valid = cityNodes.length > 0;
+    .filter(({ n }) => n.type === 'city');
+  const valid = cityNodes.length > 0 && hex?.feature !== 'offboard';
+
+  // Update cursor to give immediate valid/invalid feedback.
+  if (svg) svg.style.cursor = valid ? 'crosshair' : 'not-allowed';
 
   // Hex outline ring
   const pts = Array.from({ length: 6 }, (_, k) => {
