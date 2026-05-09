@@ -2889,13 +2889,23 @@ function buildHexSvg(r, c, hex) {
     if (_markers.length > 0) {
       const _hex = hex || null;
       g += `<g transform="rotate(${orientOff}) scale(${sc.toFixed(4)})">`;
-      for (const _m of _markers) {
-        const _lp = _getCityLocalPos(_hex, _m.cityIndex);
-        const _r  = 9;                       // chip radius in 50-unit space
-        const _tc = _m.textColor || _textContrastColor(_m.color);
-        g += `<circle cx="${_lp.x.toFixed(1)}" cy="${_lp.y.toFixed(1)}" r="${_r}" fill="${escSvg(_m.color)}" stroke="rgba(0,0,0,0.5)" stroke-width="1.2"/>`;
-        g += `<text x="${_lp.x.toFixed(1)}" y="${_lp.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="7" font-weight="bold" fill="${escSvg(_tc)}" text-anchor="middle" dominant-baseline="middle">${escSvg((_m.sym).slice(0,3))}</text>`;
-      }
+      _markers.forEach((_m, _mi) => {
+        const _lp  = _getCityLocalPos(_hex, _m.cityIndex);
+        const _r   = 9;                     // fits inside DSL_SLOT_R (12.5)
+        // textColor: use authoritative co.textColor if present, else compute contrast
+        const _tc  = (_m.textColor && _m.textColor !== '') ? _m.textColor : _textContrastColor(_m.color);
+        // Border contrast adapts to chip lightness — white border for dark chips,
+        // dark for light chips — so the chip reads well in both dark and light themes.
+        const _bc  = _tc === '#000000' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)';
+        const _sym = String(_m.sym || '?').slice(0, 3);
+        // Font-size scales with chip radius and sym length so text stays inside the circle
+        const _fs  = (_r * (_sym.length >= 3 ? 0.72 : _sym.length === 2 ? 0.88 : 1.1)).toFixed(2);
+        // Inline clipPath clips text to the chip boundary; ID unique within this render pass
+        const _cid = `hc-${r}-${c}-${_mi}`;
+        g += `<clipPath id="${_cid}"><circle cx="${_lp.x.toFixed(1)}" cy="${_lp.y.toFixed(1)}" r="${(_r - 0.5).toFixed(1)}"/></clipPath>`;
+        g += `<circle cx="${_lp.x.toFixed(1)}" cy="${_lp.y.toFixed(1)}" r="${_r}" fill="${escSvg(_m.color)}" stroke="${_bc}" stroke-width="1.2"/>`;
+        g += `<text clip-path="url(#${_cid})" x="${_lp.x.toFixed(1)}" y="${_lp.y.toFixed(1)}" font-family="Lato,Arial,sans-serif" font-size="${_fs}" font-weight="bold" fill="${escSvg(_tc)}" text-anchor="middle" dominant-baseline="middle">${escSvg(_sym)}</text>`;
+      });
       g += '</g>';
     }
   }
