@@ -188,8 +188,8 @@ function _lassoUp(e) {
         return;
       }
 
-      state.minors[pendingMinorIndex].homeHex      = pid;
-      state.minors[pendingMinorIndex].homeCityIndex = freeCityIdx;
+      state.minors[pendingMinorIndex].homeHex = pid;
+      state.minors[pendingMinorIndex].city    = freeCityIdx;
       renderMinorsTable();
       autosave();
       exitPlacementMode();
