@@ -85,6 +85,7 @@ function renderTrainsTable() {
             <td>
                 <span class="train-auto-label">${label}</span>
                 ${hasVariants ? `<button class="var-toggle" title="${tr._expanded ? 'Collapse variants' : 'Show variants'}">${tr._expanded ? '▼' : '▶'} ${tr.variants.length}</button>` : ''}
+                ${!hasVariants ? `<button class="add-variant-btn" title="Add a variant train" style="background:transparent;border:none;color:var(--text-dim);font-size:10px;opacity:0.5;cursor:pointer;margin-left:4px;padding:1px 4px;">+ Add Variant</button>` : ''}
                 ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
                 ${hasEvents ? `<span class="train-events-badge" title="${(tr.events||[]).map(function(ev){return ev.type;}).join(', ')}">⚡ ${(tr.events||[]).length}</span>` : ''}
                 ${isSpecial && tr.grantedBy && tr.grantedBy.length ? `<div class="train-granted-line">${tr.grantedBy.map(function(g){return g.name?g.sym+' \u2014 '+g.name:g.sym;}).join(' &middot; ')}</div>` : ''}
@@ -199,6 +200,17 @@ function renderTrainsTable() {
             });
         }
 
+        const addVariantBtn = trRow.querySelector('.add-variant-btn');
+        if (addVariantBtn) {
+            addVariantBtn.addEventListener('click', () => {
+                if (!tr.variants) tr.variants = [];
+                tr.variants.push({ distType: tr.distType, n: tr.n || 2, cost: tr.cost || 0, available_on: '' });
+                tr._expanded = true;
+                renderTrainsTable();
+                autosave();
+            });
+        }
+
         // Variant sub-rows (rendered immediately after parent)
         if (hasVariants && tr._expanded) {
             tr.variants.forEach(function(vtr, vi) {
@@ -232,7 +244,12 @@ function renderTrainsTable() {
                     <td>
                         <span class="qty-val${isUnlimited ? ' is-inf' : ''}" style="opacity:0.45;" title="Shares pool with ${label}">${isUnlimited ? '∞' : (tr.count || 0)}</span>
                     </td>
-                    <td></td>
+                    <td>
+                        <div class="input-with-label">
+                            <span class="input-prefix" style="font-size:9px;">ON</span>
+                            <input type="text" class="vtr-available-on" value="${vtr.available_on || ''}" placeholder="always" style="width:52px;font-size:11px;" title="Train name that unlocks this variant (blank = always available)">
+                        </div>
+                    </td>
                     <td>
                         <button class="table-btn delete-btn vtr-del" title="Remove variant">✕</button>
                     </td>
@@ -241,8 +258,19 @@ function renderTrainsTable() {
                 vRow.querySelector('.vtr-dist-type').addEventListener('change', function(e) { vtr.distType = e.target.value; renderTrainsTable(); autosave(); });
                 vRow.querySelector('.vtr-cost').addEventListener('change', function(e) { vtr.cost = parseInt(e.target.value) || 0; autosave(); });
                 vRow.querySelector('.vtr-del').addEventListener('click', function() { tr.variants.splice(vi, 1); renderTrainsTable(); autosave(); });
+                vRow.querySelector('.vtr-available-on').addEventListener('change', function(e) { vtr.available_on = e.target.value; autosave(); });
                 tbody.appendChild(vRow);
             });
+
+            const addVarRow = document.createElement('tr');
+            addVarRow.className = 'variant-sub-row';
+            addVarRow.innerHTML = `<td></td><td colspan="7" style="padding-left:18px;"><button class="add-variant-footer-btn" style="background:transparent;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:4px 0;letter-spacing:0.05em;">+ Add Variant</button></td>`;
+            addVarRow.querySelector('.add-variant-footer-btn').addEventListener('click', () => {
+                tr.variants.push({ distType: tr.distType, n: tr.n || 2, cost: tr.cost || 0, available_on: '' });
+                renderTrainsTable();
+                autosave();
+            });
+            tbody.appendChild(addVarRow);
         }
     });
 

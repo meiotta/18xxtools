@@ -294,6 +294,7 @@ function _grbTrainHash(tr, variants, state) {
           vKv.push(`rusts_on: ${_rbQuote(vtLabel)}`);
         }
       }
+      if (vtr.available_on) vKv.push(`available_on: ${_rbQuote(vtr.available_on)}`);
       return `    { ${vKv.join(', ')} }`;
     });
     kv.push(`variants: [\n${varLines.join(',\n')}\n  ]`);
