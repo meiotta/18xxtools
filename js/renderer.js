@@ -2921,6 +2921,12 @@ function buildHexSvg(r, c, hex) {
       const _hid = co.coordinates || co.homeHex;
       if (_hid === id) _markers.push({ sym: co.sym || co.abbr || '?', color: co.color || '#888', textColor: co.textColor || null, cityIndex: co.city ?? 0 });
     }
+    for (const _pack of (state.corpPacks || [])) {
+      for (const co of (_pack.companies || [])) {
+        const _hid = co.homeHex || co.coordinates;
+        if (_hid === id) _markers.push({ sym: co.sym || co.abbr || '?', color: co.color || '#888', textColor: co.textColor || null, cityIndex: co.city ?? 0 });
+      }
+    }
     if (_markers.length > 0) {
       const _hex = hex || null;
       g += `<g transform="rotate(${orientOff}) scale(${sc.toFixed(4)})">`;
