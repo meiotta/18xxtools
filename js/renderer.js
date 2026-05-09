@@ -2894,9 +2894,9 @@ function buildHexSvg(r, c, hex) {
         const _r   = 9;                     // fits inside DSL_SLOT_R (12.5)
         // textColor: use authoritative co.textColor if present, else compute contrast
         const _tc  = (_m.textColor && _m.textColor !== '') ? _m.textColor : _textContrastColor(_m.color);
-        // Border contrast adapts to chip lightness — white border for dark chips,
-        // dark for light chips — so the chip reads well in both dark and light themes.
-        const _bc  = _tc === '#000000' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.35)';
+        // Border contrast derived from chip background luminance (not _tc) so it works
+        // even when _tc is a user-supplied string like 'black' or '#000' rather than '#000000'.
+        const _bc  = _colorLuminance(_m.color) > 0.4 ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)';
         const _sym = String(_m.sym || '?').slice(0, 3);
         // Font-size scales with chip radius and sym length so text stays inside the circle
         const _fs  = (_r * (_sym.length >= 3 ? 0.72 : _sym.length === 2 ? 0.88 : 1.1)).toFixed(2);
@@ -3005,16 +3005,31 @@ function resizeCanvas() {
 
 // ─── COMPANY MARKER HELPERS ───────────────────────────────────────────────────
 
-// Auto-contrast text color from a hex background color string.
-// Used as fallback when co.textColor is null or empty.
-function _textContrastColor(hexColor) {
+// Relative luminance [0..1] from a color string (6-char or 3-char hex, or common names).
+// Returns 0.5 on parse failure so we default to white text (safe for mid-greys).
+function _colorLuminance(color) {
   try {
-    const c = (hexColor || '#888888').replace(/^#/, '');
+    // Named CSS colors used in 18xx game data
+    const _names = { white: 'ffffff', black: '000000', red: 'ff0000', blue: '0000ff',
+                     green: '008000', yellow: 'ffff00', orange: 'ffa500', purple: '800080',
+                     brown: 'a52a2a', grey: '808080', gray: '808080', pink: 'ffc0cb',
+                     cyan: '00ffff', magenta: 'ff00ff', lime: '00ff00', maroon: '800000',
+                     navy: '000080', olive: '808000', teal: '008080', silver: 'c0c0c0' };
+    let c = (color || '#888888').toLowerCase().replace(/^#/, '').trim();
+    if (_names[c]) c = _names[c];
+    if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2]; // expand shorthand
     const r = parseInt(c.substr(0, 2), 16) / 255;
     const g = parseInt(c.substr(2, 2), 16) / 255;
     const b = parseInt(c.substr(4, 2), 16) / 255;
-    return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.4 ? '#000000' : '#ffffff';
-  } catch (_) { return '#ffffff'; }
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return 0.5;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  } catch (_) { return 0.5; }
+}
+
+// Auto-contrast text color from a chip background color string.
+// Used as fallback when co.textColor is null or empty.
+function _textContrastColor(hexColor) {
+  return _colorLuminance(hexColor) > 0.4 ? '#000000' : '#ffffff';
 }
 
 // City center in hex-local 50-unit space for a given hex model and node index.
