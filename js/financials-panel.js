@@ -668,22 +668,39 @@ function renderLegend() {
   }
 
   // Par range — show the discoverable par prices derived from p/x/z/w/P-flagged
-  // cells. The companies panel can also call getParPrices() to constrain its
-  // parValue picker. Render only when at least one par cell exists.
+  // cells. Two views: a compact "Par range: $X–$Y" min-to-max line, and (when
+  // pars don't form a contiguous min-to-max sweep) the explicit list. The
+  // companies panel can call getParPrices()/getParMin()/getParMax() directly
+  // to constrain its parValue picker.
   if (typeof getParPrices === 'function') {
     const pars = getParPrices(state.financials.market);
     if (pars.length) {
-      const item = document.createElement('div');
-      item.className = 'mkt-legend-item mkt-legend-pars';
-      item.title = 'Companies par at one of these prices (set in Companies panel)';
+      const min = pars[0], max = pars[pars.length - 1];
+
+      const rangeItem = document.createElement('div');
+      rangeItem.className = 'mkt-legend-item mkt-legend-pars';
+      rangeItem.title = 'Companies par between these bounds (full set on the right when distinct)';
       const lbl = document.createElement('span');
       lbl.style.fontWeight = '600';
-      lbl.textContent = 'Par prices:';
-      item.appendChild(lbl);
-      const vals = document.createElement('span');
-      vals.textContent = pars.join(' · ');
-      item.appendChild(vals);
-      host.appendChild(item);
+      lbl.textContent = 'Par range:';
+      rangeItem.appendChild(lbl);
+      const range = document.createElement('span');
+      range.textContent = (min === max) ? `$${min}` : `$${min}–$${max}`;
+      rangeItem.appendChild(range);
+      host.appendChild(rangeItem);
+
+      if (pars.length > 2) {
+        const listItem = document.createElement('div');
+        listItem.className = 'mkt-legend-item mkt-legend-par-list';
+        const listLbl = document.createElement('span');
+        listLbl.style.fontWeight = '600';
+        listLbl.textContent = 'Par prices:';
+        listItem.appendChild(listLbl);
+        const vals = document.createElement('span');
+        vals.textContent = pars.join(' · ');
+        listItem.appendChild(vals);
+        host.appendChild(listItem);
+      }
     }
   }
 }

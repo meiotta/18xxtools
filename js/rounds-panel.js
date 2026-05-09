@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504e
+// js/rounds-panel.js  v20260504h
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -552,6 +552,51 @@ const _STEP_ORDERING_RULES = [
 const _CLASS_PATTERN_ENGINE = /^Engine::Step::[A-Z][A-Za-z0-9]*$/;
 const _CLASS_PATTERN_GAME   = /^G[A-Za-z0-9_]+::Step::[A-Z][A-Za-z0-9]*$/;
 
+// Step → required phase-status dependency. The KEY step's actions() method
+// in the engine returns [] unless the active phase declares one of the listed
+// statuses, which makes the step dead. If the step is in the list and NO
+// phase declares any of these statuses, the step never fires → warning.
+//
+// Sourced from each step's actions() implementation in lib/engine/step/*.rb:
+//   buy_company.rb:26 — 'can_buy_companies' / 'can_buy_companies_from_other_players' / 'can_buy_companies_operation_round_one'
+//   single_depot_train_buy.rb:15 — 'limited_train_buy'
+const _STEP_PHASE_STATUS_DEPS = {
+  'Engine::Step::BuyCompany':           ['can_buy_companies', 'can_buy_companies_from_other_players', 'can_buy_companies_operation_round_one'],
+  'Engine::Step::SingleDepotTrainBuy':  ['limited_train_buy'],
+};
+
+// Ability `when:` value → { round, stepNames }. If a private/company ability
+// has when: 'foo', the round's step list must include at least one of the
+// listed step-name suffixes for the ability to fire. Step names match by
+// '::<name>' suffix, so engine + game-local subclasses both qualify.
+//
+// Values that are too context-dependent to verify (e.g. 'sold',
+// '%current_step%', 'owning_player_track') are intentionally NOT in the map —
+// those skip the check rather than false-positive.
+const _ABILITY_WHEN_TO_STEPS = {
+  // Track-laying time
+  'track':         { round: 'operating', stepNames: ['Track', 'TrackAndToken', 'SpecialTrack'] },
+  'lay_track':     { round: 'operating', stepNames: ['Track', 'TrackAndToken', 'SpecialTrack'] },
+  // Token-placement time
+  'token':         { round: 'operating', stepNames: ['Token', 'TrackAndToken', 'SpecialToken', 'HomeToken'] },
+  'place_token':   { round: 'operating', stepNames: ['Token', 'TrackAndToken', 'SpecialToken', 'HomeToken'] },
+  // Route-running time
+  'route':         { round: 'operating', stepNames: ['Route'] },
+  'run_routes':    { round: 'operating', stepNames: ['Route'] },
+  // Dividend time
+  'dividend':      { round: 'operating', stepNames: ['Dividend', 'HalfPay', 'MinorHalfPay', 'MinorWithold'] },
+  'pay_dividend':  { round: 'operating', stepNames: ['Dividend', 'HalfPay', 'MinorHalfPay', 'MinorWithold'] },
+  // Train-buying time
+  'buy_train':     { round: 'operating', stepNames: ['BuyTrain', 'SingleDepotTrainBuy', 'SpecialBuyTrain'] },
+  'buying_train':  { round: 'operating', stepNames: ['BuyTrain', 'SingleDepotTrainBuy', 'SpecialBuyTrain'] },
+  // Stock-round context — any SR step satisfies (the ability is timed within SR)
+  'stock_round':   { round: 'stock',     stepNames: null },  // null = any non-empty step list satisfies
+  // OR start / end — any OR step satisfies (the round itself fires; ability piggybacks)
+  'or_start':      { round: 'operating', stepNames: null },
+  'or_end':        { round: 'operating', stepNames: null },
+  'or_round_end':  { round: 'operating', stepNames: null },
+};
+
 // Returns one of: 'engine-known' | 'engine-unknown' | 'game-local' | 'malformed'.
 // engine-unknown = matches Engine::Step::* pattern but absent from _STEP_CATALOG;
 // could be a typo, OR an engine step we haven't catalogued yet. Treated as
@@ -585,22 +630,45 @@ function _firstBlockingIndexBySuffix(steps, name) {
 
 // Main validator. Returns an array of structured findings:
 //   { severity: 'error' | 'warning' | 'info',
-//     code: string,
-//     message: string,
-//     round?: 'initial' | 'stock' | 'operating' | 'merger',
+//     code:     string,
+//     message:  string,
+//     path:     string,                                          // dotted state path
+//     round?:   'initial' | 'stock' | 'operating' | 'merger',
 //     stepIndex?: number,
 //     stepClass?: string }
 //
 // Severity policy:
 //   error   — will produce broken Ruby OR break engine load OR break gameplay.
 //             Aggregate signal goes red.
-//   warning — convention divergence or unrecognized engine class. Aggregate
-//             signal goes amber unless an error fires too.
+//   warning — convention divergence, unrecognized engine class, dead-on-arrival
+//             ability. Aggregate signal goes amber unless an error fires too.
 //   info    — game-local subclasses (no validation possible; v2 will add
 //             custom-step body checks). Doesn't affect aggregate signal.
+//
+// Six categories:
+//   (a) Class recognition — engine-known / engine-unknown / game-local / malformed
+//   (b) Required-step presence — initial needs auction step, stock needs
+//       BuySellParShares, operating needs Track/Route/BuyTrain, etc.
+//   (c) Group B ordering — Track before Token, Route before Dividend, etc.
+//   (d) Phase-status references — steps that gate on phase status (BuyCompany,
+//       SingleDepotTrainBuy) emit warnings if no phase declares the status
+//   (e) Ability when: references — privates' abilities with when: time tags
+//       must have a satisfying step in the relevant round's list
+//   (f) Step duplicates — same class in the same round multiple times (warn)
 function validateStepConstraints(state) {
   const findings = [];
-  const rounds = (state && state.mechanics && state.mechanics.rounds) || {};
+  const rounds  = (state && state.mechanics && state.mechanics.rounds)  || {};
+  const phases  = (state && state.mechanics && state.mechanics.phases)  || (state && state.phases) || [];
+  const privs   = (state && state.privates)  || [];
+  const corps   = (state && state.companies) || [];
+  const minors  = (state && state.minors)    || [];
+
+  // Pre-compute the set of all phase status flags declared anywhere, used by
+  // check (d). Phase shape from Farrah's panel: { name, on, status: [...] }.
+  const declaredPhaseStatuses = new Set();
+  (Array.isArray(phases) ? phases : []).forEach(ph => {
+    if (ph && Array.isArray(ph.status)) ph.status.forEach(s => declaredPhaseStatuses.add(s));
+  });
 
   ['initial', 'stock', 'operating', 'merger'].forEach(roundType => {
     const slot = rounds[roundType];
@@ -612,15 +680,18 @@ function validateStepConstraints(state) {
     if (roundType === 'merger' && !mergerActive) return;
 
     const steps = Array.isArray(slot.steps) ? slot.steps : [];
+    const slotPath = `mechanics.rounds.${roundType}`;
 
-    // ── Class checks (every entry) ─────────────────────────────────────────
+    // ── (a) Class checks (every entry) ─────────────────────────────────────
     steps.forEach((step, i) => {
+      const stepPath = `${slotPath}.steps[${i}].class`;
       const c = _classifyStepClass(step && step.class);
       if (c === 'malformed') {
         findings.push({
           severity: 'error',
           code: 'STEP_CLASS_MALFORMED',
           message: `Step class "${step && step.class}" doesn't match Engine::Step::Foo or G<game>::Step::Foo pattern.`,
+          path: stepPath,
           round: roundType, stepIndex: i, stepClass: step && step.class,
         });
       } else if (c === 'engine-unknown') {
@@ -628,6 +699,7 @@ function validateStepConstraints(state) {
           severity: 'warning',
           code: 'STEP_CLASS_UNKNOWN_ENGINE',
           message: `${step.class} is not in the known engine step catalog. May be a typo, or an engine step the catalog hasn't picked up yet.`,
+          path: stepPath,
           round: roundType, stepIndex: i, stepClass: step.class,
         });
       } else if (c === 'game-local') {
@@ -635,12 +707,13 @@ function validateStepConstraints(state) {
           severity: 'info',
           code: 'STEP_CLASS_GAME_LOCAL',
           message: `${step.class} is a game-local subclass; full validation requires the subclass body (v2).`,
+          path: stepPath,
           round: roundType, stepIndex: i, stepClass: step.class,
         });
       }
     });
 
-    // ── Required-step checks ───────────────────────────────────────────────
+    // ── (b) Required-step checks ───────────────────────────────────────────
     // Only fire when steps is non-empty (empty = silent inherit; engine uses
     // base.rb defaults which contain the required step). Merger is special:
     // empty steps when enabled is itself an error.
@@ -650,6 +723,7 @@ function validateStepConstraints(state) {
           severity: 'error',
           code: 'MERGER_ENABLED_NO_STEPS',
           message: 'Merger round is enabled but has no steps. Engine::Round::Merger is abstract — populate the step list with merger logic.',
+          path: `${slotPath}.steps`,
           round: roundType,
         });
       }
@@ -662,13 +736,14 @@ function validateStepConstraints(state) {
             severity: 'error',
             code: 'STEP_REQUIRED_MISSING',
             message: `${roundType.charAt(0).toUpperCase() + roundType.slice(1)} round needs ${req.description}.`,
+            path: `${slotPath}.steps`,
             round: roundType,
           });
         }
       }
     }
 
-    // ── Ordering checks ────────────────────────────────────────────────────
+    // ── (c) Ordering checks ────────────────────────────────────────────────
     // Only consider Group B (blocking) members; Group A is interrupt-menu so
     // its position relative to other steps is cosmetic.
     _STEP_ORDERING_RULES.forEach(rule => {
@@ -680,10 +755,116 @@ function validateStepConstraints(state) {
           severity: rule.severity,
           code: rule.code,
           message: rule.message,
+          path: `${slotPath}.steps[${beforeIdx}]`,
           round: roundType, stepIndex: beforeIdx,
         });
       }
     });
+
+    // ── (d) Phase-status reference checks ──────────────────────────────────
+    // Steps that gate on a phase status (BuyCompany, SingleDepotTrainBuy) are
+    // dead unless some phase declares one of their accepted statuses. Warn,
+    // don't error — the user may still be configuring phases.
+    steps.forEach((step, i) => {
+      const cls  = step && step.class;
+      const deps = _STEP_PHASE_STATUS_DEPS[cls];
+      if (!deps || !deps.length) return;
+      const satisfied = deps.some(s => declaredPhaseStatuses.has(s));
+      if (!satisfied) {
+        findings.push({
+          severity: 'warning',
+          code: 'STEP_PHASE_STATUS_MISSING',
+          message: `${cls} requires one of [${deps.join(', ')}] to be declared on at least one phase. Without it the step is dead — its actions() returns [] for every entity.`,
+          path: `${slotPath}.steps[${i}]`,
+          round: roundType, stepIndex: i, stepClass: cls,
+        });
+      }
+    });
+
+    // ── (f) Step duplicate check (warning only) ────────────────────────────
+    // Same class twice in a tab. Some games legitimately do this (1830 OR has
+    // BuyCompany twice; 1822 OR has PendingToken twice). Warn so the designer
+    // notices it; don't block. Compares by class string only.
+    const counts = new Map();
+    steps.forEach(s => {
+      if (!s || typeof s.class !== 'string') return;
+      counts.set(s.class, (counts.get(s.class) || 0) + 1);
+    });
+    counts.forEach((count, cls) => {
+      if (count <= 1) return;
+      // Find the index of the SECOND occurrence for the path/jump-target.
+      let secondIdx = -1, seen = 0;
+      for (let i = 0; i < steps.length; i++) {
+        if (steps[i] && steps[i].class === cls) {
+          seen++;
+          if (seen === 2) { secondIdx = i; break; }
+        }
+      }
+      findings.push({
+        severity: 'warning',
+        code: 'STEP_DUPLICATE',
+        message: `${cls} appears ${count} times in the ${roundType} step list. Some games (1830 OR BuyCompany ×2, 1822 OR PendingToken ×2) legitimately do this; verify the per-entry opts differ if you intended duplicates.`,
+        path: `${slotPath}.steps[${secondIdx}]`,
+        round: roundType, stepIndex: secondIdx, stepClass: cls,
+      });
+    });
+  });
+
+  // ── (e) Ability `when:` reference checks ─────────────────────────────────
+  // Cross-panel: each private/company ability with a recognized `when:` value
+  // must have a satisfying step in the relevant round's step list. If the
+  // step list is empty the round inherits base.rb defaults — those are
+  // checked too (the default OR has Track/Route/Dividend/BuyTrain, default SR
+  // has BuySellParShares).
+  function _stepsForRound(roundType) {
+    const slot = rounds[roundType];
+    const userSteps = (slot && Array.isArray(slot.steps)) ? slot.steps : [];
+    if (userSteps.length > 0) return userSteps;
+    // Empty list → engine inherits base.rb defaults
+    return _BASE_RB_DEFAULTS[roundType] || [];
+  }
+
+  function _checkOneAbility(entity, entityKind, entityIdx, ability, abilityIdx) {
+    const whenField = ability && ability.when;
+    if (!whenField) return;
+    const values = Array.isArray(whenField) ? whenField : [whenField];
+    values.forEach(whenVal => {
+      const map = _ABILITY_WHEN_TO_STEPS[whenVal];
+      if (!map) return;  // unknown when: value — not a check we run
+      const targetSteps = _stepsForRound(map.round);
+      let satisfied;
+      if (map.stepNames === null) {
+        satisfied = targetSteps.length > 0;
+      } else {
+        satisfied = map.stepNames.some(name => _stepsContainSuffix(targetSteps, name));
+      }
+      if (!satisfied) {
+        const ent = (entity && (entity.sym || entity.abbr || entity.name)) || `#${entityIdx}`;
+        const wantList = map.stepNames === null
+          ? `any step in the ${map.round} round`
+          : `${map.stepNames.join(' / ')} in the ${map.round} round`;
+        findings.push({
+          severity: 'warning',
+          code: 'ABILITY_WHEN_NO_MATCHING_STEP',
+          message: `${entityKind} "${ent}" has an ability with when: '${whenVal}' but ${wantList} is not present. The ability will never fire.`,
+          path: `${entityKind === 'private' ? 'privates' : entityKind === 'company' ? 'companies' : 'minors'}[${entityIdx}].abilities[${abilityIdx}].when`,
+          round: map.round,
+        });
+      }
+    });
+  }
+
+  (Array.isArray(privs) ? privs : []).forEach((p, pi) => {
+    const abs = (p && Array.isArray(p.abilities)) ? p.abilities : [];
+    abs.forEach((ab, ai) => _checkOneAbility(p, 'private', pi, ab, ai));
+  });
+  (Array.isArray(corps) ? corps : []).forEach((c, ci) => {
+    const abs = (c && Array.isArray(c.abilities)) ? c.abilities : [];
+    abs.forEach((ab, ai) => _checkOneAbility(c, 'company', ci, ab, ai));
+  });
+  (Array.isArray(minors) ? minors : []).forEach((m, mi) => {
+    const abs = (m && Array.isArray(m.abilities)) ? m.abilities : [];
+    abs.forEach((ab, ai) => _checkOneAbility(m, 'minor', mi, ab, ai));
   });
 
   return findings;
@@ -989,28 +1170,84 @@ const _ROUND_LABELS = {
 
 // ── Export-validity signal (per EXPORT_COHERENCE.md §4) ─────────────────────
 // Aggregate validator across all three concerns:
-//   - validateStepConstraints        (this file, defined above)
-//   - _validateRoundClass            (round-system, when exposed)
-//   - _validateEndHook               (round-system, when exposed)
-// The optional helpers are picked up via typeof checks so the aggregate is
-// tolerant of partial implementation. Returns a flat findings[] array.
+//   - validateStepConstraints  — this file, takes (state), returns flat findings.
+//   - _validateRoundClass      — mechanics-panel.js:532, takes (slot) per round.
+//                                Returns slot-scoped findings; aggregate tags
+//                                each with `round` and a `path` so they sort
+//                                into the same buckets as step findings.
+//   - _validateEndHook         — mechanics-panel.js:570, takes (slot, roundType)
+//                                per round. Returns slot-scoped findings; tagged
+//                                the same way.
+// All three helpers are optional — picked up via `typeof` so the aggregate
+// stays tolerant of partial implementation. Each helper is called inside a
+// try/catch so a crashing validator becomes a finding, not a blank panel.
+//
+// Severity normalisation: round-system uses 'warn'; step-system uses
+// 'warning'. The aggregate translates 'warn' → 'warning' so _signalSeverity's
+// downstream comparisons don't have to handle both spellings.
 function validateExportCoherence(state) {
   const findings = [];
+
+  // Step-system validator — already takes (state) and emits per-step findings.
   if (typeof validateStepConstraints === 'function') {
     try { findings.push(...(validateStepConstraints(state) || [])); }
     catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+      path: 'validateStepConstraints',
       message: 'validateStepConstraints crashed: ' + (e && e.message) }); }
   }
-  if (typeof _validateRoundClass === 'function') {
-    try { findings.push(...(_validateRoundClass(state) || [])); }
-    catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
-      message: '_validateRoundClass crashed: ' + (e && e.message) }); }
-  }
-  if (typeof _validateEndHook === 'function') {
-    try { findings.push(...(_validateEndHook(state) || [])); }
-    catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
-      message: '_validateEndHook crashed: ' + (e && e.message) }); }
-  }
+
+  // Round-system validators — per-slot fanout. Iterate over each round slot,
+  // call each helper, normalise the returned findings to the aggregate shape
+  // (severity, code, message, path, round).
+  const rounds = (state && state.mechanics && state.mechanics.rounds) || {};
+  ['initial', 'stock', 'operating', 'merger'].forEach(roundType => {
+    const slot = rounds[roundType];
+    if (!slot) return;
+    // Skip merger when not enabled — _validateEndHook bails on missing
+    // endHook anyway, but _validateRoundClass would emit a "class is null"
+    // finding for the disabled merger slot.
+    const mergerActive = roundType === 'merger' && (slot.enabled === true || !!slot.class);
+    if (roundType === 'merger' && !mergerActive) return;
+
+    const slotPath = `mechanics.rounds.${roundType}`;
+
+    if (typeof _validateRoundClass === 'function') {
+      try {
+        (_validateRoundClass(slot) || []).forEach(f => {
+          findings.push({
+            severity: f.severity === 'warn' ? 'warning' : f.severity,
+            code:     f.code || 'ROUND_CLASS',
+            message:  f.message,
+            path:     slotPath + (slot && slot.class === null ? '.class' : ''),
+            round:    roundType,
+          });
+        });
+      } catch (e) {
+        findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+          path: slotPath, round: roundType,
+          message: `_validateRoundClass(${roundType}) crashed: ` + (e && e.message) });
+      }
+    }
+
+    if (typeof _validateEndHook === 'function') {
+      try {
+        (_validateEndHook(slot, roundType) || []).forEach(f => {
+          findings.push({
+            severity: f.severity === 'warn' ? 'warning' : f.severity,
+            code:     f.code || 'END_HOOK',
+            message:  f.message,
+            path:     `${slotPath}.endHook`,
+            round:    roundType,
+          });
+        });
+      } catch (e) {
+        findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+          path: `${slotPath}.endHook`, round: roundType,
+          message: `_validateEndHook(${roundType}) crashed: ` + (e && e.message) });
+      }
+    }
+  });
+
   return findings;
 }
 
@@ -1040,7 +1277,10 @@ function _signalCounts(findings) {
 }
 
 // Header dot + label rendered next to the panel title. Always shown — green
-// when nothing is wrong, amber for warnings, red for blocking errors.
+// when nothing is wrong, amber for warnings, red for blocking errors. When
+// findings exist (sev is amber or red), the dot+label is a clickable button
+// that expands the validity-detail accordion and scrolls it into view. When
+// green, it's an inert label (nothing to expand to).
 function _renderExportValiditySignal(findings) {
   const sev = _signalSeverity(findings);
   const c   = _signalCounts(findings);
@@ -1052,7 +1292,14 @@ function _renderExportValiditySignal(findings) {
   } else {
     label = 'Export ready';
   }
-  return `<span class="mech-status-dot ${sev}" style="display:inline-block;vertical-align:middle;margin:0 6px 0 4px;" title="${label}"></span><span style="font-size:11px;color:var(--text-dim);font-weight:400;letter-spacing:0;">${label}</span>`;
+  const dotHTML   = `<span class="mech-status-dot ${sev}" style="display:inline-block;vertical-align:middle;margin:0 6px 0 4px;" title="${label}"></span>`;
+  const labelHTML = `<span style="font-size:11px;color:var(--text-dim);font-weight:400;letter-spacing:0;">${label}</span>`;
+  if (sev === 'green') {
+    return dotHTML + labelHTML;
+  }
+  // Clickable: expand + scroll the accordion. Inline button styling so the
+  // affordance reads as part of the title rather than a competing element.
+  return `<button type="button" data-validity-expand title="Click to view ${sev === 'red' ? 'errors' : 'warnings'}" style="background:transparent;border:none;cursor:pointer;padding:0;display:inline-flex;align-items:center;font:inherit;color:inherit;">${dotHTML}${labelHTML}<span style="margin-left:4px;font-size:10px;color:var(--text-muted);">▾</span></button>`;
 }
 
 // Module state for the validity-detail accordion at the bottom of the panel.
@@ -1110,6 +1357,26 @@ function _renderExportValidityAccordion(findings) {
 function onValidityAccordionToggle(_e) {
   _validityAccordionCollapsed = !_validityAccordionCollapsed;
   renderStepsPanelView();
+}
+
+// Header-signal click — always EXPAND the accordion (regardless of prior
+// state), then scroll it into view so the user sees the issue list without
+// having to scroll the panel manually. Wired separately from the accordion's
+// own toggle button so the header is "show me" while the accordion header
+// is "toggle".
+function onValidityHeaderExpand(_e) {
+  _validityAccordionCollapsed = false;
+  renderStepsPanelView();
+  // Scroll the accordion into view after the re-render. Defer to next tick
+  // so the new DOM is in place before scrollIntoView runs.
+  setTimeout(() => {
+    const view = document.getElementById('stepsView');
+    if (!view) return;
+    const accordion = view.querySelector('[data-validity-toggle]');
+    if (accordion && accordion.scrollIntoView) {
+      accordion.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 0);
 }
 
 // ── Top-level STEPS panel renderer (replaces #stepsView innerHTML) ──────────
@@ -1534,6 +1801,9 @@ function _attachStepsListeners(root) {
   });
   root.querySelectorAll('[data-validity-toggle]').forEach(btn => {
     btn.addEventListener('click', onValidityAccordionToggle);
+  });
+  root.querySelectorAll('[data-validity-expand]').forEach(btn => {
+    btn.addEventListener('click', onValidityHeaderExpand);
   });
   root.querySelectorAll('[data-wizard-toggle]').forEach(btn => {
     btn.addEventListener('click', onWizardToggle);

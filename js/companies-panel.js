@@ -25,7 +25,22 @@ function renderCompaniesTable() {
     inputs[0].addEventListener('change', (e) => { state.companies[idx].color = e.target.value; autosave(); });
     inputs[1].addEventListener('change', (e) => { state.companies[idx].name = e.target.value; autosave(); });
     inputs[2].addEventListener('change', (e) => { state.companies[idx].abbr = e.target.value; autosave(); });
-    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value; autosave(); });
+    inputs[3].addEventListener('change', (e) => { state.companies[idx].homeHex = e.target.value.toUpperCase(); autosave(); });
+    inputs[3].addEventListener('input', (e) => {
+      const val = e.target.value.toUpperCase();
+      if (!val) { e.target.style.borderColor = ''; e.target.title = ''; return; }
+      const hex = (state.hexes || {})[val];
+      if (!hex) {
+        e.target.style.borderColor = 'var(--error,#f44)';
+        e.target.title = 'Unknown hex: ' + val;
+      } else if (!(hex.nodes || []).some(n => n.type === 'city')) {
+        e.target.style.borderColor = 'var(--error,#f44)';
+        e.target.title = val + ' has no city';
+      } else {
+        e.target.style.borderColor = '';
+        e.target.title = '';
+      }
+    });
     inputs[4].addEventListener('change', (e) => { state.companies[idx].parValue = parseInt(e.target.value) || 100; autosave(); });
     inputs[5].addEventListener('change', (e) => { state.companies[idx].tokens = parseInt(e.target.value) || 5; autosave(); });
     inputs[6].addEventListener('change', (e) => { state.companies[idx].floatPct = parseInt(e.target.value) || 60; autosave(); });
@@ -67,7 +82,10 @@ function renderMinorsTable() {
 
     const needsHome = co.locationMechanism === 'fixed' && !co.homeHex;
     const warning = needsHome ? '<span title="Home Hex Required" style="color:#ff4444;margin-right:4px;cursor:help;">⚠️</span>' : '';
-    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:var(--border-mid);margin-top:4px;font-size:10px;">${co.homeHex || 'Place'}</button>` : '<span style="color:var(--text-secondary);font-size:10px;">-</span>';
+    const _placeLabel = co.homeHex
+      ? (co.homeCityIndex !== undefined ? co.homeHex + String.fromCharCode(183) + co.homeCityIndex : co.homeHex)
+      : 'Place ⊕';
+    const placeBtn = co.locationMechanism === 'fixed' ? `<button class="table-btn place-btn" data-idx="${idx}" style="background:var(--border-mid);margin-top:4px;font-size:10px;">${_placeLabel}</button>` : '<span style="color:var(--text-secondary);font-size:10px;">-</span>';
 
     tr.innerHTML = `
       <td><input type="color" class="co-color"></td>
@@ -1452,6 +1470,35 @@ function validateMinors() {
   return result;
 }
 
+// ── Corp home-hex UI helpers ──────────────────────────────────────────────────
+
+function _validateCoord(hexId) {
+  if (!hexId) return null;
+  const hex = (state.hexes || {})[hexId];
+  if (!hex) return 'unknown hex';
+  const cities = (hex.nodes || []).filter(n => n.type === 'city');
+  if (!cities.length) return 'no city at ' + hexId;
+  return null;
+}
+
+function _showCoordErr(input, errEl, msg) {
+  input.classList.add('cp-co-coords--invalid');
+  errEl.textContent   = msg;
+  errEl.style.display = 'block';
+}
+
+function _clearCoordErr(input, errEl) {
+  input.classList.remove('cp-co-coords--invalid');
+  errEl.textContent   = '';
+  errEl.style.display = 'none';
+}
+
+function _updatePlaceBtn(btn, co) {
+  btn.textContent = co.coordinates
+    ? co.coordinates + ' · ' + ((co.city || 0) + 1)
+    : 'Place ⊕';
+}
+
 // ── Main render entry point ───────────────────────────────────────────────────
 function renderCorpsSection() {
   const wrap = document.getElementById('corpCorpsSection');
@@ -1715,9 +1762,11 @@ function _buildCompanyDetailEl(pi, ci) {
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Home hex</label>
           <input type="text" class="cp-co-coords" placeholder="e.g. D12" value="${escHtml(company.coordinates || '')}">
-          <label class="cp-co-field-label" style="margin-left:12px;">City slot</label>
+          <button class="cp-co-place-btn" title="Pick home hex on map">${company.coordinates ? escHtml(company.coordinates) + ' · ' + ((company.city || 0) + 1) : 'Place ⊕'}</button>
+          <label class="cp-co-field-label" style="margin-left:4px;">City slot</label>
           <input type="number" class="cp-co-city" min="0" max="5" value="${company.city !== '' ? (company.city || 0) : ''}" placeholder="0">
         </div>
+        <div class="cp-co-coords-err"></div>
         <div class="cp-co-field-row">
           <label class="cp-co-field-label">Logo path</label>
           <input type="text" class="cp-co-logo" placeholder="e.g. 1882/NYC" value="${escHtml(company.logo || '')}">
@@ -1790,8 +1839,75 @@ function _buildCompanyDetailEl(pi, ci) {
     autosave();
   });
   _wireColorPicker(el, 'co-textcolor', hex => { company.textColor = hex; autosave(); });
-  el.querySelector('.cp-co-coords').addEventListener('change',    e => { company.coordinates  = e.target.value;                 autosave(); });
-  el.querySelector('.cp-co-city').addEventListener('change',      e => { company.city         = parseInt(e.target.value) || 0;  autosave(); });
+  const coordInput = el.querySelector('.cp-co-coords');
+  const cityInput  = el.querySelector('.cp-co-city');
+  const placeBtnEl = el.querySelector('.cp-co-place-btn');
+  const coordErrEl = el.querySelector('.cp-co-coords-err');
+
+  coordInput.addEventListener('input', e => {
+    const err = _validateCoord(e.target.value.trim());
+    if (err) _showCoordErr(coordInput, coordErrEl, err);
+    else     _clearCoordErr(coordInput, coordErrEl);
+  });
+  coordInput.addEventListener('change', e => {
+    company.coordinates = e.target.value.trim();
+    _updatePlaceBtn(placeBtnEl, company);
+    autosave();
+    if (typeof render === 'function') render();
+  });
+  cityInput.addEventListener('change', e => {
+    company.city = parseInt(e.target.value) || 0;
+    _updatePlaceBtn(placeBtnEl, company);
+    autosave();
+    if (typeof render === 'function') render();
+  });
+
+  placeBtnEl.addEventListener('click', () => {
+    // Switch to map so the canvas is visible for picking.
+    document.querySelector('.nav-rail-btn[data-lsec="map"]')?.click();
+
+    isPlacementMode = true;
+    document.getElementById('placementOverlay').style.display = 'flex';
+    document.getElementById('placementText').textContent =
+      'Select home hex for ' + (company.sym || company.name || 'Corp');
+    document.body.style.cursor = 'crosshair';
+    updateStatus('Placement mode: ' + (company.sym || 'Corp'));
+
+    // Return to Companies → Corporations tab and restore the editor.
+    // The corps-tab click calls renderCorpsSection() which rebuilds the DOM,
+    // so coordInput/coordErrEl refs are stale after this — use fresh queries.
+    const returnToEditor = () => {
+      exitPlacementMode();
+      document.querySelector('.nav-rail-btn[data-lsec="companies"]')?.click();
+      document.querySelector('.corp-tab-btn[data-corp-tab="corps"]')?.click();
+    };
+
+    if (typeof window.startHexPick !== 'function') {
+      console.warn('[companies-panel] window.startHexPick not yet available');
+      returnToEditor();
+      return;
+    }
+
+    window.startHexPick(
+      ({ hexId, cityIndex, error }) => {
+        if (error === 'no_city_slot') {
+          returnToEditor();
+          // Query fresh refs after DOM rebuild
+          const inp = document.querySelector('.cp-co-coords');
+          const err = document.querySelector('.cp-co-coords-err');
+          if (inp && err) _showCoordErr(inp, err, 'No free slot at ' + hexId);
+          return;
+        }
+        company.coordinates = hexId;
+        company.city        = cityIndex;
+        autosave();
+        if (typeof render === 'function') render();
+        returnToEditor();
+      },
+      () => returnToEditor()
+    );
+  });
+
   el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });
 
   const assocMajorEl = el.querySelector('.cp-co-assoc-major');

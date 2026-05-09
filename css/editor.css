@@ -2587,6 +2587,10 @@ canvas { display: block; }
 .cp-co-float-ov { width: 56px; }
 .cp-co-logo { flex: 1; min-width: 160px; }
 .cp-co-city { width: 48px; background: var(--bg-elevated); border: 1px solid var(--border-mid); border-radius: 4px; color: var(--text-primary); font-size: 12px; padding: 4px 8px; }
+.cp-co-place-btn { padding: 3px 8px; font-size: 11px; background: var(--border-mid); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-primary); white-space: nowrap; flex-shrink: 0; }
+.cp-co-place-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cp-co-coords-err { display: none; font-size: 10px; color: #ff5555; }
+.cp-co-coords--invalid { outline: 2px solid #ff5555 !important; }
 
 /* Inherit / override affordance */
 .cp-inherit-val { font-size: 12px; color: var(--text-muted); font-style: italic; margin-right: 6px; }
