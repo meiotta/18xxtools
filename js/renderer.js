@@ -3063,15 +3063,29 @@ window.startHexPick = function(onPick, onCancel) {
   _hexPickCb        = { onPick, onCancel };
   _hexPickHover     = null;
   _hexPickHoverCity = null;
+  // Set crosshair on the body so the cursor is consistent everywhere, not just
+  // over the SVG.  _updatePickLayer will refine it to 'not-allowed' on invalid
+  // hexes once the user moves the mouse.
+  document.body.style.cursor = 'crosshair';
   _updatePickLayer();
 };
 
-window.cancelHexPick = function() {
-  if (_hexPickCb?.onCancel) _hexPickCb.onCancel();
+// Shared cleanup path: resets all pick state and restores cursors.
+// Safe to call multiple times (idempotent).
+function _clearPickState() {
   _hexPickCb        = null;
   _hexPickHover     = null;
   _hexPickHoverCity = null;
+  document.body.style.cursor = '';
+  const svg = document.getElementById('mapSvg');
+  if (svg) svg.style.cursor = '';
   _updatePickLayer();
+}
+
+window.cancelHexPick = function() {
+  const cb = _hexPickCb;
+  _clearPickState();
+  if (cb?.onCancel) cb.onCancel();
 };
 
 // Called by canvas-input.js mousemove when pick mode is active.
@@ -3130,7 +3144,8 @@ function _onPickClick(world) {
   const isValid = cityNodes.length > 0 && hex?.feature !== 'offboard';
 
   if (!isValid) {
-    _hexPickCb.onPick({ hexId: hid, error: 'no_city_slot' });
+    // Don't exit pick mode on invalid clicks — let the user try again.
+    // Just give feedback; hover ring already shows the red ring.
     return;
   }
 
@@ -3155,10 +3170,7 @@ function _onPickClick(world) {
   }
 
   const cb = _hexPickCb;
-  _hexPickCb        = null;
-  _hexPickHover     = null;
-  _hexPickHoverCity = null;
-  _updatePickLayer();
+  _clearPickState();                         // resets state, clears cursors, redraws layer
   cb.onPick({ hexId: hid, cityIndex: bestIdx });
 }
 
