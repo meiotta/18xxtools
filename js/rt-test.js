@@ -104,7 +104,7 @@ for (const { name, dir } of GAMES) {
     const re   = reimported.privates[i];
     if (!re) { fails.push(`private[${i}] (${orig.sym}): missing after re-import`); continue; }
 
-    for (const f of ['sym','name','cost','revenue','companyType','buyerType','ability','color','textColor','discount','minPlayers','coordinates','minPrice','maxPrice']) {
+    for (const f of ['sym','name','cost','revenue','companyType','buyerType','desc','color','textColor','discount','minPlayers','coordinates','minPrice','maxPrice']) {
       if (orig[f] !== undefined && JSON.stringify(orig[f]) !== JSON.stringify(re[f]))
         fails.push(`private ${orig.sym} .${f}: ${JSON.stringify(orig[f])} → ${JSON.stringify(re[f])}`);
     }
