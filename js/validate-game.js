@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509c
+// js/validate-game.js  v20260509d
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -92,11 +92,76 @@ function validateGame(state) {
 
   _checkMapCompanies(state, findings);
   _checkTrainsPhases(state, findings);
-  // _checkCompaniesMarket(state, findings);
+  _checkCompaniesMarket(state, findings);
   // _checkEntitiesMechanics(state, findings);
   // _checkDriftShadows(state, findings);
 
   return findings;
+}
+
+// ── Seam: Companies ↔ Market (STATE_SCHEMA.md §3.3) ─────────────────────────
+// Three checks against the join keys:
+//   C-MARKET-1  par-eligible corps require at least one cell with 'p' suffix
+//   C-MARKET-2  pack-level capitalization override differs from game-wide
+//   C-MARKET-3  no market grid configured at all (empty market with corps)
+function _checkCompaniesMarket(state, findings) {
+  const corpPacks = state.corpPacks || [];
+  const fin       = state.financials || {};
+  const market    = fin.market || [];
+  const mech      = state.mechanics || {};
+
+  // Detect par-eligible packs — those whose alwaysMarketPrice is false (or
+  // unset) AND have at least one corp. Per CORP_TYPE_DEFAULTS in
+  // companies-panel.js: 'major' and 'custom' are par-eligible; 'minor',
+  // 'coal', 'national', 'system', 'public' default to alwaysMarketPrice=true.
+  const parEligiblePacks = corpPacks.filter(pack => {
+    if (!pack || !Array.isArray(pack.companies) || pack.companies.length === 0) return false;
+    return !pack.alwaysMarketPrice;
+  });
+
+  // C-MARKET-3 — corps exist but market grid is empty
+  const flatCells = Array.isArray(market[0]) ? market.flat() : market;
+  const hasAnyCell = flatCells.some(c => typeof c === 'string' && c.length > 0);
+
+  if (parEligiblePacks.length > 0 && !hasAnyCell) {
+    findings.push({
+      severity: 'error',
+      code: 'C-MARKET-3',
+      message: `Game has ${parEligiblePacks.length} par-eligible corporation pack${parEligiblePacks.length === 1 ? '' : 's'} but the market grid is empty. Configure the market in the Market panel.`,
+      path: 'financials.market',
+    });
+    // Skip C-MARKET-1 — it would re-emit the same problem.
+  } else if (parEligiblePacks.length > 0) {
+    // C-MARKET-1 — at least one cell must end in 'p' (par-eligible)
+    const hasParCell = flatCells.some(c => typeof c === 'string' && /p$/.test(c));
+    if (!hasParCell) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MARKET-1',
+        message: `Game has par-eligible corporations but no market cell is marked as par (suffix 'p'). Mark at least one cell as par in the Market panel's Painter tab.`,
+        path: 'financials.market',
+      });
+    }
+  }
+
+  // C-MARKET-2 — info-level pack capitalization mismatch with game-wide.
+  // Not an error per se (the export honors the override) but worth flagging
+  // so the designer knows the game-wide CAPITALIZATION constant won't apply
+  // to that pack's corps.
+  const gameCap = mech.capitalization;
+  if (gameCap) {
+    corpPacks.forEach((pack, pi) => {
+      if (!pack || !pack.capitalization) return;
+      if (pack.capitalization !== gameCap) {
+        findings.push({
+          severity: 'info',
+          code: 'C-MARKET-2',
+          message: `Pack "${pack.label || `#${pi}`}" uses ${pack.capitalization} capitalization, overriding the game-wide ${gameCap}.`,
+          path: `corpPacks[${pi}].capitalization`,
+        });
+      }
+    });
+  }
 }
 
 // ── Seam: Trains ↔ Phases (STATE_SCHEMA.md §3.2) ────────────────────────────
