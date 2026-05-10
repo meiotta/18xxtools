@@ -691,7 +691,7 @@ function renderPrivatesSection() {
   addBtn.className = 'pc-rail-add';
   addBtn.textContent = '+ Add Private';
   addBtn.addEventListener('click', () => {
-    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+    state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, desc: '', closesOn: null, abilities: [] });
     _selectedPrivateIdx = state.privates.length - 1;
     renderPrivatesSection();
     autosave();
@@ -857,7 +857,7 @@ function buildPrivateDetailEl(idx) {
         <span class="pc-det-section-title">Description</span>
         <button class="pc-suggest-btn"${!abCount ? ' disabled' : ''} title="Generate from configured abilities">↺ Suggest from abilities</button>
       </div>
-      <textarea class="pc-desc pc-det-desc" placeholder="Free-text description of what this company does…">${escHtml(p.ability || '')}</textarea>
+      <textarea class="pc-desc pc-det-desc" placeholder="Free-text description of what this company does…">${escHtml(p.desc ?? p.ability ?? '')}</textarea>
     </div>
 
     <div class="pc-det-section">
@@ -893,7 +893,7 @@ function buildPrivateDetailEl(idx) {
     state.privates[idx].auctionRow = v === '' ? null : (parseInt(v) || null);
     autosave();
   });
-  el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].ability = e.target.value; autosave(); });
+  el.querySelector('.pc-desc').addEventListener('change',        e => { state.privates[idx].desc = e.target.value; autosave(); });
 
   // ── Mail contract ──────────────────────────────────────────────────────────
   el.querySelector('.pc-mail-enabled').addEventListener('change', e => {
@@ -970,7 +970,7 @@ function buildPrivateDetailEl(idx) {
   el.querySelector('.pc-suggest-btn').addEventListener('click', () => {
     const text = suggestDescription(p);
     if (!text) return;
-    state.privates[idx].ability = text;
+    state.privates[idx].desc = text;
     el.querySelector('.pc-desc').value = text;
     autosave();
   });
@@ -1145,7 +1145,7 @@ function renderTerrainCostsTable() {
 }
 
 document.getElementById('addPrivateBtn').addEventListener('click', () => {
-  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, ability: '', closesOn: null, abilities: [] });
+  state.privates.push({ name: '', buyerType: 'any', cost: 0, revenue: 0, desc: '', closesOn: null, abilities: [] });
   _selectedPrivateIdx = state.privates.length - 1;
   renderPrivatesSection();
   autosave();

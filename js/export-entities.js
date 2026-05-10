@@ -179,8 +179,9 @@ function _eiPrivateEntry(priv) {
   if (Array.isArray(rev)) lines.push(i4 + 'revenue: ' + _eiNumArr(rev));
   else                    lines.push(i4 + 'revenue: ' + (rev != null ? rev : 0));
 
-  if (priv.ability)
-    lines.push(i4 + 'desc: ' + _eiStr(priv.ability));
+  const privDesc = priv.desc ?? priv.ability;
+  if (privDesc)
+    lines.push(i4 + 'desc: ' + _eiStr(privDesc));
 
   lines.push(i4 + 'sym: ' + _eiStr(priv.sym || ''));
 
