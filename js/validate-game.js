@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509b
+// js/validate-game.js  v20260509c
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -91,12 +91,80 @@ function validateGame(state) {
   if (!state) return findings;
 
   _checkMapCompanies(state, findings);
-  // _checkTrainsPhases(state, findings);
+  _checkTrainsPhases(state, findings);
   // _checkCompaniesMarket(state, findings);
   // _checkEntitiesMechanics(state, findings);
   // _checkDriftShadows(state, findings);
 
   return findings;
+}
+
+// ── Seam: Trains ↔ Phases (STATE_SCHEMA.md §3.2) ────────────────────────────
+// Three checks against the join keys:
+//   C-TRAIN-1  phase.onTrain must reference an existing train id
+//   C-TRAIN-2  train.rustsOn (when rusts) must match another train's
+//              type or id (per trains-panel.js:317 fallback chain)
+//   C-TRAIN-3  no train sets itself as its own rust target (cycle guard)
+function _checkTrainsPhases(state, findings) {
+  const trains = state.trains || [];
+  const phases = state.phases || [];
+
+  // Build lookups. trainKeys = type-or-id (rustsOn matches either).
+  const trainIds = new Set();
+  const trainKeys = new Set();
+  trains.forEach(t => {
+    if (!t) return;
+    if (t.id)   { trainIds.add(t.id);  trainKeys.add(t.id); }
+    if (t.type) { trainKeys.add(t.type); }
+  });
+
+  // C-TRAIN-1 — phase.onTrain
+  phases.forEach((ph, pi) => {
+    if (!ph) return;
+    if (!ph.onTrain) {
+      findings.push({
+        severity: 'warning',
+        code: 'C-TRAIN-1',
+        message: `Phase "${ph.name || `#${pi}`}" has no onTrain set. Phase trigger is undefined; the engine cannot advance to this phase.`,
+        path: `phases[${pi}].onTrain`,
+      });
+      return;
+    }
+    if (!trainIds.has(ph.onTrain)) {
+      findings.push({
+        severity: 'error',
+        code: 'C-TRAIN-1',
+        message: `Phase "${ph.name || `#${pi}`}" triggers on train id "${ph.onTrain}" but no such train exists.`,
+        path: `phases[${pi}].onTrain`,
+      });
+    }
+  });
+
+  // C-TRAIN-2, C-TRAIN-3 — train rust references
+  trains.forEach((tr, ti) => {
+    if (!tr || !tr.rusts || !tr.rustsOn) return;
+
+    // C-TRAIN-3 — self-reference guard
+    if (tr.rustsOn === tr.id || tr.rustsOn === tr.type) {
+      findings.push({
+        severity: 'error',
+        code: 'C-TRAIN-3',
+        message: `Train "${tr.type || tr.id}" rusts on itself. Pick a different rust trigger or unset rusts.`,
+        path: `trains[${ti}].rustsOn`,
+      });
+      return;
+    }
+
+    // C-TRAIN-2 — must reference an existing train (by type preferred, else id)
+    if (!trainKeys.has(tr.rustsOn)) {
+      findings.push({
+        severity: 'error',
+        code: 'C-TRAIN-2',
+        message: `Train "${tr.type || tr.id}" rusts on "${tr.rustsOn}" but no train with that type or id exists.`,
+        path: `trains[${ti}].rustsOn`,
+      });
+    }
+  });
 }
 
 // ── Seam: Map ↔ Companies (STATE_SCHEMA.md §3.1) ────────────────────────────
