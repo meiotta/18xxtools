@@ -1,4 +1,4 @@
-// js/export-game.js  v20260509j
+// js/export-game.js  v20260509k
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -1212,13 +1212,44 @@ const _GRB_MODULES = [
   },
 
   // ── COMPANIES (entities.rb) ───────────────────────────────────────────────────
+  // Includes:
+  //   1. state.privates[]  — designer-defined private companies
+  //   2. proxy entries for every minor in a pack with floatBehavior.type ===
+  //      'phase_conditional'. The proxies are auctioned and resolved by
+  //      Round::Stock#float_minor (round/stock.rb), which calls
+  //      find_corporation(company) on the game class to map proxy id back to
+  //      the real minor. Per Anthony's spec: { sym: '<prefix><minorSym>',
+  //      name: '<minor name>', value: 0, revenue: 0, desc: '' }.
+  //
+  //   The proxies use value:0 / revenue:0 because price is set by the bid,
+  //   not by the COMPANIES entry; revenue should not accrue. Empty desc
+  //   keeps them invisible in the company-tooltip UI without losing their
+  //   id (Tobymao engine still requires a non-nil string for desc).
   {
     id: 'companies',
     emit(state) {
       const privates = state.privates || [];
-      if (!privates.length) return null;
+      const proxyPacks = (state.corpPacks || []).filter(pk =>
+        pk && pk.type === 'minor' && pk.floatBehavior && pk.floatBehavior.type === 'phase_conditional'
+      );
+      if (!privates.length && !proxyPacks.length) return null;
+
       const lines = ['COMPANIES = ['];
       privates.forEach(p => lines.push(_rbPrivate(p)));
+
+      proxyPacks.forEach(pack => {
+        const prefix = (typeof pack.floatBehavior.proxyPrefix === 'string' && pack.floatBehavior.proxyPrefix.length > 0)
+          ? pack.floatBehavior.proxyPrefix : 'M';
+        (pack.companies || []).forEach(co => {
+          if (!co || !co.sym) return;
+          const sym  = prefix + co.sym;
+          const name = co.name || co.sym;
+          // Single-line hash literal — matches the proxy-shape spec exactly.
+          // Indentation matches _rbPrivate's two-space prefix for visual consistency.
+          lines.push(`  { sym: ${_rbQuote(sym)}, name: ${_rbQuote(name)}, value: 0, revenue: 0, desc: '' },`);
+        });
+      });
+
       lines.push('].freeze');
       return { companies: lines.join('\n') };
     },
