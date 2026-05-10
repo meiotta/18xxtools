@@ -269,6 +269,7 @@
     <h1 id="toolbarTitle">18xx Game Designer</h1>
     <span id="baseGameLabel" style="color: #999; font-size: 13px;"></span>
     <div class="sep"></div>
+    <button id="wizardBtn" style="padding:5px 14px;font-weight:600;" title="Open game setup wizard">✦ New Game</button>
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
       <button id="fileMenuBtn" style="padding:5px 14px;">File â–¾</button>
       <div id="fileMenu" style="display:none;position:fixed;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:210px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);max-height:calc(100vh - 80px);overflow-y:auto;scrollbar-gutter:stable;scrollbar-width:thin;">
@@ -1274,6 +1275,7 @@
 
 <script src="js/import-game.js?v=20260425a"></script>
 <script src="js/export-game.js?v=20260510b"></script>
+<script src="js/game-wizard.js?v=20260510a"></script>
 
 <!-- â”€â”€ Market Debug Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <div id="marketDebugModal" class="debug-modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
