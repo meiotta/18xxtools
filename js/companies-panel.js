@@ -1499,6 +1499,123 @@ function _updatePlaceBtn(btn, co) {
     : 'Place ⊕';
 }
 
+// ── Float Behavior section (minor packs only) ─────────────────────────────────
+
+function _buildFloatBehaviorHTML(pack) {
+  const fb = pack.floatBehavior || {};
+  const on = !!pack.floatBehavior;
+  return `
+    <div class="cp-det-section cp-fb-section">
+      <div class="cp-det-section-hd">
+        <span class="cp-det-section-title">Float Behavior</span>
+        <span class="cp-det-hint">phase-conditional capitalization</span>
+      </div>
+      <div class="cp-fb-toggle-row">
+        <label class="cp-pack-toggle-label">
+          <input type="checkbox" class="cp-fb-enable"${on ? ' checked' : ''}>
+          <span class="cp-pack-toggle-text">1822-style minor cap</span>
+        </label>
+      </div>
+      <div class="cp-fb-fields"${on ? '' : ' style="display:none"'}>
+        <div class="cp-fb-field-row">
+          <label class="cp-fb-label">Minor par price (phase 1)</label>
+          <input type="number" class="cp-fb-num cp-fb-par-price" value="${fb.parPrice ?? 50}" min="1">
+          <span class="cp-fb-help">£ fixed par in earliest phase</span>
+        </div>
+        <div class="cp-fb-field-row">
+          <label class="cp-fb-label">Fixed par until phase</label>
+          <input type="number" class="cp-fb-num cp-fb-par-phase" value="${fb.fixedParPhase ?? 1}" min="1">
+          <span class="cp-fb-help">par = parPrice while phase ≤ this</span>
+        </div>
+        <div class="cp-fb-field-row">
+          <label class="cp-fb-label">Fixed treasury until phase</label>
+          <input type="number" class="cp-fb-num cp-fb-treasury-phase" value="${fb.fixedTreasuryPhase ?? 2}" min="1">
+          <span class="cp-fb-help">treasury = parPrice while phase ≤ this</span>
+        </div>
+        <div class="cp-fb-field-row">
+          <label class="cp-fb-label">Bid proxy prefix</label>
+          <input type="text" class="cp-fb-pfx" maxlength="1" value="${fb.proxyPrefix ?? 'M'}">
+          <span class="cp-fb-help">prefix for bid-tracking proxy syms</span>
+        </div>
+        <div class="cp-fb-proxy-list-row" style="display:none">
+          <span class="cp-fb-proxy-label">Proxy syms:</span>
+          <span class="cp-fb-proxy-list"></span>
+        </div>
+        <div class="cp-fb-warning" style="display:none"></div>
+      </div>
+    </div>`;
+}
+
+function _wireFloatBehavior(el, pack) {
+  const enableCb    = el.querySelector('.cp-fb-enable');
+  const fieldsEl    = el.querySelector('.cp-fb-fields');
+  const parPriceIn  = el.querySelector('.cp-fb-par-price');
+  const parPhaseIn  = el.querySelector('.cp-fb-par-phase');
+  const trPhaseIn   = el.querySelector('.cp-fb-treasury-phase');
+  const pfxIn       = el.querySelector('.cp-fb-pfx');
+  const warningEl   = el.querySelector('.cp-fb-warning');
+  const proxyListEl = el.querySelector('.cp-fb-proxy-list');
+  const proxyRowEl  = el.querySelector('.cp-fb-proxy-list-row');
+
+  function _refreshProxy() {
+    if (!pack.floatBehavior) return;
+    const pfx      = pack.floatBehavior.proxyPrefix || 'M';
+    const syms     = (pack.companies || []).map(c => c.sym).filter(Boolean);
+    const conflicts = syms.filter(s => s.startsWith(pfx));
+    if (conflicts.length) {
+      warningEl.textContent = 'Warning: ' + conflicts.join(', ') + ' already start with "' + pfx + '"';
+      warningEl.style.display = 'block';
+    } else {
+      warningEl.style.display = 'none';
+    }
+    const proxies = syms.map(s => pfx + s);
+    if (proxies.length) {
+      proxyListEl.textContent = proxies.join(', ');
+      proxyRowEl.style.display = 'flex';
+    } else {
+      proxyRowEl.style.display = 'none';
+    }
+  }
+
+  enableCb.addEventListener('change', e => {
+    if (e.target.checked) {
+      pack.floatBehavior = { type: 'phase_conditional', parPrice: 50, fixedParPhase: 1, fixedTreasuryPhase: 2, proxyPrefix: 'M' };
+      parPriceIn.value = 50; parPhaseIn.value = 1; trPhaseIn.value = 2; pfxIn.value = 'M';
+      fieldsEl.style.display = '';
+      _refreshProxy();
+    } else {
+      pack.floatBehavior = null;
+      fieldsEl.style.display = 'none';
+    }
+    autosave();
+  });
+
+  parPriceIn.addEventListener('change', e => {
+    if (!pack.floatBehavior) return;
+    pack.floatBehavior.parPrice = parseInt(e.target.value) || 50;
+    autosave();
+  });
+  parPhaseIn.addEventListener('change', e => {
+    if (!pack.floatBehavior) return;
+    pack.floatBehavior.fixedParPhase = parseInt(e.target.value) || 1;
+    autosave();
+  });
+  trPhaseIn.addEventListener('change', e => {
+    if (!pack.floatBehavior) return;
+    pack.floatBehavior.fixedTreasuryPhase = parseInt(e.target.value) || 2;
+    autosave();
+  });
+  pfxIn.addEventListener('change', e => {
+    if (!pack.floatBehavior) return;
+    pack.floatBehavior.proxyPrefix = (e.target.value || 'M').slice(0, 1);
+    pfxIn.value = pack.floatBehavior.proxyPrefix;
+    _refreshProxy();
+    autosave();
+  });
+
+  if (pack.floatBehavior) _refreshProxy();
+}
+
 // ── Main render entry point ───────────────────────────────────────────────────
 function renderCorpsSection() {
   const wrap = document.getElementById('corpCorpsSection');
@@ -1679,6 +1796,7 @@ function _buildPackDetailEl(pi) {
       </div>
       ${_buildTokenEditorHTML(pack.tokens, 'pack_tk')}
     </div>
+    ${pack.type === 'minor' ? _buildFloatBehaviorHTML(pack) : ''}
   `;
 
   // ── Listeners ──────────────────────────────────────────────────────────────
@@ -1690,9 +1808,9 @@ function _buildPackDetailEl(pi) {
   });
   el.querySelector('.cp-pack-type-sel').addEventListener('change', e => {
     pack.type = e.target.value;
-    // Apply smart defaults for the new type
     const defs = _packDefaults(e.target.value);
     Object.assign(pack, defs);
+    if (e.target.value !== 'minor') pack.floatBehavior = null;
     autosave(); renderCorpsSection();
   });
   el.querySelector('.cp-pack-float').addEventListener('change',  e => { pack.floatPct         = parseInt(e.target.value) || 60;  autosave(); });
@@ -1718,6 +1836,8 @@ function _buildPackDetailEl(pi) {
     arr => { pack.shares = arr; },
     () => { autosave(); renderCorpsSection(); }
   );
+
+  if (pack.type === 'minor') _wireFloatBehavior(el, pack);
 
   return el;
 }
