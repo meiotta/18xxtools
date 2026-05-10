@@ -31,6 +31,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     const data = JSON.parse(evt.target.result);
     TileRegistry.setEmbeddedTiles(data.customTiles || {});
     Object.assign(state, data);
+    _syncBankCash();
     document.getElementById('baseGameLabel').textContent = 'Base: ' + state.meta.baseGame;
     renderCompaniesTable();
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
@@ -79,6 +80,26 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   URL.revokeObjectURL(url);
 });
 
+// ── Bank cash sync ────────────────────────────────────────────────────────────
+// state.mechanics.bankCash is the canonical field (read by exporter, written by Ruby importer).
+// state.financials.bank is a display mirror written by the financials panel UI.
+// On load, reconcile old state files where only one side was set.
+function _syncBankCash() {
+  const f = state.financials;
+  const m = state.mechanics;
+  if (!f || !m) return;
+  const mBank = m.bankCash;  // undefined if never explicitly set
+  const fBank = f.bank;      // 12000 default if never edited
+  if (mBank == null) {
+    // Mechanics field absent: migrate financials value if it was explicitly set
+    if (fBank != null && fBank !== 12000) m.bankCash = fBank;
+  } else {
+    // Mechanics is canonical: sync display mirror
+    f.bank = mBank;
+  }
+  if (state.meta) state.meta.bank = m.bankCash ?? f.bank ?? 12000;
+}
+
 // ── Autosave ──────────────────────────────────────────────────────────────────
 
 function autosave() {
@@ -89,6 +110,7 @@ function autosave() {
 
 function _applyAutosave(data) {
   Object.assign(state, data);
+  _syncBankCash();
   const bl = document.getElementById('baseGameLabel');
   if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
   syncDimInputs();

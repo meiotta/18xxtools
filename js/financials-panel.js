@@ -8,7 +8,7 @@ function _ensureFinState() {
     state.financials = {};
   }
   const f = state.financials;
-  if (typeof f.bank !== 'number')           f.bank = 12000;
+  if (typeof f.bank !== 'number')           f.bank = state.mechanics?.bankCash ?? 12000;
   if (!f.marketType)                        f.marketType = '2D';
   if (!Array.isArray(f.market))             f.market = [];
   if (typeof f.marketRows !== 'number')     f.marketRows = 11;
@@ -56,10 +56,13 @@ function _wireSidebar() {
   const countInput = document.getElementById('finMarketCount');
 
   bankInput.addEventListener('change', (e) => {
-    state.financials.bank = parseInt(e.target.value, 10) || 0;
-    document.getElementById('bankCashVal') && (document.getElementById('bankCashVal').textContent = state.financials.bank);
+    const v = parseInt(e.target.value, 10) || 0;
+    state.financials.bank = v;
+    if (state.mechanics) state.mechanics.bankCash = v;
+    if (state.meta)      state.meta.bank          = v;
+    document.getElementById('bankCashVal') && (document.getElementById('bankCashVal').textContent = v);
     const wide = document.getElementById('bankCashValWide');
-    if (wide) wide.textContent = state.financials.bank;
+    if (wide) wide.textContent = v;
     autosave();
   });
 
@@ -180,8 +183,9 @@ function syncFinancialsUI() {
   const r = document.getElementById('finMarketRows');
   const c = document.getElementById('finMarketCols');
   const cnt = document.getElementById('finMarketCount');
-  if (bank) bank.value = f.bank;
-  if (wide) wide.textContent = f.bank;
+  const _bankVal = state.mechanics?.bankCash ?? f.bank;
+  if (bank) bank.value = _bankVal;
+  if (wide) wide.textContent = _bankVal;
   if (tSel) tSel.value = f.marketType;
   if (r) r.value = f.marketRows;
   if (c) c.value = f.marketCols;
