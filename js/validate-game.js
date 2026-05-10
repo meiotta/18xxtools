@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509h
+// js/validate-game.js  v20260510a
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -22,8 +22,8 @@
 //   C-MKT-N        Companies ↔ Market (§3.3) — Evan-spec extensions
 //   C-MECH-N       Entities ↔ Mechanics (§3.4) — bare numbers
 //   C-MECH-NAT-N   Mechanics-nationalization extensions (Evan spec)
-//   C-MECH-LOAN-N  Mechanics-loan extensions (Evan spec; TODO until state.mechanics.loans lands)
-//   C-MECH-SIZE-N  Mechanics-corporationSize extensions (Evan spec; TODO until per-phase corporationSizes lands)
+//   C-MECH-LOAN-N  Mechanics-loan extensions (Evan spec)
+//   C-MECH-SIZE-N  Mechanics-corporationSize extensions (Evan spec)
 //   C-DRIFT-N      Three-way shadow drift (§4.6, §4.7, §4.8)
 //
 // Load order: anywhere after state.js, tile-registry.js, and the panel files
@@ -317,28 +317,71 @@ function _checkEntitiesMechanics(state, findings) {
     });
   }
 
-  // ── Evan-spec extensions: TODOs blocked on state additions ──
-  //
-  // C-MECH-LOAN-1, C-MECH-LOAN-2 — loan-rate-field consistency.
-  //   Blocked on: state.mechanics.loans (separate slot for game-wide loan
-  //   config). Today only state.mechanics.ebuyCanTakePlayerLoan +
-  //   ebuyPlayerLoanInterestRate exist (emergency-buy player-loans only),
-  //   not corp loans. When the loans slot lands:
-  //     LOAN-1 — if loans.enabled, both loans.value and loans.interest must
-  //              be positive integers (no zero / negative).
-  //     LOAN-2 — if loans.enabled and any corp has a loan-related ability
-  //              (bond, take_loan, repay_loan), the loan slot must be
-  //              populated; otherwise abilities reference nothing.
-  //
-  // C-MECH-SIZE-1 — corporationSizes per phase subset of [2, 5, 10].
-  //   Blocked on: ph.corporationSizes (per-phase array). Tobymao engine
-  //   models this in g_18_los_angeles / g_1822 with a per-phase array
-  //   restricting which sizes can be founded that phase. State doesn't
-  //   carry this field yet (phases panel only has limit/limitMinor/tiles).
-  //   When the field lands:
-  //     SIZE-1 — every entry in ph.corporationSizes must be in [2, 5, 10]
-  //              (the tobymao-supported size set). Any other value is a
-  //              config error; the engine will throw on float.
+  // C-MECH-LOAN-1, C-MECH-LOAN-2 — loan config + ability consistency.
+  // Fields: mechanics.loans = { enabled, value, interest } (game-wide corp loan config).
+  // Distinct from mechanics.ebuyCanTakePlayerLoan (emergency-buy player loans only).
+  const loans = mechanics.loans;
+  if (loans && loans.enabled) {
+    // LOAN-1 — value and interest must be positive integers when loans are on.
+    if (!Number.isInteger(loans.value) || loans.value <= 0) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-LOAN-1',
+        message: `Loans are enabled but loans.value is ${loans.value == null ? 'not set' : String(loans.value) + ' (must be a positive integer)'}. Configure loan value in the Mechanics panel.`,
+        path: 'mechanics.loans.value',
+      });
+    }
+    if (!Number.isInteger(loans.interest) || loans.interest <= 0) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-LOAN-1',
+        message: `Loans are enabled but loans.interest is ${loans.interest == null ? 'not set' : String(loans.interest) + ' (must be a positive integer)'}. Configure loan interest rate in the Mechanics panel.`,
+        path: 'mechanics.loans.interest',
+      });
+    }
+  }
+
+  // LOAN-2 — entity has loan ability but mechanics.loans is not enabled.
+  // bond/take_loan/repay_loan abilities reference the corp loan mechanism at runtime;
+  // if that mechanism isn't configured they silently reference nothing.
+  const _LOAN_ABILITY_TYPES = new Set(['bond', 'take_loan', 'repay_loan']);
+  const _loanAbilityHolders = [];
+  corpPacks.forEach((pack, pi) => {
+    (pack.companies || []).forEach((co, ci) => {
+      if ((co.abilities || []).some(a => _LOAN_ABILITY_TYPES.has(a.type)))
+        _loanAbilityHolders.push(co.sym || `pack${pi}/co${ci}`);
+    });
+  });
+  (state.privates || []).forEach((priv, pi) => {
+    if ((priv.abilities || []).some(a => _LOAN_ABILITY_TYPES.has(a.type)))
+      _loanAbilityHolders.push(priv.sym || priv.abbr || `private${pi}`);
+  });
+  if (_loanAbilityHolders.length > 0 && !(loans && loans.enabled)) {
+    findings.push({
+      severity: 'error',
+      code: 'C-MECH-LOAN-2',
+      message: `${_loanAbilityHolders.join(', ')} ${_loanAbilityHolders.length === 1 ? 'has' : 'have'} a loan-related ability (bond/take_loan/repay_loan) but mechanics.loans is not enabled — the ability will reference a nonexistent loan mechanism.`,
+      path: 'mechanics.loans',
+    });
+  }
+
+  // C-MECH-SIZE-1 — ph.corporationSizes entries must be a subset of [2, 5, 10].
+  // Source: g_1822/game.rb and g_18_los_angeles/game.rb — the only tobymao-supported
+  // corporation sizes; any other value throws on float.
+  const _VALID_CORP_SIZES = new Set([2, 5, 10]);
+  (state.phases || []).forEach((ph, pi) => {
+    if (!ph || !Array.isArray(ph.corporationSizes)) return;
+    ph.corporationSizes.forEach((sz, si) => {
+      if (!_VALID_CORP_SIZES.has(Number(sz))) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MECH-SIZE-1',
+          message: `Phase "${ph.name || `#${pi}`}" corporationSizes[${si}] = ${sz} is not a supported size. Valid: 2, 5, 10 (tobymao g_1822/g_18_los_angeles).`,
+          path: `phases[${pi}].corporationSizes[${si}]`,
+        });
+      }
+    });
+  });
 }
 
 // Auxiliary needed by _checkEntitiesMechanics for NAT-1: build the same
