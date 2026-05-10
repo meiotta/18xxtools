@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509e
+// js/validate-game.js  v20260509f
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -94,9 +94,90 @@ function validateGame(state) {
   _checkTrainsPhases(state, findings);
   _checkCompaniesMarket(state, findings);
   _checkEntitiesMechanics(state, findings);
-  // _checkDriftShadows(state, findings);
+  _checkDriftShadows(state, findings);
 
   return findings;
+}
+
+// ── Seam: Three-way shadow drift (STATE_SCHEMA.md §4.6, §4.7, §4.8) ─────────
+// Three shadowed-state-slot pairs that can silently disagree, each reported
+// as a warning. Each finding names every contributing slot and what it
+// currently holds, plus the proposed canonical slot.
+function _checkDriftShadows(state, findings) {
+  const m    = state.meta       || {};
+  const fin  = state.financials || {};
+  const mech = state.mechanics  || {};
+
+  // C-DRIFT-1 — bank cash across meta.bank / financials.bank / mechanics.bankCash
+  const banks = [
+    { v: m.bank,     src: 'meta.bank' },
+    { v: fin.bank,   src: 'financials.bank' },
+    { v: mech.bankCash, src: 'mechanics.bankCash' },
+  ].filter(b => b.v != null);
+  if (banks.length > 1) {
+    const distinct = new Set(banks.map(b => b.v));
+    if (distinct.size > 1) {
+      findings.push({
+        severity: 'warning',
+        code: 'C-DRIFT-1',
+        message: `Bank cash differs across slots: ${banks.map(b => `${b.src}=${b.v}`).join(', ')}. Canonical slot: financials.bank.`,
+        path: 'financials.bank',
+      });
+    }
+  }
+
+  // C-DRIFT-2 — player range across meta.playersMin/Max vs mechanics.minPlayers/maxPlayers
+  const ranges = [
+    { min: m.playersMin,    max: m.playersMax,    src: 'meta.playersMin/Max' },
+    { min: mech.minPlayers, max: mech.maxPlayers, src: 'mechanics.minPlayers/maxPlayers' },
+  ].filter(r => r.min != null && r.max != null);
+  if (ranges.length > 1) {
+    const allMin = new Set(ranges.map(r => r.min));
+    const allMax = new Set(ranges.map(r => r.max));
+    if (allMin.size > 1 || allMax.size > 1) {
+      findings.push({
+        severity: 'warning',
+        code: 'C-DRIFT-2',
+        message: `Player range differs: ${ranges.map(r => `${r.src}=${r.min}-${r.max}`).join(' vs ')}. Pick one canonical slot.`,
+        path: 'meta.playersMin',
+      });
+    }
+  }
+
+  // C-DRIFT-3 — initial-round / auction-mechanism across three slots.
+  // Vocabulary translation table — each slot uses different strings for the
+  // same conceptual mechanism. The canonical (per EXPORT_COHERENCE.md
+  // schema migration) is mechanics.rounds.initial.class.
+  const norm = (v) => {
+    if (!v || typeof v !== 'string') return null;
+    const lower = v.toLowerCase();
+    if (lower.includes('waterfall') || lower.includes('auction')) return 'auction';
+    if (lower.includes('draft'))         return 'draft';
+    if (lower.includes('parliament'))    return 'parliament';
+    if (lower.includes('certificate'))   return 'cert_selection';
+    if (lower === 'choices')             return 'choices';
+    if (lower === 'bid_box' || lower.includes('bidbox') || lower.includes('concession')) return 'concession';
+    if (lower === 'fixed')               return 'fixed';
+    if (lower === 'none' || lower === 'stock_direct') return 'none';
+    return lower;
+  };
+  const sigs = [
+    { src: 'mechanics.initialRound',          raw: mech.initialRound,                                          v: norm(mech.initialRound) },
+    { src: 'auction.mechanism',               raw: state.auction && state.auction.mechanism,                   v: norm(state.auction && state.auction.mechanism) },
+    { src: 'mechanics.rounds.initial.class',  raw: mech.rounds && mech.rounds.initial && mech.rounds.initial.class, v: norm(mech.rounds && mech.rounds.initial && mech.rounds.initial.class) },
+  ].filter(s => s.v);
+
+  if (sigs.length > 1) {
+    const distinct = new Set(sigs.map(s => s.v));
+    if (distinct.size > 1) {
+      findings.push({
+        severity: 'warning',
+        code: 'C-DRIFT-3',
+        message: `Initial-round mechanism differs: ${sigs.map(s => `${s.src}="${s.raw}"`).join(', ')}. Canonical: mechanics.rounds.initial.class.`,
+        path: 'mechanics.rounds.initial.class',
+      });
+    }
+  }
 }
 
 // ── Seam: Entities ↔ Mechanics (STATE_SCHEMA.md §3.4) ───────────────────────
