@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509f
+// js/validate-game.js  v20260509g
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -27,25 +27,24 @@
 
 'use strict';
 
-// ── City-slot parser helper ─────────────────────────────────────────────────
-// Returns the count of city slots on the placed tile at hexId, defaulting to
-// 1 per `city=` component if the DSL has no `slots:N` modifier. Static hexes
-// (hex.static === true with hex.nodes[]) sum slots across the nodes array
-// instead. Hexes with no tile placed return 0.
+// ── City-slot count helper ──────────────────────────────────────────────────
+// Returns the count of city slots on the placed tile at hexId. Sums
+// (n.type === 'city') × (n.slots ?? 1) across either:
+//   1. hex.nodes[]                — static hexes (hex.static === true)
+//   2. tileDef.nodes[]            — tile-placed hexes (resolved via
+//                                   TileRegistry.getTileDef which returns a
+//                                   normalised { color, nodes, paths } shape;
+//                                   the registry already parses tile DSL)
+//   3. 0                          — hexes with no tile placed
 //
-// DSL shape from tile-packs.js — examples:
-//   '5':  'city=revenue:20;path=a:0,b:_0;path=a:1,b:_0'              → 1 slot
-//   '14': 'city=revenue:30,slots:2;path=a:0,b:_0;...'                 → 2 slots
-//   '235':'city=revenue:30;city=revenue:30;path=a:0,b:_0;label=OO'    → 2 cities × 1 slot = 2 total
-//
-// Algorithm:
-//   1. If hex.static AND hex.nodes — sum (n.type === 'city') × (n.slots ?? 1).
-//   2. Else if hex.tile is set — fetch tile DSL via TileRegistry, parse.
-//   3. Else 0.
-//
-// Resolves STATE_SCHEMA.md §4.1 (the central blocker for home-slot capacity
-// and OO-tile validation). Used by C-MAP-2 below; exposed as a top-level
+// Resolves STATE_SCHEMA.md §4.1. Used by C-MAP-2; exposed as a top-level
 // global for any future caller.
+//
+// IMPORTANT: TileRegistry.getTileDef returns the NORMALISED node shape, not
+// the raw DSL string. An earlier draft tried to parse DSL inline and missed
+// every city-having tile because tileDef.dsl is undefined. Verified the
+// normalised shape against tile '5' (single city, slots default to 1) and
+// '14' (single city with explicit slots:2) in browser.
 function getCitySlotCount(hexId, state) {
   if (!state || !state.hexes) return 0;
   const hex = state.hexes[hexId];
@@ -53,36 +52,28 @@ function getCitySlotCount(hexId, state) {
 
   // Static-hex shape (static-hex-builder.js writes hex.nodes[])
   if (hex.static && Array.isArray(hex.nodes)) {
-    return hex.nodes.reduce((sum, n) => {
-      if (!n || n.type !== 'city') return sum;
-      return sum + (n.slots || 1);
-    }, 0);
+    return _sumCitySlots(hex.nodes);
   }
 
-  // Tile-placed: look up via TileRegistry, parse DSL.
+  // Tile-placed: TileRegistry.getTileDef returns the parsed node array.
   if (!hex.tile || hex.tile === 0) return 0;
   if (typeof TileRegistry === 'undefined' || typeof TileRegistry.getTileDef !== 'function') return 0;
   const tileDef = TileRegistry.getTileDef(String(hex.tile));
-  if (!tileDef || !tileDef.dsl) return 0;
+  if (!tileDef || !Array.isArray(tileDef.nodes)) return 0;
 
-  return _parseSlotsFromDsl(tileDef.dsl);
+  return _sumCitySlots(tileDef.nodes);
 }
 
-// Parses 'city=...,slots:2;path=...' style DSL strings. Each `city=`
-// component contributes its `slots:N` count (default 1 if absent). Other
-// component types (path, town, junction, label) are ignored. Returns
-// integer total across all city components on the tile.
-function _parseSlotsFromDsl(dsl) {
-  if (!dsl || typeof dsl !== 'string') return 0;
-  let total = 0;
-  dsl.split(';').forEach(component => {
-    const trimmed = component.trim();
-    if (!trimmed.startsWith('city=')) return;
-    // slots: appears as either ',slots:N' (after city=) or '=slots:N' (start of pairs)
-    const match = trimmed.match(/[,=]slots:(\d+)/);
-    total += match ? parseInt(match[1], 10) : 1;
-  });
-  return total;
+// Sums city slots across a node array (shared by static-hex and tile-derived
+// node sources). Each node with type === 'city' contributes its slots count
+// (default 1 if .slots is absent or not a positive integer).
+function _sumCitySlots(nodes) {
+  if (!Array.isArray(nodes)) return 0;
+  return nodes.reduce((sum, n) => {
+    if (!n || n.type !== 'city') return sum;
+    const s = (typeof n.slots === 'number' && n.slots > 0) ? n.slots : 1;
+    return sum + s;
+  }, 0);
 }
 
 // ── Main validator (constraint batches landing one per commit) ──────────────
