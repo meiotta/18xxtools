@@ -40,7 +40,7 @@ const KNOWN_EVENTS = [
   { type: 'trigger_endgame',           desc: 'Final OR set countdown begins',                       layer: 'hook' },
   { type: 'remove_forts',              desc: 'Fort blockers are removed from the map',              layer: 'hook' },
   { type: 'lner_trigger',              desc: 'LNER formation process begins',                       layer: 'hook' },
-  { type: 'open_detroit_duluth',       desc: 'Detroit–Duluth blocker tokens are removed',           layer: 'hook' },
+  { type: 'open_detroit_duluth',       desc: 'Detroit-Duluth blocker tokens are removed',            layer: 'hook' },
   { type: 'close_ndem',               desc: 'NDEM auto-corporation dissolves',                      layer: 'hook' },
 ];
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -7,12 +7,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <link rel="stylesheet" href="css/editor.css">
   <style>
-    /* â”€â”€ Game Mechanics Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Game Mechanics Panel ─────────────────────────────────────────── */
     /*    All colors use CSS variables from editor.css (:root = dark default,   */
     /*    [data-theme="light"] = light overrides). Per-selector light overrides  */
     /*    follow immediately where the variable alone is not sufficient.         */
 
-    /* Framework tree â€” left column */
+    /* Framework tree &mdash; left column */
     .mech-framework { display: flex; flex-direction: column; padding: 8px 0; }
     .mech-section { }
     .mech-sec-header {
@@ -52,7 +52,7 @@
     .mech-item-row.selected .mech-item-value { color: #7c83b8; }
     [data-theme="light"] .mech-item-row.selected .mech-item-value { color: #4338ca; }
 
-    /* Status dots â€” semantic colors, work on both backgrounds */
+    /* Status dots &mdash; semantic colors, work on both backgrounds */
     .mech-status-dot {
       width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
       box-shadow: 0 0 3px rgba(0,0,0,0.4);
@@ -61,7 +61,7 @@
     .mech-status-dot.amber { background: #f59e0b; }
     .mech-status-dot.green { background: #22c55e; }
 
-    /* Right panel â€” editor wrapper */
+    /* Right panel &mdash; editor wrapper */
     .mech-editor-wrap { display: flex; flex-direction: column; gap: 12px; }
     .mech-editor-back {
       background: none; border: none; color: #6366f1; cursor: pointer;
@@ -130,7 +130,7 @@
       text-transform: uppercase; color: var(--text-dim); cursor: pointer; user-select: none;
       display: flex; align-items: center; gap: 6px;
     }
-    .mech-accordion-header::before { content: 'â–¶'; font-size: 9px; transition: transform 0.15s; }
+    .mech-accordion-header::before { content: '\25B6'; font-size: 9px; transition: transform 0.15s; }
     .mech-accordion-header.mech-open::before { transform: rotate(90deg); }
     .mech-accordion-body { padding: 8px 0 14px; display: flex; flex-direction: column; gap: 8px; }
     .mech-accordion-body.mech-collapsed { display: none; }
@@ -160,7 +160,7 @@
       color: var(--text-secondary); padding: 4px 10px; font-size: 11px; cursor: pointer;
       align-self: flex-start;
     }
-    /* var(--border) is slightly lighter than var(--bg-card) in dark, darker in light â€” correct hover direction in both */
+    /* var(--border) is slightly lighter than var(--bg-card) in dark, darker in light &mdash; correct hover direction in both */
     .mech-btn-small:hover { background: var(--border); }
     .mech-btn-danger { border-color: #663; color: #c88; }
     .mech-btn-danger:hover { background: rgba(200,80,80,0.12); }
@@ -230,7 +230,7 @@
       background: var(--bg-elevated); border-color: #6366f1; color: #3730a3;
     }
 
-    /* game.rb preview overlay â€” code panel stays dark in both themes (intentional:
+    /* game.rb preview overlay &mdash; code panel stays dark in both themes (intentional:
        code viewers conventionally use dark backgrounds regardless of app theme) */
     #mechRbOverlay {
       position: fixed; inset: 0; z-index: 900;
@@ -269,23 +269,23 @@
     <h1 id="toolbarTitle">18xx Game Designer</h1>
     <span id="baseGameLabel" style="color: #999; font-size: 13px;"></span>
     <div class="sep"></div>
-    <button id="wizardBtn" style="padding:5px 14px;font-weight:600;" title="Open game setup wizard">✦ New Game</button>
     <div style="position:relative;display:inline-block;" id="fileMenuWrapper">
-      <button id="fileMenuBtn" style="padding:5px 14px;">File â–¾</button>
+      <button id="fileMenuBtn" style="padding:5px 14px;">File</button>
       <div id="fileMenu" style="display:none;position:fixed;background:#2a2a2a;border:1px solid #555;border-radius:5px;min-width:210px;z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.55);max-height:calc(100vh - 80px);overflow-y:auto;scrollbar-gutter:stable;scrollbar-width:thin;">
-        <button id="newMapBtn" class="file-menu-item">ðŸ—º New Map</button>
+        <button id="newMapBtn" class="file-menu-item">New Map</button>
+        <button id="loadPresetBtn" class="file-menu-item">Load Preset...</button>
         <div class="file-menu-sep"></div>
 
-        <!-- â”€â”€ TBD MENU UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-             Fully flat â€” no accordions, no flyouts, no layout shift.
+        <!-- ── TBD MENU UI ──────────────────────────────────────────────────────
+             Fully flat &mdash; no accordions, no flyouts, no layout shift.
              Style A (flyout) was ruled out: position:absolute clips at the
              viewport edge and position:fixed requires JS coordinate computation
              (getBoundingClientRect on the trigger + dynamic top/left on open).
              If flyout is ever revisited, implement it with position:fixed + JS.
-             â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+             ─────────────────────────────────────────────────────────────────── -->
 
         <!-- Import section -->
-        <div class="file-menu-section-label">â¬‡ Import</div>
+        <div class="file-menu-section-label">Import</div>
         <button id="loadBtn" class="file-menu-item file-menu-indented">All (.json)</button>
         <div class="file-menu-import-row">
           <span class="file-menu-import-label">Map <span class="file-menu-import-ext">(.rb)</span></span>
@@ -312,7 +312,7 @@
         <div class="file-menu-sep"></div>
 
         <!-- Export section -->
-        <div class="file-menu-section-label">â¬† Export</div>
+        <div class="file-menu-section-label">Export</div>
         <button id="saveBtn"           class="file-menu-item file-menu-indented">All (.json)</button>
         <button id="exportEntitiesBtn" class="file-menu-item file-menu-indented">Entities (.rb)</button>
         <button id="exportGameBtn"     class="file-menu-item file-menu-indented">Game (.rb)</button>
@@ -322,26 +322,26 @@
         <button id="exportBtn"         class="file-menu-item file-menu-indented">All (.zip)</button>
       </div>
     </div>
-    <button id="refreshImportBtn" title="Re-import from URL" class="refresh-import-btn" style="display:none;">â†º Refresh</button>
-    <button id="themeToggleBtn" title="Toggle light/dark theme" style="padding:5px 10px;font-size:15px;line-height:1;">â˜€ï¸</button>
+    <button id="refreshImportBtn" title="Re-import from URL" class="refresh-import-btn" style="display:none;">Refresh</button>
+    <button id="themeToggleBtn" title="Toggle light/dark theme" style="padding:5px 10px;font-size:15px;line-height:1;">&#9728;</button>
     <button id="helpBtn" title="Show help">? Help</button>
     <input type="file" id="fileInput"          style="display:none;" accept=".json">
     <input type="file" id="importMapFile"      style="display:none;" accept=".rb">
     <input type="file" id="importEntitiesFile" style="display:none;" accept=".rb">
   </div>
 
-  <!-- Import notice â€” shown only after .rb import, dismissed with Ã— -->
+  <!-- Import notice &mdash; shown only after .rb import, dismissed with &times; -->
   <div id="importNotice" style="display:none;">
-    <span class="import-notice-icon">âš </span>
-    <span class="import-notice-text"><strong>Imported from .rb</strong> â€” <em>Home reservations</em> and <em>blocking tokens</em> display once companies are defined (Companies panel). <em>Hex icons</em> are not yet rendered. Track, stops, revenue, and terrain are correct.</span>
-    <button class="import-notice-close" id="importNoticeClose" title="Dismiss">Ã—</button>
+    <span class="import-notice-icon">&#9888;</span>
+    <span class="import-notice-text"><strong>Imported from .rb</strong> &mdash; <em>Home reservations</em> and <em>blocking tokens</em> display once companies are defined (Companies panel). <em>Hex icons</em> are not yet rendered. Track, stops, revenue, and terrain are correct.</span>
+    <button class="import-notice-close" id="importNoticeClose" title="Dismiss">&times;</button>
   </div>
 
   <div class="content">
     <!-- LEFT PANEL -->
     <div class="left-panel" id="leftPanel">
 
-      <!-- â”€â”€ Vertical Navigation Rail (72px, always visible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── Vertical Navigation Rail (72px, always visible) ─────────────────── -->
       <div class="nav-rail">
 
         <button class="nav-rail-btn active" data-lsec="map" title="Map &amp; Tiles">
@@ -381,7 +381,7 @@
           <span>Trains &amp; Phases</span>
         </button>
 
-        <!-- â”€â”€ MECHANICS / RULEBOOK NAV BUTTON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+        <!-- ── MECHANICS / RULEBOOK NAV BUTTON ───────────────────────────── -->
         <button class="nav-rail-btn" data-lsec="mechanics" title="Game Mechanics">
           <svg class="nav-rail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
@@ -407,18 +407,18 @@
 
       </div>
 
-      <!-- â”€â”€ Section Content (fills width to the right of the rail) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── Section Content (fills width to the right of the rail) ────────── -->
       <div class="nav-content" id="navContent">
 
-      <!-- â”€â”€ MAP / TILES SECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── MAP / TILES SECTION ────────────────────────────────────────────── -->
       <div class="lsection active" id="lsec-map">
         <!-- EDGE TOOLS -->
         <div class="palette-section">
           <div class="palette-header">Edge Tools</div>
           <div style="display:flex;gap:6px;padding:6px;">
-            <button id="edgeImpassableBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Impassable â€” click an edge to block crossing">ðŸš«</button>
-            <button id="edgeWaterBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Water Crossing â€” click an edge to add a river crossing cost">ðŸŒŠ</button>
-            <button id="edgeProvinceBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Zone Boundary â€” click an edge to draw a province/zone border (dashed line)">âšŠ</button>
+            <button id="edgeImpassableBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Impassable &mdash; click an edge to block crossing"></button>
+            <button id="edgeWaterBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Water Crossing &mdash; click an edge to add a river crossing cost"></button>
+            <button id="edgeProvinceBtn" class="edge-tool-btn" style="flex:1;padding:6px;font-size:18px;cursor:pointer;" title="Zone Boundary &mdash; click an edge to draw a province/zone border (dashed line)"></button>
           </div>
           <div style="display:flex;gap:6px;padding:0 6px 4px;font-size:10px;color:#999;">
             <span style="flex:1;text-align:center;">Impassable</span>
@@ -426,7 +426,7 @@
             <span style="flex:1;text-align:center;">Province</span>
           </div>
         </div>
-        <!-- TERRAIN BRUSH (hidden â€” terrain is right-click only) -->
+        <!-- TERRAIN BRUSH (hidden &mdash; terrain is right-click only) -->
         <div class="palette-section" id="terrainBrushSection" style="display:none"></div>
 
         <!-- STARTER TILES -->
@@ -445,37 +445,37 @@
         <button class="erase-btn" id="eraseBtn">Erase Selected</button>
       </div>
 
-      <!-- â”€â”€ COMPANIES SECTION (nav-content stub â€” tables live in corpView) â”€â”€â”€â”€ -->
+      <!-- ── COMPANIES SECTION (nav-content stub &mdash; tables live in corpView) ──── -->
       <div class="lsection" id="lsec-companies"></div>
 
-      <!-- â”€â”€ MARKET SECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── MARKET SECTION ────────────────────────────────────────────────── -->
       <div class="lsection" id="lsec-market">
         <div style="padding:16px 12px 12px;">
           <p style="font-size:12px;color:#888;margin-bottom:16px;line-height:1.6;">
             Design the stock market grid, price bands, and movement logic for your game.
           </p>
           <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#666;margin-bottom:6px;">Summary</div>
-          <div id="lsec-market-summary" style="font-size:12px;color:#bbb;padding:8px 12px;background:#242424;border-radius:5px;border:1px solid #333;margin-bottom:16px;">2D Grid Â· 11Ã—19</div>
+          <div id="lsec-market-summary" style="font-size:12px;color:#bbb;padding:8px 12px;background:#242424;border-radius:5px;border:1px solid #333;margin-bottom:16px;">2D Grid &middot; 11&times;19</div>
           <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#666;margin-bottom:8px;">Market is open in the center view.</div>
           <p style="font-size:11px;color:#666;line-height:1.5;">Use the toolbar above the market grid to change type, dimensions, and templates.</p>
         </div>
       </div>
 
-      <!-- â”€â”€ TRAINS SECTION (nav-content stub â€” table lives in trainsView) â”€â”€â”€â”€ -->
+      <!-- ── TRAINS SECTION (nav-content stub &mdash; table lives in trainsView) ──── -->
       <div class="lsection" id="lsec-trains"></div>
 
-      <!-- â”€â”€ MECHANICS / RULEBOOK SECTION (stub â€” panel lives in mechanicsView) -->
+      <!-- ── MECHANICS / RULEBOOK SECTION (stub &mdash; panel lives in mechanicsView) -->
       <div class="lsection" id="lsec-mechanics"></div>
 
       </div><!-- end nav-content -->
 
     </div><!-- end left-panel -->
 
-    <!-- Left panel tab â€” flex sibling between .left-panel and .map-area.
-         Sits at the seam; no positioning needed â€” the flex flow places it. -->
+    <!-- Left panel tab &mdash; flex sibling between .left-panel and .map-area.
+         Sits at the seam; no positioning needed &mdash; the flex flow places it. -->
     <button id="toggleLeftPanelBtn"  class="panel-toggle-btn" title="Toggle tile tray"   aria-label="Toggle tile tray"></button>
 
-    <!-- MAP AREA â€” flex:1; flanked by the two tab buttons in the flex row -->
+    <!-- MAP AREA &mdash; flex:1; flanked by the two tab buttons in the flex row -->
     <div class="map-area" id="mapArea">
 
     <!-- SVG MAP -->
@@ -494,15 +494,15 @@
     <div id="tileManifestView" style="display:none;flex:1;flex-direction:column;background:#1e1e1e;overflow:auto;min-width:0;position:relative;">
       <div id="manifestHeader" style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#2a2a2a;border-bottom:1px solid #444;flex-shrink:0;">
         <span style="color:#fff;font-size:15px;font-weight:bold;">Tile Manifest</span>
-        <span style="color:#888;font-size:12px;">Drag tiles from the left panel Â· type âˆž for unlimited</span>
+        <span style="color:#888;font-size:12px;">Drag tiles from the left panel &middot; type &infin; for unlimited</span>
       </div>
       <div id="manifestGrid" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px;align-content:flex-start;"></div>
-      <button id="manifestMapBtn" style="position:absolute;bottom:16px;right:16px;z-index:5;padding:7px 14px;background:#3a3a3a;color:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px;">â† Map</button>
+      <button id="manifestMapBtn" style="position:absolute;bottom:16px;right:16px;z-index:5;padding:7px 14px;background:#3a3a3a;color:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px;"> Map</button>
     </div>
 
     <!-- MARKET VIEW (rebuilt 2026-05) -->
     <div id="marketView" class="mkt-view" style="display:none;">
-      <!-- â”€â”€ LEFT RAIL: Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── LEFT RAIL: Configuration ──────────────────────────────────── -->
       <aside class="mkt-sidebar">
         <section class="mkt-section">
           <h3 class="mkt-section-title">Market</h3>
@@ -577,7 +577,7 @@
         </section>
       </aside>
 
-      <!-- â”€â”€ CENTER: Grid + brushes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── CENTER: Grid + brushes ───────────────────────────────────── -->
       <main class="mkt-main">
         <div class="mkt-toolbar" role="toolbar" aria-label="Market editor brushes">
           <div class="mkt-toolbar-group" role="group" aria-label="Tools">
@@ -598,13 +598,13 @@
           <div class="mkt-toolbar-divider" aria-hidden="true"></div>
 
           <div class="mkt-toolbar-group mkt-brushes" role="group" aria-label="Flag brushes">
-            <button class="mkt-brush" data-brush="par"           type="button" aria-pressed="false" style="--brush-color:#e15f5f" title="Par â€” companies par here">
+            <button class="mkt-brush" data-brush="par"           type="button" aria-pressed="false" style="--brush-color:#e15f5f" title="Par &mdash; companies par here">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Par</span>
             </button>
             <button class="mkt-brush" data-brush="endgame"       type="button" aria-pressed="false" style="--brush-color:#3f7fc6" title="Endgame trigger">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Endgame</span>
             </button>
-            <button class="mkt-brush" data-brush="close"         type="button" aria-pressed="false" style="--brush-color:#1a1a1a" title="Close â€” corporation closes">
+            <button class="mkt-brush" data-brush="close"         type="button" aria-pressed="false" style="--brush-color:#1a1a1a" title="Close &mdash; corporation closes">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Close</span>
             </button>
             <button class="mkt-brush" data-brush="no_cert_limit" type="button" aria-pressed="false" style="--brush-color:#dab836" title="No cert limit (yellow band)">
@@ -631,14 +631,14 @@
 
         <!-- Nudge: shown when user adds cells without regenerating -->
         <div id="marketRegenNudge" class="mkt-nudge" style="display:none;">
-          <span>Values added â€” <button id="marketNudgeRegenBtn" class="mkt-nudge-link">regenerate</button> to balance</span>
-          <button id="marketNudgeDismissBtn" class="mkt-nudge-x" title="Dismiss" aria-label="Dismiss">Ã—</button>
+          <span>Values added &mdash; <button id="marketNudgeRegenBtn" class="mkt-nudge-link">regenerate</button> to balance</span>
+          <button id="marketNudgeDismissBtn" class="mkt-nudge-x" title="Dismiss" aria-label="Dismiss">&times;</button>
         </div>
 
         <div id="marketLegend" class="mkt-legend" aria-label="Flag legend"></div>
       </main>
 
-      <!-- â”€â”€ RIGHT RAIL: Inspector / Movement Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+      <!-- ── RIGHT RAIL: Inspector / Movement Rules ────────────────────── -->
       <aside class="mkt-inspector">
         <div class="mkt-inspector-tabs" role="tablist">
           <button id="insTabCell"  class="mkt-tab active" role="tab" aria-selected="true"  data-tab="cell">Cell</button>
@@ -688,7 +688,7 @@
     </div>
 
 
-    <!-- CORPS VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- CORPS VIEW ─────────────────────────────────────────────────────────── -->
     <div id="corpView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden;">
 
       <!-- toolbar -->
@@ -722,7 +722,7 @@
       </div>
     </div>
 
-    <!-- TRAINS VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- TRAINS VIEW ─────────────────────────────────────────────────────────── -->
     <div id="trainsView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden;">
 
       <!-- toolbar -->
@@ -736,7 +736,7 @@
 
         <style>
           .train-events-badge { display:inline-block; background:#c09020; color:#111; border-radius:8px; font-size:9px; padding:1px 5px; margin-left:4px; vertical-align:middle; cursor:default; font-weight:700; }
-          /* â”€â”€ Status tag picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+          /* ── Status tag picker ─────────────────────────────────────────── */
           .status-picker-cell { vertical-align:top; padding-top:6px; min-width:160px; }
           .status-chip { display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.07); border-radius:4px; font-size:9px; padding:2px 5px; margin:1px 2px 1px 0; border-left:2px solid #444; color:#bbb; vertical-align:middle; }
           .status-chip--universal    { border-left-color:#6366f1; }
@@ -797,7 +797,7 @@
           </table>
         </div>
 
-        <!-- Hidden file input for Import Game (.rb) â€” wired in import-ruby.js -->
+        <!-- Hidden file input for Import Game (.rb) &mdash; wired in import-ruby.js -->
         <input type="file" id="importGameFile" style="display:none;" accept=".rb">
 
         <!-- Game Phases section -->
@@ -825,7 +825,7 @@
       </div>
     </div>
 
-    <!-- MECHANICS / RULEBOOK VIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- MECHANICS / RULEBOOK VIEW ──────────────────────────────────────────── -->
     <div id="mechanicsView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow:hidden; background:var(--bg-base);">
 
       <!-- Toolbar strip -->
@@ -847,7 +847,7 @@
 
     </div><!-- end mechanicsView -->
 
-    <!-- â”€â”€ STEPS PANEL (Addy + Tim) â€” populated by renderStepsPanelView() â”€â”€â”€ -->
+    <!-- ── STEPS PANEL (Addy + Tim) &mdash; populated by renderStepsPanelView() ─── -->
     <div id="stepsView" style="display:none; flex:1; flex-direction:column; min-width:0; overflow-y:auto; background:var(--bg-base); padding:24px 32px;"></div>
 
     <!-- game.rb preview overlay (hidden until peek button clicked) -->
@@ -864,7 +864,7 @@
 
     </div><!-- end map-area -->
 
-    <!-- Right panel tab â€” flex sibling between .map-area and .right-panel.
+    <!-- Right panel tab &mdash; flex sibling between .map-area and .right-panel.
          Sits at the seam; flex flow places it correctly at all times. -->
     <button id="toggleRightPanelBtn" class="panel-toggle-btn" title="Toggle hex config"  aria-label="Toggle hex config"></button>
 
@@ -880,34 +880,34 @@
 
         <!-- Killed-hex notice: shown when selected hex is killed -->
         <div id="killedHexNotice" style="display:none; background:#2a0a0a; border:1px solid #5a1a1a; border-radius:5px; padding:10px 12px; margin-bottom:10px; font-size:12px; color:#e06060; line-height:1.5;">
-          ðŸ’€ <strong>Killed hex.</strong><br>
+           <strong>Killed hex.</strong><br>
           <span style="color:#888; font-size:11px;">Right-click to unkill. No features can be placed here.</span>
         </div>
 
-        <!-- Main hex editing controls â€” disabled when killed -->
+        <!-- Main hex editing controls &mdash; disabled when killed -->
         <div id="hexEditControls">
 
-          <!-- â”€â”€ Coordinate / name header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+          <!-- ── Coordinate / name header ──────────────────── -->
           <div class="hpanel-title-block">
-            <div class="hpanel-title-main" id="hexTitleMain">â€”</div>
+            <div class="hpanel-title-main" id="hexTitleMain">&mdash;</div>
             <div id="hexBadgeRow" class="hpanel-badge-row"></div>
           </div>
           <!-- Keep hidden input for JS compatibility -->
           <input type="text" id="hexCoordDisplay" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
           <input type="text" id="hexCoord" style="position:absolute;opacity:0;pointer-events:none;width:1px;" readonly>
 
-          <!-- â”€â”€ Advanced (collapsible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+          <!-- ── Advanced (collapsible) ────────────────────── -->
           <details id="hexAdvancedSection" style="margin-bottom:8px;">
             <summary style="cursor:pointer;font-size:11px;color:#777;user-select:none;padding:2px 0;list-style:none;">
-              â–¸ Advanced
+              > Advanced
             </summary>
             <div class="field" style="margin-top:6px;">
               <label>Label</label>
-              <input type="text" id="hexLabel" placeholder="e.g. NY, B, OOâ€¦" autocomplete="off">
+              <input type="text" id="hexLabel" placeholder="e.g. NY, B, OO&hellip;" autocomplete="off">
             </div>
           </details>
 
-          <!-- Terrain is painted via the left-panel brush â€” keep elements hidden for JS compat -->
+          <!-- Terrain is painted via the left-panel brush &mdash; keep elements hidden for JS compat -->
           <select id="hexTerrain" style="display:none;">
             <option value="">Plains</option>
             <option value="mountain">Mountain</option>
@@ -928,20 +928,20 @@
             <input type="number" id="hexRotation" min="0" max="5" value="0">
           </div>
 
-          <!-- â”€â”€ Rotation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+          <!-- ── Rotation ─────────────────────────────────── -->
           <div class="field">
             <label>Rotation</label>
             <div class="rot-picker" id="rotationPicker">
-              <button class="rot-seg active" data-rot="0" title="0Â° â€” no rotation">0Â°</button>
-              <button class="rot-seg" data-rot="1" title="60Â°">60Â°</button>
-              <button class="rot-seg" data-rot="2" title="120Â°">120Â°</button>
-              <button class="rot-seg" data-rot="3" title="180Â°">180Â°</button>
-              <button class="rot-seg" data-rot="4" title="240Â°">240Â°</button>
-              <button class="rot-seg" data-rot="5" title="300Â°">300Â°</button>
+              <button class="rot-seg active" data-rot="0" title="0&deg; &mdash; no rotation">0&deg;</button>
+              <button class="rot-seg" data-rot="1" title="60&deg;">60&deg;</button>
+              <button class="rot-seg" data-rot="2" title="120&deg;">120&deg;</button>
+              <button class="rot-seg" data-rot="3" title="180&deg;">180&deg;</button>
+              <button class="rot-seg" data-rot="4" title="240&deg;">240&deg;</button>
+              <button class="rot-seg" data-rot="5" title="300&deg;">300&deg;</button>
             </div>
           </div>
 
-          <!-- â”€â”€ City Name (shown when a city/OO tile is placed) â”€â”€ -->
+          <!-- ── City Name (shown when a city/OO tile is placed) ── -->
           <div id="tileCityNameSection" style="display:none;">
             <div class="field">
               <label>City Name</label>
@@ -953,18 +953,18 @@
           <!-- cityEditorSection kept as empty hook for JS compat -->
           <div id="cityEditorSection" style="display:none;"></div>
 
-          <!-- â”€â”€ Company references (read-only, populated from company setup) â”€â”€ -->
+          <!-- ── Company references (read-only, populated from company setup) ── -->
           <div id="hexCompanyRefs" style="display:none; background:#1a1a2e; border:1px solid #2a2a4a; border-radius:5px; padding:8px 10px; margin-bottom:10px;">
             <div id="hexCompanyRefsList"></div>
           </div>
 
-          <!-- Hidden inputs for JS compat (upgrade rules â€” no visible UI) -->
+          <!-- Hidden inputs for JS compat (upgrade rules &mdash; no visible UI) -->
           <input type="checkbox" id="hexNoUpgrade" style="display:none;">
           <input type="text"     id="hexUpgradeOnly" style="display:none;" autocomplete="off">
-          <!-- applyHexBtn kept as hidden stub â€” fields auto-save on change -->
+          <!-- applyHexBtn kept as hidden stub &mdash; fields auto-save on change -->
           <button id="applyHexBtn" style="display:none;" aria-hidden="true"></button>
 
-          <!-- â”€â”€ Phase Revenue (static gray/red hexes only) â”€â”€ -->
+          <!-- ── Phase Revenue (static gray/red hexes only) ── -->
           <div id="staticPhaseRevenueSection" style="display:none;margin-top:8px;">
             <div class="hpanel-section-title">Phase Revenue</div>
             <div style="display:flex;flex-direction:column;gap:3px;">
@@ -991,13 +991,13 @@
             </div>
           </div>
 
-          <!-- Keep stub divs for JS compat â€” makeDualTownBtn / makeOOCityBtn no longer shown -->
+          <!-- Keep stub divs for JS compat &mdash; makeDualTownBtn / makeOOCityBtn no longer shown -->
           <div id="hexTypeActionsSection" style="display:none;">
             <button id="makeDualTownBtn"></button>
             <button id="makeOOCityBtn"></button>
           </div>
 
-          <!-- â”€â”€ Clear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+          <!-- ── Clear ─────────────────────────────────────── -->
           <button id="clearHexBtn" style="width:100%; margin-top:4px; background:#8b0000;">Clear Hex</button>
 
         </div><!-- end hexEditControls -->
@@ -1009,7 +1009,7 @@
       <!-- TRAINS TAB stub (content moved to left panel lsec-trains) -->
       <div class="tab-content" id="trainsTab" style="display:none !important;"></div>
 
-      <!-- FINANCIALS TAB (hidden â€” controls moved to market view) -->
+      <!-- FINANCIALS TAB (hidden &mdash; controls moved to market view) -->
       <!-- Keep this div so financials-panel.js getElementById calls don't break,
            but it's not reachable via the tab bar. -->
       <div class="tab-content" id="financialsTab" style="display:none !important;">
@@ -1031,13 +1031,13 @@
           <label>Map Size</label>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
             <span style="font-size:11px;color:#aaa;width:32px;">Rows</span>
-            <button id="rowsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">âˆ’</button>
+            <button id="rowsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">&minus;</button>
             <input type="number" id="mapRows" min="2" max="50" style="width:48px;text-align:center;padding:2px;">
             <button id="rowsIncBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">+</button>
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
             <span style="font-size:11px;color:#aaa;width:32px;">Cols</span>
-            <button id="colsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">âˆ’</button>
+            <button id="colsDecBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">&minus;</button>
             <input type="number" id="mapCols" min="2" max="80" style="width:48px;text-align:center;padding:2px;">
             <button id="colsIncBtn" style="width:24px;height:24px;padding:0;font-size:16px;line-height:1;">+</button>
           </div>
@@ -1050,8 +1050,8 @@
         <div class="field" style="margin-top:8px;">
           <label>Map Actions</label>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
-            <button id="mapValidateBtn" style="width:100%;padding:7px 10px;font-size:12px;" disabled title="Coming soon">âœ“ Validate Map</button>
-            <button id="mapClearBtn" style="width:100%;background:#8b0000;color:#fff;border-color:#a00000;padding:7px 10px;font-size:12px;">ðŸ—‘ Clear Map</button>
+            <button id="mapValidateBtn" style="width:100%;padding:7px 10px;font-size:12px;" disabled title="Coming soon">&#x2713; Validate Map</button>
+            <button id="mapClearBtn" style="width:100%;background:#8b0000;color:#fff;border-color:#a00000;padding:7px 10px;font-size:12px;"> Clear Map</button>
           </div>
         </div>
       </div>
@@ -1092,24 +1092,24 @@
   <div class="splash-title">18xx Game Designer</div>
   <div class="splash-subtitle">by meiotta</div>
   <div class="splash-bar-wrap"><div class="splash-bar" id="splashBar"></div></div>
-  <div id="splashStatus" class="splash-status">Initialisingâ€¦</div>
+  <div id="splashStatus" class="splash-status">Initialising&hellip;</div>
 </div>
 
-<!-- â”€â”€ HEX BUILDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── HEX BUILDER ────────────────────────────────────────────────────────── -->
 <div id="hexBuilder" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.72);z-index:1500;align-items:center;justify-content:center;overflow-y:auto;">
   <div class="hb-panel" id="hbPanel">
     <!-- JS builds the interior dynamically -->
   </div>
 </div>
 
-<!-- â”€â”€ PLACEMENT OVERLAY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── PLACEMENT OVERLAY ────────────────────────────────────────────────── -->
 <div id="placementOverlay" style="display:none;position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);padding:12px 24px;border:2px solid #ffd700;border-radius:100px;z-index:2000;pointer-events:none;color:#fff;font-weight:bold;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
-  <span style="font-size:18px;">ðŸŽ¯</span>
+  <span style="font-size:18px;"></span>
   <span id="placementText">Select Home Hex for [Minor]</span>
   <span style="font-size:11px;background:#444;padding:2px 8px;border-radius:4px;margin-left:8px;">ESC to Cancel</span>
 </div>
 
-<!-- â”€â”€ COMPANY WIZARD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── COMPANY WIZARD ─────────────────────────────────────────────────────── -->
 <div id="companyWizard" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.72);z-index:1500;align-items:center;justify-content:center;">
   <div class="shw-card">
     <div class="shw-header">
@@ -1177,22 +1177,22 @@
 <div id="helpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:300px;background:#1e1e1e;border-left:1px solid #444;z-index:1000;overflow-y:auto;box-shadow:-6px 0 24px rgba(0,0,0,0.5);">
   <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #333;position:sticky;top:0;background:#1e1e1e;">
     <span style="color:#fff;font-weight:bold;font-size:15px;">Help</span>
-    <button id="helpDrawerClose" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;line-height:1;">Ã—</button>
+    <button id="helpDrawerClose" style="background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;line-height:1;">&times;</button>
   </div>
   <div id="helpSections" style="padding:8px 0;">
 
     <details class="help-section" open>
       <summary>Getting Started</summary>
       <div class="help-body">
-        <p>The map is your canvas. Click a tile in the left panel, then click a hex to place it. Right-click any hex for quick options â€” add a city, town, terrain, or resource icon directly.</p>
-        <p>Use <strong>File â†’ Import Map</strong> to load an existing 18xx.games .rb file and reproduce a published map automatically.</p>
+        <p>The map is your canvas. Click a tile in the left panel, then click a hex to place it. Right-click any hex for quick options &mdash; add a city, town, terrain, or resource icon directly.</p>
+        <p>Use <strong>File &rarr; Import Map</strong> to load an existing 18xx.games .rb file and reproduce a published map automatically.</p>
       </div>
     </details>
 
     <details class="help-section">
       <summary>Tiles &amp; the Palette</summary>
       <div class="help-body">
-        <p>Tiles are numbered track pieces from the 18xx catalog. Yellow â†’ green â†’ brown is the upgrade progression. Gray tiles are fixed and can't be upgraded in-game.</p>
+        <p>Tiles are numbered track pieces from the 18xx catalog. Yellow &rarr; green &rarr; brown is the upgrade progression. Gray tiles are fixed and can't be upgraded in-game.</p>
         <p>Use the <strong>Tile Manifest</strong> button (bottom-right of canvas) to browse all tiles for a specific game and drag them to the palette.</p>
         <p><strong>Shift+click</strong> repeats the last placed tile at the same rotation.</p>
       </div>
@@ -1201,8 +1201,8 @@
     <details class="help-section">
       <summary>Static Hexes</summary>
       <div class="help-body">
-        <p>Static hexes (gray, red, blue backgrounds) are pre-printed and don't change during a game â€” major cities, offboard areas, and ocean hexes.</p>
-        <p>Right-click a hex â†’ <strong>Static Hex Wizard</strong> to build one visually. Gray hexes support pre-printed track, towns, cities, OO layouts, and phase-varying revenue.</p>
+        <p>Static hexes (gray, red, blue backgrounds) are pre-printed and don't change during a game &mdash; major cities, offboard areas, and ocean hexes.</p>
+        <p>Right-click a hex &rarr; <strong>Static Hex Wizard</strong> to build one visually. Gray hexes support pre-printed track, towns, cities, OO layouts, and phase-varying revenue.</p>
         <p>Red hexes are offboard destinations with revenue that increases by phase.</p>
       </div>
     </details>
@@ -1210,7 +1210,7 @@
     <details class="help-section">
       <summary>Import &amp; Export</summary>
       <div class="help-body">
-        <p><strong>Import Map (.rb)</strong> parses an 18xx.games Ruby source file and reproduces the full board â€” static hexes, terrain, borders, icons, and city names.</p>
+        <p><strong>Import Map (.rb)</strong> parses an 18xx.games Ruby source file and reproduces the full board &mdash; static hexes, terrain, borders, icons, and city names.</p>
         <p><strong>Export ZIP</strong> generates a map.rb file compatible with the 18xx.games engine, plus a JSON save of your session.</p>
         <p><strong>Save / Load JSON</strong> saves your editor state so you can resume later.</p>
       </div>
@@ -1227,11 +1227,11 @@
     <details class="help-section">
       <summary>Keyboard &amp; Mouse</summary>
       <div class="help-body">
-        <p><strong>Right-click</strong> any hex â€” quick add menu (city, town, terrain, icons)</p>
-        <p><strong>Shift+click</strong> â€” repeat last tile at same rotation</p>
-        <p><strong>Scroll wheel</strong> â€” zoom in/out</p>
-        <p><strong>Middle-click drag</strong> or <strong>right-drag</strong> â€” pan the map</p>
-        <p><strong>Erase</strong> button â€” clears a hex back to blank</p>
+        <p><strong>Right-click</strong> any hex &mdash; quick add menu (city, town, terrain, icons)</p>
+        <p><strong>Shift+click</strong> &mdash; repeat last tile at same rotation</p>
+        <p><strong>Scroll wheel</strong> &mdash; zoom in/out</p>
+        <p><strong>Middle-click drag</strong> or <strong>right-drag</strong> &mdash; pan the map</p>
+        <p><strong>Erase</strong> button &mdash; clears a hex back to blank</p>
       </div>
     </details>
 
@@ -1267,24 +1267,24 @@
 <script src="js/static-hex-builder.js?v=20260428b"></script>
 <script src="js/hex-builder-debug.js?v=20260425a"></script>
 
-<!-- â”€â”€ Evan: Mechanics / Rulebook Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── Evan: Mechanics / Rulebook Panel ──────────────────────────────────── -->
 <script src="js/mechanics-panel.js?v=20260504b"></script>
 
-<!-- â”€â”€ Tim + Addy: Rounds Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── Tim + Addy: Rounds Panel ──────────────────────────────────────────── -->
 <script src="js/rounds-panel.js?v=20260503d"></script>
 
 <script src="js/import-game.js?v=20260425a"></script>
 <script src="js/export-game.js?v=20260510b"></script>
-<script src="js/game-wizard.js?v=20260510a"></script>
+<script src="js/presets-panel.js?v=20260510a"></script>
 
-<!-- â”€â”€ Market Debug Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── Market Debug Modal ─────────────────────────────────────────────────── -->
 <div id="marketDebugModal" class="debug-modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
   <div class="debug-modal-box">
     <div class="debug-modal-header">
       <span class="debug-modal-title">Market Array (.rb format)</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="debugCopyBtn" class="mtb-btn" style="font-size:12px;">Copy</button>
-        <button onclick="document.getElementById('marketDebugModal').style.display='none'" class="debug-modal-close">âœ•</button>
+        <button onclick="document.getElementById('marketDebugModal').style.display='none'" class="debug-modal-close">&times;</button>
       </div>
     </div>
     <textarea id="marketDebugTextarea" class="debug-modal-textarea" readonly spellcheck="false"></textarea>
