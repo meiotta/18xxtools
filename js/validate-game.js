@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509a
+// js/validate-game.js  v20260509b
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -85,23 +85,187 @@ function _parseSlotsFromDsl(dsl) {
   return total;
 }
 
-// ── Main validator (skeleton — constraint batches added in subsequent commits) ─
-// Returns an empty findings array for now. Each seam check below is wired
-// in a follow-up commit per STATE_SCHEMA.md §3 grouping.
+// ── Main validator (constraint batches landing one per commit) ──────────────
 function validateGame(state) {
   const findings = [];
   if (!state) return findings;
 
-  // Per-seam check functions. Each block is added in its own commit so the
-  // wiring stays bisectable — a regression introduced by one batch is easy
-  // to isolate.
-  // _checkMapCompanies(state, findings);
+  _checkMapCompanies(state, findings);
   // _checkTrainsPhases(state, findings);
   // _checkCompaniesMarket(state, findings);
   // _checkEntitiesMechanics(state, findings);
   // _checkDriftShadows(state, findings);
 
   return findings;
+}
+
+// ── Seam: Map ↔ Companies (STATE_SCHEMA.md §3.1) ────────────────────────────
+// Six checks against the join keys documented in §3.1:
+//   C-MAP-1  corp/minor home hex must exist on the map and not be killed
+//   C-MAP-2  home hex must have at least one city slot (uses getCitySlotCount)
+//   C-MAP-3  if co.city index is set, hex must have that many cities
+//   C-MAP-4  minor's homeHex (when locationMechanism === 'fixed') must exist
+//   C-MAP-5  privates' blocksHexes must reference existing hexes
+//   C-MAP-6  private/company ability hexes[] must reference existing hexes
+function _checkMapCompanies(state, findings) {
+  const hexes     = state.hexes     || {};
+  const corpPacks = state.corpPacks || [];
+  const minors    = state.minors    || [];
+  const privates  = state.privates  || [];
+
+  // C-MAP-1, C-MAP-2, C-MAP-3 — corps from corpPacks
+  corpPacks.forEach((pack, pi) => {
+    (pack.companies || []).forEach((co, ci) => {
+      const sym  = co.sym || '';
+      const path = `corpPacks[${pi}].companies[${ci}]`;
+
+      // Empty coordinates handled by C-MECH-1 in a later commit (paired with
+      // homeTokenTiming). Here we only validate when coordinates IS set.
+      if (!co.coordinates) return;
+
+      const hex = hexes[co.coordinates];
+      if (!hex) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MAP-1',
+          message: `Corporation ${sym || '?'} home hex "${co.coordinates}" doesn't exist on the map.`,
+          path: `${path}.coordinates`,
+          hexId: co.coordinates,
+          corpSym: sym,
+        });
+        return;
+      }
+      if (hex.killed) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MAP-1',
+          message: `Corporation ${sym || '?'} home hex "${co.coordinates}" is killed (out of map bounds).`,
+          path: `${path}.coordinates`,
+          hexId: co.coordinates,
+          corpSym: sym,
+        });
+        return;
+      }
+
+      const slots = getCitySlotCount(co.coordinates, state);
+      if (slots === 0) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MAP-2',
+          message: `Corporation ${sym || '?'} home hex "${co.coordinates}" has no city slots. Place a tile with a city or define a static city node.`,
+          path: `${path}.coordinates`,
+          hexId: co.coordinates,
+          corpSym: sym,
+        });
+        return;
+      }
+
+      // C-MAP-3: co.city index points beyond available cities. Slot count
+      // here is total slots across all cities on the tile (e.g. an OO tile
+      // returns 2). For exact city-index validation we'd need per-city
+      // slot info — STATE_SCHEMA §4.1 future helper. Conservative check:
+      // if co.city is set and exceeds total slot count, it's definitely wrong.
+      if (co.city != null && parseInt(co.city) >= slots) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MAP-3',
+          message: `Corporation ${sym || '?'} city index ${co.city} on hex "${co.coordinates}" exceeds the ${slots} slot${slots === 1 ? '' : 's'} available on the placed tile.`,
+          path: `${path}.city`,
+          hexId: co.coordinates,
+          corpSym: sym,
+        });
+      }
+    });
+  });
+
+  // C-MAP-4 — minors with fixed home location
+  minors.forEach((m, mi) => {
+    if (!m) return;
+    if (m.locationMechanism !== 'fixed') return;
+    if (!m.homeHex) return;
+    const hex = hexes[m.homeHex];
+    if (!hex) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MAP-4',
+        message: `Minor ${m.abbr || m.name || `#${mi}`} home hex "${m.homeHex}" doesn't exist on the map.`,
+        path: `minors[${mi}].homeHex`,
+        hexId: m.homeHex,
+        corpSym: m.abbr,
+      });
+      return;
+    }
+    if (hex.killed) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MAP-4',
+        message: `Minor ${m.abbr || m.name || `#${mi}`} home hex "${m.homeHex}" is killed.`,
+        path: `minors[${mi}].homeHex`,
+        hexId: m.homeHex,
+        corpSym: m.abbr,
+      });
+      return;
+    }
+    const slots = getCitySlotCount(m.homeHex, state);
+    if (slots === 0) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MAP-2',
+        message: `Minor ${m.abbr || m.name || `#${mi}`} home hex "${m.homeHex}" has no city slots.`,
+        path: `minors[${mi}].homeHex`,
+        hexId: m.homeHex,
+        corpSym: m.abbr,
+      });
+    }
+  });
+
+  // C-MAP-5 — privates blocksHexes must exist
+  privates.forEach((priv, pi) => {
+    if (!priv) return;
+    const blocked = priv.blocksHexes || [];
+    blocked.forEach((hexId, hi) => {
+      if (!hexes[hexId]) {
+        findings.push({
+          severity: 'warning',
+          code: 'C-MAP-5',
+          message: `Private "${priv.sym || priv.abbr || priv.name || `#${pi}`}" blocks hex "${hexId}" which doesn't exist on the map.`,
+          path: `privates[${pi}].blocksHexes[${hi}]`,
+          hexId,
+        });
+      }
+    });
+  });
+
+  // C-MAP-6 — private/company ability hexes[] must exist
+  // Covers ability types: tile_lay, teleport, blocks_hexes, blocks_hexes_consent,
+  // assign_hexes, reservation, hex_bonus, token (when ability.hexes set)
+  function _checkAbilityHexes(entity, entityKind, entityIdx) {
+    if (!entity) return;
+    const ents = (entity.abilities || []);
+    const ent  = entity.sym || entity.abbr || entity.name || `#${entityIdx}`;
+    ents.forEach((ab, ai) => {
+      if (!ab || !Array.isArray(ab.hexes)) return;
+      ab.hexes.forEach((hexId, hi) => {
+        if (!hexes[hexId]) {
+          findings.push({
+            severity: 'warning',
+            code: 'C-MAP-6',
+            message: `${entityKind} "${ent}" ability ${ab.type || 'unknown'} references hex "${hexId}" which doesn't exist on the map.`,
+            path: `${entityKind === 'private' ? 'privates' : entityKind === 'minor' ? 'minors' : 'companies'}[${entityIdx}].abilities[${ai}].hexes[${hi}]`,
+            hexId,
+          });
+        }
+      });
+    });
+  }
+  privates.forEach((p, pi) => _checkAbilityHexes(p, 'private', pi));
+  minors.forEach((m, mi)   => _checkAbilityHexes(m, 'minor', mi));
+  // Corp abilities live inside corpPacks[].companies[].abilities — handled per-pack
+  corpPacks.forEach((pack, pi) => {
+    (pack.companies || []).forEach((co, ci) => {
+      _checkAbilityHexes(co, 'company', `${pi}.companies.${ci}`);
+    });
+  });
 }
 
 // Expose for browser global access (matches the rest of the panel modules
