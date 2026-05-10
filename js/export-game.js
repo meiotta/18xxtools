@@ -1,4 +1,4 @@
-// js/export-game.js  v20260504b
+// js/export-game.js  v20260509i
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -1144,6 +1144,70 @@ const _GRB_MODULES = [
         lines.push(`end`);
       }
       return { methods: lines.join('\n') };
+    },
+  },
+
+  // ── Minor phase-conditional capitalization (1822-style) ─────────────────────
+  // When a minor pack has floatBehavior.type === 'phase_conditional', emit the
+  // game-class constants + helper methods that the round/stock.rb subclass's
+  // float_minor calls into. Mirrors g_1822/game.rb:756-772 (minor_float_*) and
+  // adds find_corporation / MINOR_START_PAR_PRICE / COMPANY_MINOR_PREFIX which
+  // tobymao 1822 declares at game-class level alongside.
+  //
+  // Generalization vs. tobymao:
+  //   - tobymao: phase.name.to_i == 1 → fixed par; >1 → bid/2
+  //     here:    phase.name.to_i <= fixedParPhase → fixed par; >  → bid/2
+  //   - tobymao: phase.name.to_i < 3 → presidency; >=3 → bid
+  //     here:    phase.name.to_i <= fixedTreasuryPhase → presidency; > → bid
+  // The phase-cutoff fields are designer inputs so non-1822 games can use the
+  // same capitalization mechanism with different cutoffs.
+  //
+  // Only the first qualifying pack drives game-class constants (they're
+  // singletons). If multiple packs declare phase_conditional, downstream packs
+  // are silently skipped — flag in validateGame later if this is misconfigured.
+  {
+    id: 'minor_phase_capitalization',
+    emit(state) {
+      const packs = (state.corpPacks || []).filter(pk =>
+        pk.type === 'minor' && pk.floatBehavior && pk.floatBehavior.type === 'phase_conditional'
+      );
+      if (!packs.length) return null;
+      const fb = packs[0].floatBehavior;
+      const parPrice           = Number.isFinite(fb.parPrice)           ? fb.parPrice           : 50;
+      const fixedParPhase      = Number.isFinite(fb.fixedParPhase)      ? fb.fixedParPhase      : 1;
+      const fixedTreasuryPhase = Number.isFinite(fb.fixedTreasuryPhase) ? fb.fixedTreasuryPhase : 2;
+      const proxyPrefix        = (typeof fb.proxyPrefix === 'string' && fb.proxyPrefix.length > 0) ? fb.proxyPrefix : 'M';
+
+      const constant = [
+        `MINOR_START_PAR_PRICE = ${parPrice}`,
+        `COMPANY_MINOR_PREFIX  = ${_rbQuote(proxyPrefix)}`,
+      ].join('\n');
+
+      const methods = [
+        `def find_corporation(company)`,
+        `  minor_sym = company.id.delete_prefix(self.class::COMPANY_MINOR_PREFIX)`,
+        `  corporation_by_id(minor_sym)`,
+        `end`,
+        ``,
+        `def minor_float_share_price(bid)`,
+        `  if @phase.name.to_i <= ${fixedParPhase}`,
+        `    @stock_market.par_prices.find { |p| p.price == self.class::MINOR_START_PAR_PRICE }`,
+        `  else`,
+        `    price = bid.price / 2`,
+        `    @stock_market.par_prices.select { |p| p.price <= price }.max_by(&:price)`,
+        `  end`,
+        `end`,
+        ``,
+        `def minor_float_starting_cash(bid_amount, presidency_price)`,
+        `  if @phase.name.to_i <= ${fixedTreasuryPhase}`,
+        `    presidency_price`,
+        `  else`,
+        `    bid_amount`,
+        `  end`,
+        `end`,
+      ].join('\n');
+
+      return { special: constant, methods };
     },
   },
 
