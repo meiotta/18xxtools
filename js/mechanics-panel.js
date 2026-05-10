@@ -264,6 +264,85 @@ let _selectedFrameworkItem = null;
 let _collapsedSections = new Set();
 
 // ---------------------------------------------------------------------------
+// Rounds schema — current status (as of 2026-05-10)
+// ---------------------------------------------------------------------------
+// state.mechanics holds two parallel slots that describe round behaviour, and
+// they are NOT yet fully reconciled. Until they are, any panel writing to
+// either slot must keep them coherent or the export will silently disagree
+// with the UI. validateGame's C-DRIFT-3 already flags the auction-mechanism
+// version of this drift across three slots.
+//
+// LEGACY FLAT FIELDS (pre-rounds schema, still authoritative for some panels):
+//   mechanics.initialRound       — string keyword ('waterfall_auction',
+//                                  'draft', 'parliament', 'certificate_selection',
+//                                  'none'). Set by mechanics-panel.js framework
+//                                  selector. Read by mechanics-panel summary text.
+//   mechanics.stockRoundsPerSet  — int (1..4). Set by mechanics-panel selector.
+//                                  No nested equivalent yet.
+//   mechanics.mergerRound        — bool. Set by mechanics-panel toggle. Read by
+//                                  framework summary, mirrored to mechanics.merger.enabled
+//                                  via the merger config block.
+//   mechanics.orSteps            — { issueShares, homeToken, specialToken,
+//                                    minorAcquisition, priceProtection,
+//                                    loanOperations } feature flags. Set by
+//                                  mechanics-panel toggles. Eventually feed into
+//                                  rounds.operating.steps but not 1:1.
+//
+// NESTED SCHEMA (rounds-panel.js owns; export-game.js consumes):
+//   mechanics.rounds.initial.{class, opts, steps, endHook, transitionHook}
+//   mechanics.rounds.stock.{class, opts, steps, endHook, transitionHook}
+//   mechanics.rounds.operating.{class, opts, steps, endHook, transitionHook}
+//   mechanics.rounds.merger      — null when disabled, else
+//                                   { class, opts, steps, endHook,
+//                                     transitionHook, enabled, style,
+//                                     roundTiming, triggerCondition }
+//   mechanics.rounds.loop        — null or transitionHook bag
+//   mechanics.rounds.customNextRound — bool (gate flag for next_round! emit)
+//
+// MAPPING / DRIFT POTENTIAL:
+//   FLAT                      ↔ NESTED                            STATUS
+//   --------------------------- --------------------------------- ----------------
+//   initialRound              ↔ rounds.initial.class              vocabularies differ
+//                                                                 ('waterfall_auction'
+//                                                                 vs 'auction'); kept in
+//                                                                 sync by panels writing
+//                                                                 both. C-DRIFT-3 already
+//                                                                 watches this seam.
+//   stockRoundsPerSet         ↔ (no nested equivalent yet)         OPEN: needs schema
+//                                                                 decision — either
+//                                                                 rounds.stock.opts.repeats
+//                                                                 or top-level meta. Tim
+//                                                                 owns this call.
+//   mergerRound               ↔ rounds.merger != null              presence-flag mapping
+//                                                                 (mergerRound: true →
+//                                                                 rounds.merger seeded;
+//                                                                 mergerRound: false →
+//                                                                 rounds.merger nulled).
+//                                                                 mechanics-panel mirrors
+//                                                                 to rounds.merger.enabled.
+//   orSteps                   ↔ rounds.operating.steps             one-to-many. Each
+//                                                                 toggle plants 0+ specific
+//                                                                 step entries; the inverse
+//                                                                 mapping (steps → toggles)
+//                                                                 is lossy.
+//
+// MIGRATION POLICY:
+//   No flat→nested migration helper has shipped yet. Two of the four flat
+//   fields lack a settled nested home (stockRoundsPerSet, orSteps), so a
+//   complete migration would require schema decisions that are not yet
+//   made. When that lands:
+//     1. write _migrateRoundsFields(state) in io.js (sibling to _syncBankCash)
+//     2. call it from the file-load reader and from _applyAutosave()
+//     3. for each flat field, ALSO leave the legacy field intact during a
+//        deprecation window so panels reading the flat shape don't crash —
+//        they can be cut over one panel at a time
+//     4. drop the flat fields only after every reader has moved
+//
+// TODO(Tim): pick canonical homes for stockRoundsPerSet and orSteps. Once
+// settled, file the migration helper per the policy above.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // State initialisation
 // ---------------------------------------------------------------------------
 function initMechanicsState() {
@@ -1999,6 +2078,7 @@ function onRemoveOverride(keyPath) {
   if (rubyKey) _fmWrite(rubyKey, null);
   if (typeof autosave === 'function') autosave();
   renderMechanicsLeft();
+  renderMechanicsRight();
 }
 
 // ---------------------------------------------------------------------------
