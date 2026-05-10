@@ -37,6 +37,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     if (typeof renderMinorsTable === 'function') renderMinorsTable();
     renderPrivatesCards();
     renderTrainsTable();
+    renderPhasesTable();
     renderTerrainCostsTable();
     renderHomeCompanySelect();
     if (typeof initFinancialsListeners === 'function') initFinancialsListeners();
@@ -119,6 +120,8 @@ function _applyAutosave(data) {
   if (typeof renderMarketEditor    === 'function') renderMarketEditor();
   if (typeof renderLogicRules      === 'function') renderLogicRules();
   if (typeof buildPalette          === 'function') buildPalette();
+  if (typeof renderTrainsTable     === 'function') renderTrainsTable();
+  if (typeof renderPhasesTable     === 'function') renderPhasesTable();
   render();
 }
 
