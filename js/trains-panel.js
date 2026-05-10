@@ -583,6 +583,7 @@ function _buildStatusPicker(cell, ph, phIdx) {
     sel.addEventListener('change', function() {
         if (!sel.value) return;
         if (!ph.status) ph.status = [];
+        if (ph.status.indexOf(sel.value) !== -1) return;
         ph.status.push(sel.value);
         renderPhasesTable();
         autosave();
