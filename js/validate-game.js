@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509g
+// js/validate-game.js  v20260509h
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -16,11 +16,15 @@
 //     corpSym?: string }                   // when relevant
 //
 // Code namespacing by seam (matches STATE_SCHEMA.md §3):
-//   C-MAP-N      Map ↔ Companies cross-checks (§3.1)
-//   C-TRAIN-N    Trains ↔ Phases (§3.2)
-//   C-MARKET-N   Companies ↔ Market (§3.3)
-//   C-MECH-N     Entities ↔ Mechanics (§3.4)
-//   C-DRIFT-N    Three-way shadow drift (§4.6, §4.7, §4.8)
+//   C-MAP-N        Map ↔ Companies cross-checks (§3.1)
+//   C-TRAIN-N      Trains ↔ Phases (§3.2)
+//   C-MARKET-N     Companies ↔ Market (§3.3) — bare numbers
+//   C-MKT-N        Companies ↔ Market (§3.3) — Evan-spec extensions
+//   C-MECH-N       Entities ↔ Mechanics (§3.4) — bare numbers
+//   C-MECH-NAT-N   Mechanics-nationalization extensions (Evan spec)
+//   C-MECH-LOAN-N  Mechanics-loan extensions (Evan spec; TODO until state.mechanics.loans lands)
+//   C-MECH-SIZE-N  Mechanics-corporationSize extensions (Evan spec; TODO until per-phase corporationSizes lands)
+//   C-DRIFT-N      Three-way shadow drift (§4.6, §4.7, §4.8)
 //
 // Load order: anywhere after state.js, tile-registry.js, and the panel files
 // it needs to read. Wired into the export-validity aggregate in a later commit.
@@ -186,6 +190,7 @@ function _checkDriftShadows(state, findings) {
 function _checkEntitiesMechanics(state, findings) {
   const corpPacks = state.corpPacks || [];
   const mechanics = state.mechanics || {};
+  const trainKeys = _buildTrainKeySet(state);
 
   // C-MECH-1 — corps with empty coordinates require non-default homeTokenTiming.
   // The default 'operate' crashes the engine when a corp without coordinates
@@ -283,21 +288,125 @@ function _checkEntitiesMechanics(state, findings) {
     }
   }
 
-  // TODO: C-MECH-5 — requires state.mechanics.loans flag (not yet in state).
-  //   Validate that any corp with loans-related ability has the game-wide
-  //   loans config populated.
+  // ── Evan-spec extensions: C-MECH-NAT-1, C-MECH-NAT-2 ──
+  // NAT-1 — every nationalization.triggerTrains entry must reference a real
+  //         train (by id or type). Triggers that don't resolve at runtime
+  //         silently fail to fire, which makes the bug invisible.
+  // NAT-2 — when nationalization.enabled, nationalCorpSym must be non-null
+  //         (the engine cannot create the national without a target sym).
+  if (nat && nat.enabled) {
+    if (!nat.nationalCorpSym) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-NAT-2',
+        message: `Nationalization is enabled but nationalCorpSym is not set. Pick the national corp in the Mechanics panel or disable nationalization.`,
+        path: 'mechanics.nationalization.nationalCorpSym',
+      });
+    }
+    const triggers = Array.isArray(nat.triggerTrains) ? nat.triggerTrains : [];
+    triggers.forEach((trig, ti) => {
+      if (!trig) return;
+      if (!trainKeys.has(trig)) {
+        findings.push({
+          severity: 'error',
+          code: 'C-MECH-NAT-1',
+          message: `Nationalization trigger "${trig}" doesn't match any train type or id. Add the train, or remove the trigger.`,
+          path: `mechanics.nationalization.triggerTrains[${ti}]`,
+        });
+      }
+    });
+  }
+
+  // ── Evan-spec extensions: TODOs blocked on state additions ──
+  //
+  // C-MECH-LOAN-1, C-MECH-LOAN-2 — loan-rate-field consistency.
+  //   Blocked on: state.mechanics.loans (separate slot for game-wide loan
+  //   config). Today only state.mechanics.ebuyCanTakePlayerLoan +
+  //   ebuyPlayerLoanInterestRate exist (emergency-buy player-loans only),
+  //   not corp loans. When the loans slot lands:
+  //     LOAN-1 — if loans.enabled, both loans.value and loans.interest must
+  //              be positive integers (no zero / negative).
+  //     LOAN-2 — if loans.enabled and any corp has a loan-related ability
+  //              (bond, take_loan, repay_loan), the loan slot must be
+  //              populated; otherwise abilities reference nothing.
+  //
+  // C-MECH-SIZE-1 — corporationSizes per phase subset of [2, 5, 10].
+  //   Blocked on: ph.corporationSizes (per-phase array). Tobymao engine
+  //   models this in g_18_los_angeles / g_1822 with a per-phase array
+  //   restricting which sizes can be founded that phase. State doesn't
+  //   carry this field yet (phases panel only has limit/limitMinor/tiles).
+  //   When the field lands:
+  //     SIZE-1 — every entry in ph.corporationSizes must be in [2, 5, 10]
+  //              (the tobymao-supported size set). Any other value is a
+  //              config error; the engine will throw on float.
+}
+
+// Auxiliary needed by _checkEntitiesMechanics for NAT-1: build the same
+// trainKeys lookup used by _checkTrainsPhases. Inline here so the two seams
+// don't depend on call ordering.
+function _buildTrainKeySet(state) {
+  const keys = new Set();
+  (state.trains || []).forEach(t => {
+    if (!t) return;
+    if (t.id)   keys.add(t.id);
+    if (t.type) keys.add(t.type);
+  });
+  return keys;
 }
 
 // ── Seam: Companies ↔ Market (STATE_SCHEMA.md §3.3) ─────────────────────────
-// Three checks against the join keys:
+// Four checks against the join keys:
 //   C-MARKET-1  par-eligible corps require at least one cell with 'p' suffix
 //   C-MARKET-2  pack-level capitalization override differs from game-wide
 //   C-MARKET-3  no market grid configured at all (empty market with corps)
+//   C-MKT-4     train-limit hash form must cover every entity type present
+//               (Evan-spec extension): if minors exist in the game and any
+//               phase declares only a scalar train_limit, minors will share
+//               the major limit (likely a designer oversight). Conversely,
+//               limitMinor on a phase with no minors in the game is dead.
 function _checkCompaniesMarket(state, findings) {
   const corpPacks = state.corpPacks || [];
   const fin       = state.financials || {};
   const market    = fin.market || [];
   const mech      = state.mechanics || {};
+  const phases    = state.phases || [];
+
+  // Detect whether the game has minor entities at all. Sources, in order:
+  //   1. legacy state.minors[] (early Jenny shape — still in use)
+  //   2. corpPacks of type 'minor' or 'coal' (current canonical shape)
+  // C-MECH-3's own minorSyms set has the same logic; kept inline here so this
+  // seam check does not depend on _checkEntitiesMechanics ordering.
+  const hasMinors = (state.minors || []).some(m => m && (m.abbr || m.name)) ||
+    corpPacks.some(p => p && Array.isArray(p.companies) && p.companies.length > 0 &&
+      (p.type === 'minor' || p.type === 'coal'));
+
+  // C-MKT-4 — train-limit hash coverage
+  if (hasMinors) {
+    // Phases that have a major-only scalar limit while minors exist in the game.
+    const scalarLimitPhases = phases.filter(ph => ph && (ph.limitMinor === null || ph.limitMinor === undefined));
+    if (scalarLimitPhases.length > 0 && scalarLimitPhases.length === phases.length) {
+      // EVERY phase is scalar-only — minors implicitly share major limit. Worth a single warning.
+      findings.push({
+        severity: 'warning',
+        code: 'C-MKT-4',
+        message: `Game has minor corporations but no phase declares a separate minor train limit. Minors will share the major train limit on every phase — set ph.limitMinor on at least one phase if minors should have a different cap.`,
+        path: 'phases',
+      });
+    }
+  } else {
+    // No minors but limitMinor is declared — dead config. Per-phase info.
+    phases.forEach((ph, pi) => {
+      if (!ph) return;
+      if (ph.limitMinor !== null && ph.limitMinor !== undefined) {
+        findings.push({
+          severity: 'info',
+          code: 'C-MKT-4',
+          message: `Phase "${ph.name || `#${pi}`}" declares a minor train limit (${ph.limitMinor}) but the game has no minor corporations — the field is unused.`,
+          path: `phases[${pi}].limitMinor`,
+        });
+      }
+    });
+  }
 
   // Detect par-eligible packs — those whose alwaysMarketPrice is false (or
   // unset) AND have at least one corp. Per CORP_TYPE_DEFAULTS in
@@ -354,25 +463,39 @@ function _checkCompaniesMarket(state, findings) {
 }
 
 // ── Seam: Trains ↔ Phases (STATE_SCHEMA.md §3.2) ────────────────────────────
-// Three checks against the join keys:
+// Five checks against the join keys:
 //   C-TRAIN-1  phase.onTrain must reference an existing train id
-//   C-TRAIN-2  train.rustsOn (when rusts) must match another train's
-//              type or id (per trains-panel.js:317 fallback chain)
+//   C-TRAIN-2  (deprecated, subsumed by C-TRAIN-4 — kept in code table only)
 //   C-TRAIN-3  no train sets itself as its own rust target (cycle guard)
+//   C-TRAIN-4  train.rustsOn (when rusts) must match another train's
+//              type/id OR a phase name. Tobymao engine accepts either form
+//              (g_1830/game.rb uses train labels; g_1846/meta.rb uses phase
+//              names like 'D'). Broader than the old C-TRAIN-2 check, which
+//              only accepted train type/id and false-positived on phase-named
+//              triggers.
+//   C-TRAIN-5  at least one phase must declare a trigger (onTrain set on
+//              ≥1 phase). Without any phase triggers the engine starts in
+//              phase 0 and never advances; the game is effectively unplayable.
 function _checkTrainsPhases(state, findings) {
   const trains = state.trains || [];
   const phases = state.phases || [];
 
-  // Build lookups. trainKeys = type-or-id (rustsOn matches either).
-  const trainIds = new Set();
-  const trainKeys = new Set();
+  // Build lookups.
+  //   trainIds  — only train.id (used for phase.onTrain match)
+  //   trainKeys — type ∪ id (used for old narrower rustsOn match)
+  //   phaseNames — phase.name set (rustsOn-against-phase form)
+  const trainIds   = new Set();
+  const trainKeys  = new Set();
+  const phaseNames = new Set();
   trains.forEach(t => {
     if (!t) return;
     if (t.id)   { trainIds.add(t.id);  trainKeys.add(t.id); }
     if (t.type) { trainKeys.add(t.type); }
   });
+  phases.forEach(ph => { if (ph && ph.name) phaseNames.add(ph.name); });
 
   // C-TRAIN-1 — phase.onTrain
+  let phasesWithTrigger = 0;
   phases.forEach((ph, pi) => {
     if (!ph) return;
     if (!ph.onTrain) {
@@ -384,6 +507,7 @@ function _checkTrainsPhases(state, findings) {
       });
       return;
     }
+    phasesWithTrigger += 1;
     if (!trainIds.has(ph.onTrain)) {
       findings.push({
         severity: 'error',
@@ -394,11 +518,24 @@ function _checkTrainsPhases(state, findings) {
     }
   });
 
-  // C-TRAIN-2, C-TRAIN-3 — train rust references
+  // C-TRAIN-5 — at least one phase needs a trigger or the engine never advances.
+  // Only meaningful when phases AND trains both exist (an empty config doesn't
+  // need a trigger; the warning would just be noise).
+  if (phases.length > 0 && trains.length > 0 && phasesWithTrigger === 0) {
+    findings.push({
+      severity: 'error',
+      code: 'C-TRAIN-5',
+      message: `No phase declares an onTrain trigger. The engine starts in the first phase and has no way to advance — the game cannot progress past phase 1.`,
+      path: 'phases',
+    });
+  }
+
+  // C-TRAIN-3, C-TRAIN-4 — train rust references
   trains.forEach((tr, ti) => {
     if (!tr || !tr.rusts || !tr.rustsOn) return;
 
-    // C-TRAIN-3 — self-reference guard
+    // C-TRAIN-3 — self-reference guard. Match against id, type, AND any phase
+    // sharing the train's name (corner case: a train and phase share a label).
     if (tr.rustsOn === tr.id || tr.rustsOn === tr.type) {
       findings.push({
         severity: 'error',
@@ -409,12 +546,14 @@ function _checkTrainsPhases(state, findings) {
       return;
     }
 
-    // C-TRAIN-2 — must reference an existing train (by type preferred, else id)
-    if (!trainKeys.has(tr.rustsOn)) {
+    // C-TRAIN-4 — must reference an existing train type/id OR a phase name.
+    // Tobymao's rust handling (lib/engine/depot.rb:rust_trains!) walks the
+    // event stream; both phase-named and train-named triggers are valid.
+    if (!trainKeys.has(tr.rustsOn) && !phaseNames.has(tr.rustsOn)) {
       findings.push({
         severity: 'error',
-        code: 'C-TRAIN-2',
-        message: `Train "${tr.type || tr.id}" rusts on "${tr.rustsOn}" but no train with that type or id exists.`,
+        code: 'C-TRAIN-4',
+        message: `Train "${tr.type || tr.id}" rusts on "${tr.rustsOn}" but no train (by type/id) or phase (by name) with that label exists.`,
         path: `trains[${ti}].rustsOn`,
       });
     }
