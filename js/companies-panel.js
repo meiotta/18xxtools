@@ -284,15 +284,14 @@ function buyerTypeColor(p) {
 }
 
 const ABILITY_CATEGORIES = [
-  { label: 'Track & Terrain', types: ['tile_lay', 'tile_discount'] },
-  { label: 'Tokens & Stations', types: ['token', 'teleport'] },
+  { label: 'Track & Terrain',       types: ['tile_lay', 'tile_discount'] },
+  { label: 'Tokens & Stations',     types: ['token', 'teleport'] },
   { label: 'Blocking & Assignment', types: ['blocks_hexes', 'assign_hexes', 'assign_corporation'] },
-  { label: 'Corporate', types: ['exchange', 'shares'] },
-  { label: 'Revenue', types: ['hex_bonus', 'train_discount'] },
-  { label: 'Trains', types: ['grants_train'] },
-  { label: 'Lifecycle', types: ['close'] },
-  { label: 'Assignment', types: ['assign_hexes', 'assign_corporation'] },
-  { label: 'Other', types: ['generic'] },
+  { label: 'Corporate',             types: ['exchange', 'shares'] },
+  { label: 'Revenue',               types: ['hex_bonus', 'train_discount', 'tile_income'] },
+  { label: 'Trains',                types: ['purchase_train', 'borrow_train'] },
+  { label: 'Lifecycle',             types: ['close', 'no_buy'] },
+  { label: 'Other',                 types: ['generic'] },
 ];
 
 const ABILITY_DEFS = {
@@ -417,21 +416,49 @@ const ABILITY_DEFS = {
       return `Provides a $${a.discount || 0} discount${tr} when purchasing trains from the depot.`;
     },
   },
-  grants_train: {
-    label: 'Grants Train on Purchase',
+  tile_income: {
+    label: 'Tile Income',
     fields: [
-      { key: 'trainKind', label: 'Train type', type: 'select',
-        options: [
-          { value: 'permanent', label: 'Permanent (e.g. 2P)' },
-          { value: 'pullman',   label: 'Pullman (P)' },
-          { value: 'local',     label: 'Local (L)' },
-        ], default: 'permanent' },
-      { key: 'distance', label: 'Distance (permanent only)', type: 'number', default: 2 },
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'income', label: 'Income per turn', type: 'number', default: 10 },
+      { key: 'terrain', label: 'Terrain filter', type: 'select', options: ['', 'mountain', 'hill', 'swamp', 'water', 'desert', 'forest'], default: '' },
     ],
     suggest(a) {
-      if (a.trainKind === 'pullman') return 'When purchased by a corporation, grants a Pullman train. Closes when purchased.';
-      if (a.trainKind === 'local')   return 'When purchased by a corporation, grants a permanent L-train. Closes when purchased.';
-      return `When purchased by a corporation, grants a permanent ${a.distance || 2}-train. Closes when purchased.`;
+      const terrain = a.terrain ? ` on ${a.terrain} tiles` : '';
+      return `The owning ${a.owner_type || 'player'} collects $${a.income || 0} whenever a tile is laid${terrain}.`;
+    },
+  },
+  purchase_train: {
+    label: 'Purchase Train',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'corporation' },
+      { key: 'free', label: 'Train is free', type: 'checkbox', default: false },
+      { key: 'count', label: 'Uses', type: 'number', default: 1 },
+      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const free = a.free ? 'free ' : '';
+      return `Allows the owning ${a.owner_type || 'corporation'} to purchase a ${free}train directly.`;
+    },
+  },
+  borrow_train: {
+    label: 'Borrow Train',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'train_types', label: 'Train types (comma-separated)', type: 'tags', placeholder: 'e.g. 3, 4' },
+    ],
+    suggest(a) {
+      const types = (a.train_types && a.train_types.length) ? a.train_types.join('/') : 'any';
+      return `The owning ${a.owner_type || 'corporation'} may borrow a ${types} train if it has none.`;
+    },
+  },
+  no_buy: {
+    label: 'No Buy (Block Purchase)',
+    fields: [
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
+    ],
+    suggest(a) {
+      return `This company cannot be purchased by a ${a.owner_type || 'player'}.`;
     },
   },
   close: {
@@ -441,6 +468,7 @@ const ABILITY_DEFS = {
       { key: 'on_phase',    label: 'On phase',        type: 'text',   placeholder: 'e.g. 5 or never (overrides when:)' },
       { key: 'owner_type',  label: 'Owner type',      type: 'select', options: ['player', 'corporation', 'any'], default: 'player' },
       { key: 'corporation', label: 'Corporation sym', type: 'text',   placeholder: 'e.g. B&O — blank = any corp' },
+      { key: 'silent',      label: 'Silent close (no message)', type: 'checkbox', default: false },
     ],
     suggest(a) {
       if (a.when === 'never')       return 'Never auto-closes.';
@@ -500,61 +528,7 @@ const ABILITY_DEFS = {
     ],
     suggest(a) { return a.desc || ''; },
   },
-  // ── Assignment abilities — require a helper method in game.rb ────────────────
-  // These let a private company be assigned to specific hexes or corporations
-  // (e.g. 1846 Steamboat assigns to a port hex and boosts revenue there).
-  // The base engine's Engine::Step::Assign handles the assign action generically,
-  // but custom step code in game.rb must reference the company by name —
-  // hence the editor auto-generates a helper method for these.
-  assign_hexes: {
-    label: 'Assign to Hex',
-    fields: [
-      { key: 'hexes', label: 'Assignable hexes', type: 'tags', placeholder: 'e.g. B4, C7 — blank = any' },
-      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
-      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
-      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
-      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
-    ],
-    suggest(a) {
-      const hx  = (a.hexes && a.hexes.length) ? ` to ${a.hexes.join(', ')}` : ' to a hex';
-      const n   = (a.count && a.count > 1) ? ` (up to ${a.count} hexes)` : '';
-      const who = a.owner_type === 'corporation' ? 'owning corporation' : 'owner';
-      return `The ${who} may assign this company${hx}${n} to grant its bonus. Requires a game.rb helper and custom step code.`;
-    },
-  },
-  assign_corporation: {
-    label: 'Assign to Corporation',
-    fields: [
-      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
-      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
-      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
-    ],
-    suggest(a) {
-      const n = (a.count && a.count > 1) ? ` (up to ${a.count})` : '';
-      return `Can be assigned to a corporation${n} to grant its bonus while assigned. Requires a game.rb helper and custom step code.`;
-    },
-  },
 };
-
-// ── Linked-train helpers ──────────────────────────────────────────────────────
-// Returns the display label for a grants_train ability (e.g. '2P', 'P', 'L').
-function trainKindLabel(kind, distance) {
-  if (kind === 'pullman') return 'P';
-  if (kind === 'local')   return 'L';
-  return (distance || 2) + 'P'; // permanent
-}
-
-// Syncs a linked train's label and distance after a grants_train field change.
-function syncLinkedTrain(ability) {
-  if (!ability || !ability.linkedTrainId) return;
-  const train = (state.trains || []).find(t => t.id === ability.linkedTrainId);
-  if (!train) return;
-  const kind = ability.trainKind || 'permanent';
-  const dist = parseInt(ability.distance) || 2;
-  train.label = trainKindLabel(kind, dist);
-  train.n     = (kind === 'pullman' || kind === 'local') ? 0 : dist;
-  if (typeof renderTrainsTable === 'function') renderTrainsTable();
-}
 
 // Selected private index for the master-detail panel (null = nothing selected)
 let _selectedPrivateIdx = null;
@@ -988,8 +962,6 @@ function buildPrivateDetailEl(idx) {
       else if (fDef && fDef.type === 'number') val = parseFloat(val) || 0;
       else if (fDef && fDef.type === 'tags')   val = val.split(',').map(s => s.trim()).filter(Boolean);
       state.privates[idx].abilities[ai][key] = val;
-      // Keep linked train in sync when grants_train fields change
-      if (ability.type === 'grants_train') syncLinkedTrain(state.privates[idx].abilities[ai]);
       autosave();
     });
   });
@@ -998,15 +970,6 @@ function buildPrivateDetailEl(idx) {
   el.querySelectorAll('.pc-ability-rm').forEach(btn => {
     btn.addEventListener('click', () => {
       const ai      = parseInt(btn.dataset.ai);
-      const ability = state.privates[idx].abilities[ai];
-      // grants_train: remove the linked train from the roster when ability is removed
-      if (ability && ability.type === 'grants_train' && ability.linkedTrainId) {
-        const ti = (state.trains || []).findIndex(t => t.id === ability.linkedTrainId);
-        if (ti !== -1) {
-          state.trains.splice(ti, 1);
-          if (typeof renderTrainsTable === 'function') renderTrainsTable();
-        }
-      }
       state.privates[idx].abilities.splice(ai, 1);
       autosave();
       renderPrivatesSection();
@@ -1039,27 +1002,9 @@ function buildPrivateDetailEl(idx) {
           const defVal = typeof f.default !== 'undefined' ? f.default : '';
           newAbility[f.key] = f.type === 'tags' ? [] : defVal;
         });
-        // grants_train: auto-create a linked train in the roster
-        if (type === 'grants_train') {
-          const linkedId = 'lt_' + Math.random().toString(36).substr(2, 6);
-          newAbility.linkedTrainId = linkedId;
-          if (!state.trains) state.trains = [];
-          state.trains.push({
-            id:               linkedId,
-            distType:         'n',
-            n:                newAbility.distance || 2,
-            cost:             0,
-            count:            1,
-            rusts:            false,
-            phase:            '',
-            label:            trainKindLabel(newAbility.trainKind || 'permanent', newAbility.distance || 2),
-            linkedPrivateIdx: idx,
-          });
-        }
         state.privates[idx].abilities.push(newAbility);
         autosave();
         renderPrivatesSection();
-        if (type === 'grants_train' && typeof renderTrainsTable === 'function') renderTrainsTable();
       });
     });
   }
