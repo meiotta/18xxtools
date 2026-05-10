@@ -1,4 +1,4 @@
-// js/validate-game.js  v20260509d
+// js/validate-game.js  v20260509e
 // Cross-panel game validator — sibling to validateStepConstraints in
 // rounds-panel.js. Returns flat findings array consumable by the existing
 // export-validity signal in renderStepsPanelView.
@@ -93,10 +93,127 @@ function validateGame(state) {
   _checkMapCompanies(state, findings);
   _checkTrainsPhases(state, findings);
   _checkCompaniesMarket(state, findings);
-  // _checkEntitiesMechanics(state, findings);
+  _checkEntitiesMechanics(state, findings);
   // _checkDriftShadows(state, findings);
 
   return findings;
+}
+
+// ── Seam: Entities ↔ Mechanics (STATE_SCHEMA.md §3.4) ───────────────────────
+// Four checks against the join keys:
+//   C-MECH-1   corp with empty coordinates requires homeTokenTiming != 'operate'
+//   C-MECH-2   exchangeTokens.counts keys must match a corp sym
+//   C-MECH-3   merger.associations references must resolve to existing
+//              minor + major syms (mirrors validateMergerAssociations
+//              in mechanics-panel.js but reports through this aggregate)
+//   C-MECH-4   nationalization.nationalCorpSym, when set, must match
+//              an existing corp sym
+//
+// Note: bankruptcyAllowed → Bankrupt step requirement is already covered
+// by validateStepConstraints (PR1i) Check (a). Not duplicated here.
+function _checkEntitiesMechanics(state, findings) {
+  const corpPacks = state.corpPacks || [];
+  const mechanics = state.mechanics || {};
+
+  // C-MECH-1 — corps with empty coordinates require non-default homeTokenTiming.
+  // The default 'operate' crashes the engine when a corp without coordinates
+  // tries to place its home token (no hex to target). 'par'/'float'/'never'
+  // either place the token earlier or skip the placement entirely.
+  const homeTokenTiming = mechanics.homeTokenTiming || 'operate';
+  if (homeTokenTiming === 'operate') {
+    corpPacks.forEach((pack, pi) => {
+      (pack.companies || []).forEach((co, ci) => {
+        if (co && (!co.coordinates || co.coordinates === '')) {
+          findings.push({
+            severity: 'error',
+            code: 'C-MECH-1',
+            message: `Corporation ${co.sym || '?'} has no coordinates but homeTokenTiming is "operate" — this crashes the engine on float. Set timing to 'par', 'float', or 'never', or assign coordinates.`,
+            path: `corpPacks[${pi}].companies[${ci}].coordinates`,
+            corpSym: co.sym,
+          });
+        }
+      });
+    });
+  }
+
+  // Build the universe of valid syms across major + minor packs once.
+  const allSyms = new Set();
+  corpPacks.forEach(pack => {
+    (pack.companies || []).forEach(co => { if (co && co.sym) allSyms.add(co.sym); });
+  });
+  // Legacy minors table — also a sym source
+  (state.minors || []).forEach(m => { if (m && m.abbr) allSyms.add(m.abbr); });
+
+  // C-MECH-2 — exchangeTokens.counts keys must match a known sym
+  const tokenCounts = (mechanics.exchangeTokens && mechanics.exchangeTokens.counts) || {};
+  Object.keys(tokenCounts).forEach(sym => {
+    if (!allSyms.has(sym)) {
+      findings.push({
+        severity: 'warning',
+        code: 'C-MECH-2',
+        message: `exchangeTokens.counts has entry for "${sym}" but no corporation or minor with that symbol exists.`,
+        path: `mechanics.exchangeTokens.counts.${sym}`,
+        corpSym: sym,
+      });
+    }
+  });
+
+  // C-MECH-3 — merger.associations entries must reference real minor + major syms.
+  // Pair shape (per mechanics-panel.js merger config): { minorSym, majorSym }.
+  const associations = (mechanics.merger && mechanics.merger.associations) || [];
+  // Build separate major/minor sym sets so we can give precise errors.
+  const majorSyms = new Set();
+  const minorSyms = new Set();
+  corpPacks.forEach(pack => {
+    if (!pack || !Array.isArray(pack.companies)) return;
+    if (pack.type === 'major' || pack.type === 'public' || pack.type === 'system' || pack.type === 'national') {
+      pack.companies.forEach(co => { if (co && co.sym) majorSyms.add(co.sym); });
+    }
+    if (pack.type === 'minor' || pack.type === 'coal') {
+      pack.companies.forEach(co => { if (co && co.sym) minorSyms.add(co.sym); });
+    }
+  });
+  (state.minors || []).forEach(m => { if (m && m.abbr) minorSyms.add(m.abbr); });
+
+  associations.forEach((pair, ai) => {
+    if (!pair) return;
+    if (pair.minorSym && !minorSyms.has(pair.minorSym)) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-3',
+        message: `Merger association references minor "${pair.minorSym}" which is not in the corp packs or minors table.`,
+        path: `mechanics.merger.associations[${ai}].minorSym`,
+        corpSym: pair.minorSym,
+      });
+    }
+    if (pair.majorSym && !majorSyms.has(pair.majorSym)) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-3',
+        message: `Merger association references major "${pair.majorSym}" which is not in any major-type corp pack.`,
+        path: `mechanics.merger.associations[${ai}].majorSym`,
+        corpSym: pair.majorSym,
+      });
+    }
+  });
+
+  // C-MECH-4 — nationalization national corp sym
+  const nat = mechanics.nationalization;
+  if (nat && nat.enabled && nat.nationalCorpSym) {
+    if (!allSyms.has(nat.nationalCorpSym)) {
+      findings.push({
+        severity: 'error',
+        code: 'C-MECH-4',
+        message: `Nationalization is enabled with national corp sym "${nat.nationalCorpSym}" but no corporation with that symbol exists.`,
+        path: 'mechanics.nationalization.nationalCorpSym',
+        corpSym: nat.nationalCorpSym,
+      });
+    }
+  }
+
+  // TODO: C-MECH-5 — requires state.mechanics.loans flag (not yet in state).
+  //   Validate that any corp with loans-related ability has the game-wide
+  //   loans config populated.
 }
 
 // ── Seam: Companies ↔ Market (STATE_SCHEMA.md §3.3) ─────────────────────────
