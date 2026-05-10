@@ -1,4 +1,4 @@
-// js/export-game.js  v20260509i
+// js/export-game.js  v20260509j
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -1457,6 +1457,61 @@ function renderEntitiesRb() {
   return _grbFill(_ENTITIES_RB_SKELETON, modName, slots);
 }
 
+// ── round/stock.rb file body (1822-style minor capitalization) ─────────────
+// Emitted as a separate file because Tobymao engine convention places round
+// subclasses under <game>/round/<name>.rb and autoloads via Zeitwerk; the
+// game.rb references it as `G<Sym>::Round::Stock` without an explicit
+// require. Returns null when no minor pack uses phase_conditional float.
+//
+// Body is a fixed template — the only designer-facing variable is the module
+// name. The float_minor body is verbatim from g_1822/round/stock.rb:113-158
+// minus 1822-specific bidbox-removal and L-train logging, which don't apply
+// to a generic phase-conditional float.
+function renderRoundStockRb() {
+  if (typeof state === 'undefined' || !state) return null;
+  const usesPhaseConditional = (state.corpPacks || []).some(pk =>
+    pk && pk.type === 'minor' && pk.floatBehavior && pk.floatBehavior.type === 'phase_conditional'
+  );
+  if (!usesPhaseConditional) return null;
+  const modName = _grbModuleName(state);
+  return `# frozen_string_literal: true
+
+require_relative '../../../round/stock'
+
+module Engine
+  module Game
+    module ${modName}
+      module Round
+        class Stock < Engine::Round::Stock
+          def float_minor(bid)
+            player           = bid.entity
+            company          = bid.company
+            bid_amount       = bid.price
+            minor            = @game.find_corporation(company)
+            minor.reservation_color = :white
+
+            share_price      = @game.minor_float_share_price(bid)
+            presidency_price = share_price.price * 2
+
+            @game.stock_market.set_par(minor, share_price)
+            @game.share_pool.buy_shares(player, minor.shares.first.to_bundle)
+            @game.after_par(minor)
+
+            minor.spend(minor.cash, @game.bank)
+            treasury = @game.minor_float_starting_cash(bid_amount, presidency_price)
+            excess   = bid_amount - presidency_price
+            player.spend(excess, @game.bank) unless excess.zero?
+            @game.bank.spend(treasury, minor)
+            @game.companies.delete(company)
+          end
+        end
+      end
+    end
+  end
+end
+`;
+}
+
 // ── Download helper ───────────────────────────────────────────────────────────
 function _grbDownload(content, filename) {
   const blob = new Blob([content], { type: 'text/plain' });
@@ -1495,3 +1550,23 @@ document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
     alert('Export failed: ' + err.message);
   }
 });
+
+const _exportStockBtn = document.getElementById('exportRoundStockBtn');
+if (_exportStockBtn) {
+  _exportStockBtn.addEventListener('click', () => {
+    try {
+      const src = renderRoundStockRb();
+      if (!src) {
+        alert('No minor pack uses phase-conditional float — round/stock.rb not needed.');
+        return;
+      }
+      const slug = _grbModuleName(state).toLowerCase();
+      // Filename hints at the engine convention path: g_<sym>/round/stock.rb
+      _grbDownload(src, slug + '_round_stock.rb');
+      if (typeof updateStatus === 'function') updateStatus('Exported ' + slug + '_round_stock.rb (place at lib/engine/game/' + slug + '/round/stock.rb)');
+    } catch (err) {
+      console.error('[renderRoundStockRb]', err);
+      alert('Export failed: ' + err.message);
+    }
+  });
+}
