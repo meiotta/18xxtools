@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260509a
+// js/rounds-panel.js  v20260510a
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -38,8 +38,10 @@
 //   - `def or_round_finished`     → transitionHook.body
 //   - everything else             → endHook.body (free-text fallback)
 //
-// Legacy-field migration of mechanics.{initialRound, stockRoundsPerSet,
-// mergerRound, orSteps} is still pending — that's a separate concern.
+// Legacy-field status for mechanics.{initialRound, stockRoundsPerSet,
+// mergerRound, orSteps} is documented in the "Rounds schema" comment block
+// at the top of mechanics-panel.js. Migration helper not yet shipped — open
+// questions on canonical homes for two of the four fields are tracked there.
 function initRoundsState() {
   if (typeof state === 'undefined' || !state.mechanics) return;
   if (!state.mechanics.rounds) {
@@ -78,8 +80,11 @@ function initRoundsState() {
   });
   _migrateSubclassToHooks(state.mechanics.rounds.merger);
 
-  // TODO: legacy mechanics.{initialRound, stockRoundsPerSet, mergerRound,
-  // orSteps} migration is a separate concern and lives elsewhere.
+  // Legacy mechanics.{initialRound, stockRoundsPerSet, mergerRound, orSteps}
+  // migration is documented (with current schema status and policy) in the
+  // "Rounds schema" comment block at the top of mechanics-panel.js. Two of
+  // the four flat fields lack a settled nested home, so no migration helper
+  // ships yet; that block tracks the open questions.
 }
 
 // Mutate a round slot in place: route legacy `subclass.body` content into
