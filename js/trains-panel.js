@@ -24,7 +24,8 @@ function getTrainDisplayName(tr) {
  */
 function calculateTrainLabel(tr) {
     if (!tr) return '—';
-    if (tr.label) return tr.label;   // linked/special trains carry an explicit label
+    if (tr.label) return tr.label;   // explicit label wins
+    if (tr.type)  return tr.type;    // fallback: older state may store Ruby name: as .type
     if (tr.distType === 'n') return String(tr.n || 2);
     if (tr.distType === 'xy') return `${tr.x || 2}/${tr.y || 1}`;
     if (tr.distType === 'nm') return `${tr.n || 2}+${tr.m || 1}`;
@@ -391,7 +392,7 @@ function renderPhasesTable() {
     const TILE_LABEL = { yellow: 'Yellow tiles', green: 'Green unlocked', brown: 'Brown unlocked', grey: 'Grey unlocked' };
 
     state.phases.forEach((ph, idx) => {
-        const triggerTrain = state.trains.find(function(t) { return t.id === ph.onTrain; });
+        const triggerTrain = state.trains.find(function(t) { return t.id === ph.onTrain || calculateTrainLabel(t) === ph.onTrain; });
         const triggerDesc  = triggerTrain ? 'First ' + calculateTrainLabel(triggerTrain) + '-train bought' : (idx === 0 ? 'Game start' : 'Manual trigger');
         const limitDesc    = (ph.limitMinor != null) ? ('Limit ' + ph.limit + '/' + ph.limitMinor + ' maj/min') : ('Limit ' + (ph.limit || 4));
         const phaseDesc    = [triggerDesc, TILE_LABEL[ph.tiles] || ph.tiles, (ph.ors || 2) + ' ORs', limitDesc].join(' · ');
@@ -411,7 +412,7 @@ function renderPhasesTable() {
             <td>
                 <select class="ph-trigger">
                     <option value="">Manual Only</option>
-                    ${state.trains.map(t => `<option value="${t.id}" ${ph.onTrain === t.id ? 'selected' : ''}>${calculateTrainLabel(t)}</option>`).join('')}
+                    ${state.trains.map(t => `<option value="${t.id}" ${(ph.onTrain === t.id || ph.onTrain === calculateTrainLabel(t)) ? 'selected' : ''}>${calculateTrainLabel(t)}</option>`).join('')}
                 </select>
             </td>
             <td><input type="number" class="ph-ors" value="${ph.ors || 2}" style="width:60px;"></td>
