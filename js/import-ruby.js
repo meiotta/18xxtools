@@ -1169,9 +1169,11 @@ function _rbParseCorp(hashStr) {
   const CORP_ABILITY_DISCARD = new Set(['base', 'description']);
   const storedAbilities = abilities.filter(a => !CORP_ABILITY_DISCARD.has(a.type));
 
-  const co = { id: _cpRandId('co'), sym, name, color, textColor, coordinates, city, logo, tokensOverride: tokens, abilities: storedAbilities };
+  // Produce objects in state.companies / state.minors shape:
+  // abbr = tobymao sym, homeHex = tobymao coordinates, tokens = array of costs.
+  const co = { id: _cpRandId('co'), abbr: sym, name, color, textColor, homeHex: coordinates, city, logo, tokens, abilities: storedAbilities };
   if (destCoordinates)   co.destinationCoordinates = destCoordinates;
-  if (floatPct !== null) co.floatPctOverride        = floatPct;
+  if (floatPct !== null) co.floatPct               = floatPct;
   if (associatedMajor)   co.associatedMajor         = associatedMajor;
   return { co, type };
 }
@@ -1186,22 +1188,15 @@ function importEntitiesRb(content) {
     .map(_rbParseCompany)
     .filter(p => !/^(MINOR|REGIONAL):/.test(p.name));
 
-  const corpsByType = {};
+  const companies = [];
+  const minors    = [];
   _rbSplitHashes(_rbExtractArray(src, 'CORPORATIONS')).forEach(hashStr => {
     const { co, type } = _rbParseCorp(hashStr);
-    if (!corpsByType[type]) corpsByType[type] = [];
-    corpsByType[type].push(co);
+    if (type === 'minor') minors.push(co);
+    else                  companies.push(co);
   });
 
-  const packs = Object.entries(corpsByType).map(([type, companies]) =>
-    Object.assign({}, _packDefaults(type), {
-      id:    'pk_' + Math.random().toString(36).slice(2, 9),
-      type, companies,
-      label: type.charAt(0).toUpperCase() + type.slice(1) + 's',
-    })
-  );
-
-  return { privates, packs };
+  return { privates, companies, minors };
 }
 
 // ─── IMPORT GAME.RB ──────────────────────────────────────────────────────────
@@ -1995,26 +1990,24 @@ function applyMapImport(content, sourceName) {
 
 // Parses entities content and applies to state.
 function applyEntitiesImport(content, sourceName) {
-  const { privates, packs } = importEntitiesRb(content);
-  state.privates = privates;
+  const { privates, companies, minors } = importEntitiesRb(content);
+  state.privates  = privates;
+  state.companies = companies;
+  state.minors    = minors;
   _resolveGrantedByNames(state.trains, privates);
-  if (!state.corpPacks) state.corpPacks = [];
-  packs.forEach(newPack => {
-    const xi = state.corpPacks.findIndex(p => p.type === newPack.type);
-    if (xi !== -1) state.corpPacks[xi] = newPack;
-    else state.corpPacks.push(newPack);
-  });
-  if (typeof _selectedPrivateIdx !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
+  if (typeof _selectedPrivateIdx    !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
   if (typeof renderPrivatesCards    === 'function') renderPrivatesCards();
-  if (typeof renderCorpsSection     === 'function') renderCorpsSection();
+  if (typeof renderCompaniesTable   === 'function') renderCompaniesTable();
+  if (typeof renderMinorsTable      === 'function') renderMinorsTable();
   if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
   autosave();
   document.getElementById('fileMenu').style.display = 'none';
   const pCount    = privates.length;
-  const cCount    = packs.reduce((s, p) => s + p.companies.length, 0);
+  const cCount    = companies.length;
+  const mCount    = minors.length;
   const concCount = privates.filter(p => p.companyType === 'concession').length;
   const abCount   = privates.reduce((s, p) => s + (p.abilities || []).length, 0);
-  updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations from ${sourceName}`);
+  updateStatus(`Imported ${pCount} privates (${concCount} concessions, ${abCount} abilities) + ${cCount} corporations + ${mCount} minors from ${sourceName}`);
 }
 
 // Parses game.rb content and applies trains / phases / mechanics to state.

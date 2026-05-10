@@ -88,24 +88,30 @@ function _eiAbilityLine(ab) {
 // ── Corporation / Minor entry ─────────────────────────────────────────────────
 // gameCap: the game-level capitalization string ('full', 'incremental', …)
 //          Per-corp capitalization is only emitted when it differs.
+// co: a state.companies or state.minors object.
 
-function _eiCorpEntry(co, pack, gameCap) {
+function _eiCorpEntry(co, gameCap) {
   const i2 = '  ';   // 2-space indent (array element)
   const i4 = '    '; // 4-space indent (hash key)
   const lines = [];
 
-  // Resolve effective values: per-corp override → pack value → engine default
-  const floatPct = co.floatPctOverride != null ? co.floatPctOverride
-                 : (pack.floatPct      != null ? pack.floatPct : 60);
-  const tokens   = co.tokensOverride   != null ? co.tokensOverride
-                 : (pack.tokens || [0, 40, 100]);
-  const shares   = pack.shares || [20, 10, 10, 10, 10, 10, 10, 10, 10];
-  const cap      = pack.capitalization || 'full';
-  const maxOwn   = pack.maxOwnershipPct != null ? pack.maxOwnershipPct : 60;
-  const amp      = pack.alwaysMarketPrice || false;
+  // Resolve effective values from the corp object directly.
+  // tokens may be an array of costs [0,40,100] (majors) or a count (minors → convert).
+  const floatPct = co.floatPct != null ? co.floatPct : 60;
+  const tokens   = Array.isArray(co.tokens) ? co.tokens
+                 : (co.tokens != null && co.tokens < 20) ? new Array(co.tokens).fill(0)
+                 : [0, 40, 100];
+  const shares   = co.shares || [20, 10, 10, 10, 10, 10, 10, 10, 10];
+  const cap      = co.capitalization || 'full';
+  const maxOwn   = co.maxOwnershipPct != null ? co.maxOwnershipPct : 60;
+  const amp      = co.alwaysMarketPrice || false;
+
+  // Support both tobymao field names (sym, coordinates) and internal aliases (abbr, homeHex).
+  const sym         = co.sym  || co.abbr  || '';
+  const coordinates = co.coordinates || co.homeHex || '';
 
   lines.push(i2 + '{');
-  lines.push(i4 + 'sym: '   + _eiStr(co.sym  || ''));
+  lines.push(i4 + 'sym: '   + _eiStr(sym));
   lines.push(i4 + 'name: '  + _eiStr(co.name || ''));
   if (co.logo)
     lines.push(i4 + 'logo: ' + _eiStr(co.logo));
@@ -113,8 +119,8 @@ function _eiCorpEntry(co, pack, gameCap) {
   if (co.textColor && co.textColor !== '#ffffff' && co.textColor !== '#FFFFFF')
     lines.push(i4 + 'text_color: ' + _eiColor(co.textColor));
   lines.push(i4 + 'tokens: ' + _eiNumArr(tokens));
-  if (co.coordinates)
-    lines.push(i4 + 'coordinates: ' + _eiStr(co.coordinates));
+  if (coordinates)
+    lines.push(i4 + 'coordinates: ' + _eiStr(coordinates));
   if (co.city && parseInt(co.city) !== 0)
     lines.push(i4 + 'city: ' + parseInt(co.city));
   if (co.destinationCoordinates)
@@ -218,25 +224,21 @@ function exportEntitiesRb() {
   }
 
   // ── CORPORATIONS ───────────────────────────────────────────────────────────
-  const corpPacks = (state.corpPacks || []).filter(pk => pk.type !== 'minor');
-  const corps = [];
-  corpPacks.forEach(pack => (pack.companies || []).forEach(co => corps.push({ co, pack })));
+  const corps  = state.companies || [];
 
   if (corps.length) {
     out.push('CORPORATIONS = [');
-    corps.forEach(({ co, pack }) => out.push(_eiCorpEntry(co, pack, gameCap)));
+    corps.forEach(co => out.push(_eiCorpEntry(co, gameCap)));
     out.push('].freeze');
     out.push('');
   }
 
   // ── MINORS ─────────────────────────────────────────────────────────────────
-  const minorPacks = (state.corpPacks || []).filter(pk => pk.type === 'minor');
-  const minors = [];
-  minorPacks.forEach(pack => (pack.companies || []).forEach(co => minors.push({ co, pack })));
+  const minors = state.minors || [];
 
   if (minors.length) {
     out.push('MINORS = [');
-    minors.forEach(({ co, pack }) => out.push(_eiCorpEntry(co, pack, gameCap)));
+    minors.forEach(co => out.push(_eiCorpEntry(co, gameCap)));
     out.push('].freeze');
     out.push('');
   }

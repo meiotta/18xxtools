@@ -701,10 +701,10 @@
         </div>
         <div style="flex:1;"></div>
         <button id="addPrivateBtn" class="corp-add-btn" data-add-for="privates">+ Add Private</button>
-        <button id="addPackBtn"    class="corp-add-btn" data-add-for="corps" style="display:none;">+ New Pack</button>
-        <!-- hidden stubs kept for JS compat -->
-        <button id="addMinorBtn"   style="display:none;"></button>
-        <button id="addCompanyBtn" style="display:none;"></button>
+        <button id="addCompanyBtn" class="corp-add-btn" data-add-for="corps"    style="display:none;">+ Add Corp</button>
+        <button id="addMinorBtn"   class="corp-add-btn" data-add-for="corps"    style="display:none;">+ Add Minor</button>
+        <!-- addPackBtn kept as hidden stub so companies-panel.js addEventListener doesn't throw -->
+        <button id="addPackBtn" style="display:none;"></button>
       </div>
 
       <!-- content area -->
@@ -713,8 +713,40 @@
         <!-- Privates: master-detail -->
         <div id="corpPrivatesSection" style="flex:1; display:flex; overflow:hidden;"></div>
 
-        <!-- Corporations: pack master-detail (JS renders into here) -->
-        <div id="corpCorpsSection" style="display:none; flex:1; overflow:hidden;"></div>
+        <!-- Corporations: companies + minors tables -->
+        <div id="corpCorpsSection" style="display:none; flex:1; overflow-y:auto; padding:16px 20px;">
+          <div style="margin-bottom:20px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);margin-bottom:8px;">Major Corporations</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-mid);">
+                <th style="padding:4px 6px;width:36px;"></th>
+                <th style="padding:4px 6px;">Name</th>
+                <th style="padding:4px 6px;width:52px;">Abbr</th>
+                <th style="padding:4px 6px;width:52px;">Home</th>
+                <th style="padding:4px 6px;width:52px;">Par</th>
+                <th style="padding:4px 6px;" title="Comma-separated token placement costs, e.g. 0, 40, 100">Tokens</th>
+                <th style="padding:4px 6px;width:52px;">Float %</th>
+                <th style="padding:4px 6px;width:28px;"></th>
+              </tr></thead>
+              <tbody id="companiesTableBody"></tbody>
+            </table>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);margin-bottom:8px;">Minor Companies</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="color:var(--text-secondary);text-align:left;border-bottom:1px solid var(--border-mid);">
+                <th style="padding:4px 6px;width:36px;"></th>
+                <th style="padding:4px 6px;">Name</th>
+                <th style="padding:4px 6px;width:52px;">Abbr</th>
+                <th style="padding:4px 6px;width:80px;">Home</th>
+                <th style="padding:4px 6px;width:90px;">Mechanism</th>
+                <th style="padding:4px 6px;width:52px;">Tokens</th>
+                <th style="padding:4px 6px;width:28px;"></th>
+              </tr></thead>
+              <tbody id="minorsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
 
         <!-- Auction: settings panel -->
         <div id="corpAuctionSection" style="display:none; flex:1; overflow-y:auto;"></div>
@@ -1124,7 +1156,7 @@
       </div>
       <div class="field-row">
         <div class="field"><label>Home Hex</label><input type="text" id="cwHome" maxlength="3" placeholder="e.g. D4"></div>
-        <div class="field"><label>Tokens</label><input type="number" id="cwTokens" min="0" value="5"></div>
+        <div class="field"><label id="cwTokensLabel">Tokens</label><input type="text" id="cwTokens" placeholder="0, 40, 100" value="0, 40, 100"></div>
       </div>
       <div class="field-row" id="cwMajorFields">
         <div class="field"><label>Par Value</label><input type="number" id="cwPar" min="0" value="100"></div>

@@ -98,7 +98,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el) el.style.display = key === tab ? cfg.display : 'none';
       });
       // Trigger renders when switching tabs
-      if (tab === 'corps'    && typeof renderCorpsSection    === 'function') renderCorpsSection();
+      if (tab === 'corps') {
+        if (typeof renderCompaniesTable === 'function') renderCompaniesTable();
+        if (typeof renderMinorsTable    === 'function') renderMinorsTable();
+      }
       if (tab === 'auction'  && typeof renderAuctionPanel    === 'function') renderAuctionPanel();
 
       // Show/hide the matching add button

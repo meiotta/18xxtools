@@ -207,26 +207,16 @@
 
   // ── Apply answers to state ─────────────────────────────────────────────────
   function applyAnswers(ans) {
-    if (!state.corpPacks) state.corpPacks = [];
-
     if (ans.majors) {
-      state.corpPacks.push({
-        id: uid(), label: 'Majors', type: 'major',
-        floatPct: 60, maxOwnershipPct: 60, capitalization: 'full',
-        alwaysMarketPrice: false, shares: 10, tokens: [0, 40, 100],
-        companies: []
-      });
+      if (!state.companies) state.companies = [];
     }
 
     if (ans.minors) {
-      state.corpPacks.push({
-        id: uid(), label: 'Minors', type: 'minor',
-        floatPct: 100,
-        floatBehavior: ans.minorTiming === 'fixed'
-          ? { type: 'fixed' }
-          : { type: 'phase_conditional', phase: '' },
-        companies: []
-      });
+      if (!state.minors) state.minors = [];
+      // Store minor availability timing in mechanics for reference
+      state.mechanics.minorTiming = ans.minorTiming || 'fixed';
+    } else {
+      delete state.mechanics.minorTiming;
     }
 
     if (ans.privates !== 'none') {
@@ -251,11 +241,12 @@
       state.phases = ts.phases.map(function (p) { return Object.assign({}, p); });
     }
 
-    if (typeof renderCorpsSection  === 'function') renderCorpsSection();
-    if (typeof renderPrivatesCards === 'function') renderPrivatesCards();
-    if (typeof renderTrainsTable   === 'function') renderTrainsTable();
-    if (typeof renderPhasesTable   === 'function') renderPhasesTable();
-    if (typeof autosave            === 'function') autosave();
+    if (typeof renderCompaniesTable === 'function') renderCompaniesTable();
+    if (typeof renderMinorsTable    === 'function') renderMinorsTable();
+    if (typeof renderPrivatesCards  === 'function') renderPrivatesCards();
+    if (typeof renderTrainsTable    === 'function') renderTrainsTable();
+    if (typeof renderPhasesTable    === 'function') renderPhasesTable();
+    if (typeof autosave             === 'function') autosave();
   }
 
   // ── UI state ───────────────────────────────────────────────────────────────
