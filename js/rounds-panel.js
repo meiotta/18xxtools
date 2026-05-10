@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260504h
+// js/rounds-panel.js  v20260509a
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -1194,6 +1194,17 @@ function validateExportCoherence(state) {
     catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
       path: 'validateStepConstraints',
       message: 'validateStepConstraints crashed: ' + (e && e.message) }); }
+  }
+
+  // Cross-panel validator (validate-game.js) — Map ↔ Companies, Trains ↔
+  // Phases, Companies ↔ Market, Entities ↔ Mechanics, drift shadows.
+  // Findings already match this aggregate's shape (severity / code /
+  // message / path / hexId? / corpSym?).
+  if (typeof validateGame === 'function') {
+    try { findings.push(...(validateGame(state) || [])); }
+    catch (e) { findings.push({ severity: 'error', code: 'VALIDATOR_THREW',
+      path: 'validateGame',
+      message: 'validateGame crashed: ' + (e && e.message) }); }
   }
 
   // Round-system validators — per-slot fanout. Iterate over each round slot,
