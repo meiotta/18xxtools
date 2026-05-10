@@ -1,4 +1,4 @@
-// js/export-game.js  v20260504a
+// js/export-game.js  v20260510b
 // Skeleton-based exporter: game.rb and entities.rb.
 //
 // Replaces:  export-entities.js  +  generateGameRb() in mechanics-panel.js
@@ -213,15 +213,15 @@ function _grbDistance(tr) {
         `]`
       );
     case 'xy':
-      // Pay X stops, visit Y stops — 1846-style split train (e.g. 3/5, 4/6)
-      // TODO (Evan Q1): confirm node types — 1846 uses %w[city offboard];
-      //   some games use %w[city town], check before extending to non-1846 games.
+      // Pay X stops, visit Y stops — 1846-style split train (e.g. 3/5, 4/6).
+      // Verified: g_1846/game.rb uses %w[city offboard] for all split-train variants.
       return `[{ 'nodes' => %w[city offboard], 'pay' => ${tr.x || 2}, 'visit' => ${tr.y || 4} }]`;
     case 'u':
       // Unlimited/diesel — distance: 999 (g_1830 D-train convention)
       return '999';
     case 'h':
-      // Hex-distance trains — TODO: identify tobymao Ruby format (no confirmed pattern)
+      // Hex-distance trains — tobymao uses a plain numeric distance scalar (g_1849, g_1862).
+      // Hex-counting is a game mechanic, not a TRAINS entry format difference.
       return String(tr.h || 4);
     default: // 'n'
       return String(tr.n || 2);
@@ -333,9 +333,8 @@ function _grbPhaseHash(ph, state) {
 
   kv.push(`operating_rounds: ${ph.ors || 2}`);
 
-  // status: string array — tobymao uses %w[...], not %i[...].
-  // Source: g_1830/game.rb PHASES, g_1822/game.rb PHASES — confirmed %w usage.
-  // TODO (Evan Q3): if any game uses symbol status keys (%i[...]), update here.
+  // status: string array — tobymao uses %w[...] everywhere, never %i[...].
+  // Verified: g_1830, g_1822, g_1846, g_1870, g_18_chesapeake all use %w.
   if (ph.status && ph.status.length) {
     kv.push(`status: %w[${ph.status.join(' ')}]`);
   }
@@ -511,7 +510,7 @@ function _grbInitRoundBody(rounds) {
   if (cls === 'stock_direct') return 'stock_round';
 
   const className = (subclass && subclass.name) || _GRB_INITIAL_CLASS[cls];
-  if (!className) return `# TODO: unknown initial round class '${cls}'`;
+  if (!className) return `# Unsupported initial round class '${cls}' — implement init_round manually or add a subclass.`;
 
   const parts = [_grbStepArrayLiteral(steps)];
   if (optsStr) parts.push(optsStr);
