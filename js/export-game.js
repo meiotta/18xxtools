@@ -1690,6 +1690,28 @@ if (_exportFor18xxBtn) {
   });
 }
 
+// renderMetaRb() — public entry point, mirrors renderGameRb() / renderEntitiesRb()
+function renderMetaRb() {
+  if (typeof state === 'undefined')
+    return '# No state loaded.\n';
+  return _grbMetaRb(state);
+}
+
+const _exportMetaBtn = document.getElementById('exportMetaBtn');
+if (_exportMetaBtn) {
+  _exportMetaBtn.addEventListener('click', () => {
+    try {
+      const src  = renderMetaRb();
+      const slug = _grbSlug(state);
+      _grbDownload(src, slug + '_meta.rb');
+      if (typeof updateStatus === 'function') updateStatus('Exported ' + slug + '_meta.rb');
+    } catch (err) {
+      console.error('[renderMetaRb]', err);
+      alert('Export failed: ' + err.message);
+    }
+  });
+}
+
 const _exportStockBtn = document.getElementById('exportRoundStockBtn');
 if (_exportStockBtn) {
   _exportStockBtn.addEventListener('click', () => {
