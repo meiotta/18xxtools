@@ -1,4 +1,4 @@
-// js/rounds-panel.js  v20260510a
+// js/rounds-panel.js  v20260510b
 // Rounds panel — round class selection and step list editing.
 //
 // Each sub-tab (Initial / Stock / Operating / Merger) renders two stacked
@@ -26,22 +26,100 @@
 
 'use strict';
 
-// ── State init / migration ──────────────────────────────────────────────────
-// state.mechanics.rounds is seeded by initMechanicsState() (mechanics-panel.js)
-// for fresh states. For existing saves that predate the rounds schema, we seed
-// defaults here on first access. Step arrays are seeded from _BASE_RB_DEFAULTS
-// so the step-list renderer can be purely reactive.
+// ── Canonical state.mechanics.rounds schema ─────────────────────────────────
+// Authoritative shape. Seeded by initMechanicsState() in mechanics-panel.js
+// for fresh saves; legacy saves are migrated on first access by the helpers
+// below. All round-class / step-list / lifecycle-hook authoring writes here.
 //
-// Schema migration (one-way, idempotent):
-//   slot.subclass: { name, body } → slot.endHook + slot.transitionHook
-//   - `def finish_round` blocks   → endHook.body
-//   - `def or_round_finished`     → transitionHook.body
-//   - everything else             → endHook.body (free-text fallback)
+// state.mechanics.rounds = {
+//   initial: RoundSlot,                        // first round of the game
+//   stock:   RoundSlot,                        // every Stock Round
+//   operating: RoundSlot,                      // every Operating Round
+//   merger:  null | MergerRoundSlot,           // null when disabled (vanilla
+//                                              //   loop); object when enabled
+//   loop:            null | 'vanilla' | 'custom',
+//   customNextRound: false | string,           // verbatim Ruby for next_round!
+//                                              //   (legacy escape hatch; per
+//                                              //   tab transitionHook is the
+//                                              //   preferred surface)
+// }
 //
-// Legacy-field status for mechanics.{initialRound, stockRoundsPerSet,
-// mergerRound, orSteps} is documented in the "Rounds schema" comment block
-// at the top of mechanics-panel.js. Migration helper not yet shipped — open
-// questions on canonical homes for two of the four fields are tracked there.
+// See also: mechanics-panel.js has a parallel schema status block referencing
+// these fields; this file holds the canonical RoundSlot definition because
+// authoring writes pass through here.
+//
+// RoundSlot = {
+//   class:  string,                            // controlled value:
+//                                              //   initial: 'auction' | 'draft'
+//                                              //          | 'stock_direct'
+//                                              //          | 'choices'
+//                                              //   stock/op: 'vanilla' (legacy)
+//                                              //          or absent (frozen)
+//   opts:   { reverse_order, snake_order, rotating_order, … },
+//   steps:  StepEntry[],                       // ordered; allows duplicates;
+//                                              //   seeded from _BASE_RB_DEFAULTS
+//   endHook: null | {                          // round-subclass method body
+//     name:   string,                          //   bare subclass name
+//     body:   string,                          //   raw Ruby (statements OR
+//                                              //   full def...end blocks)
+//     preset: string,                          //   id from _ROUND_END_PRESETS
+//                                              //   (or '' for custom)
+//   },
+//   transitionHook: null | {                   // one when-branch in
+//     body: string,                            //   def next_round!
+//   },
+// }
+//
+// MergerRoundSlot extends RoundSlot with:
+//   enabled:          true,                    // canonical predicate is
+//                                              //   rounds.merger != null
+//   name:             string,                  // becomes round_name override
+//                                              //   (Round::Merger is abstract)
+//   position:         'between_ors' | 'after_or_set' | 'before_sr',
+//   trigger:          'always' | 'phase_in',
+//   triggerCondition: { phases: string[] },    // when trigger='phase_in'
+//
+// StepEntry = { class: string, opts?: object } — see _BASE_RB_DEFAULTS for the
+//   shape of seeded entries; per-entry opts (e.g., { blocks: true }) drive
+//   per-step kwargs in the emitted Round factory call.
+//
+// Engine field references:
+//   - Round-class options sourced from lib/engine/round/{auction,stock,
+//     operating,draft,merger,choices}.rb
+//   - operatingRoundsPerSet does NOT live here. The engine binds
+//     @operating_rounds = @phase.operating_rounds at each SR→OR transition
+//     (base.rb:2925). Per-phase OR count lives in state.phases[i].operating_rounds.
+//
+// ── Legacy-field migration map (state.mechanics.* → state.mechanics.rounds.*)
+// Pre-rounds-schema saves stored these top-level fields; the migration shim
+// below hoists each into the canonical shape on first read.
+//
+//   state.mechanics.initialRound      → state.mechanics.rounds.initial.class
+//     'waterfall_auction'             → 'auction'
+//     'draft'                         → 'draft'
+//     'parliament'                    → 'auction' (no clean mapping; flags TODO)
+//     'certificate_selection'         → 'auction' (no clean mapping; flags TODO)
+//     'none'                          → 'stock_direct'
+//
+//   state.mechanics.mergerRound: bool → state.mechanics.rounds.merger
+//     true                            → _defaultMergerRound() with enabled=true
+//     false / absent                  → null (no-op)
+//
+//   state.mechanics.stockRoundsPerSet → no canonical home (multi-SR loops need
+//                                       custom transitionHook); migration leaves
+//                                       a console.info advisory if value > 1.
+//
+//   state.mechanics.orSteps           → state.mechanics.rounds.operating.steps
+//                                       (delicate — each toggle drives an
+//                                       inferred step with provenance per
+//                                       STEPS_INFERENCE.md §5; deferred to the
+//                                       inference-engine PR per
+//                                       EXPORT_COHERENCE.md §10).
+//
+// Legacy fields are NOT removed by the migration — leaving them in place keeps
+// existing UI surfaces (mechanics-panel left tree, etc.) functional during the
+// cutover. They become read-only artifacts; new authoring flows through the
+// canonical .rounds shape.
 function initRoundsState() {
   if (typeof state === 'undefined' || !state.mechanics) return;
   if (!state.mechanics.rounds) {
@@ -80,11 +158,74 @@ function initRoundsState() {
   });
   _migrateSubclassToHooks(state.mechanics.rounds.merger);
 
-  // Legacy mechanics.{initialRound, stockRoundsPerSet, mergerRound, orSteps}
-  // migration is documented (with current schema status and policy) in the
-  // "Rounds schema" comment block at the top of mechanics-panel.js. Two of
-  // the four flat fields lack a settled nested home, so no migration helper
-  // ships yet; that block tracks the open questions.
+  // Legacy mechanics.{initialRound, mergerRound} → canonical .rounds.* shape.
+  // Idempotent: each helper checks the canonical slot's current value and
+  // declines to overwrite if the user has already authored via the new UI.
+  // orSteps migration is deferred to the inference-engine PR (Addy's domain
+  // per STEPS_INFERENCE.md §5 + EXPORT_COHERENCE.md §10).
+  _migrateLegacyInitialRound();
+  _migrateLegacyMergerRound();
+  _adviseLegacyStockRoundsPerSet();
+}
+
+// state.mechanics.initialRound (string) → rounds.initial.class.
+// Maps the legacy enum to the canonical class enum. Skips when the canonical
+// slot already has a non-default class (user has authored via Tier A).
+function _migrateLegacyInitialRound() {
+  const m = state.mechanics;
+  if (!m || typeof m.initialRound !== 'string') return;
+  const slot = m.rounds.initial || (m.rounds.initial = {});
+  // Don't clobber explicit user authorship.
+  if (slot.class && slot.class !== 'auction') return;
+
+  const map = {
+    waterfall_auction:     'auction',
+    draft:                 'draft',
+    none:                  'stock_direct',
+    // No clean canonical mapping — leave at default 'auction' and flag.
+    parliament:            'auction',
+    certificate_selection: 'auction',
+  };
+  const target = map[m.initialRound];
+  if (target == null) return;
+  slot.class = target;
+
+  if (m.initialRound === 'parliament' || m.initialRound === 'certificate_selection') {
+    // The legacy value carries information the canonical schema can't yet
+    // express. Stash a TODO marker in the user's view so they don't lose it.
+    slot.legacyInitialRound = m.initialRound;
+  }
+}
+
+// state.mechanics.mergerRound (bool) → rounds.merger object.
+// True → create the merger object with the same defaults as the toggle handler.
+// False or absent → leave rounds.merger alone (already null in the canonical
+// shape; never inferred to be enabled from a missing legacy field).
+function _migrateLegacyMergerRound() {
+  const m = state.mechanics;
+  if (!m || typeof m.mergerRound !== 'boolean') return;
+  if (!m.mergerRound) return;
+  if (m.rounds.merger != null) return;       // already enabled via canonical UI
+  if (typeof _defaultMergerRound !== 'function') return;
+  m.rounds.merger = Object.assign(_defaultMergerRound(), { enabled: true });
+}
+
+// state.mechanics.stockRoundsPerSet > 1 has no canonical home — multi-SR-per-set
+// loops need explicit transitionHook authorship to chain SRs. Surface as a
+// console.info advisory so the developer can tell where to look.
+function _adviseLegacyStockRoundsPerSet() {
+  const m = state.mechanics;
+  if (!m || typeof m.stockRoundsPerSet !== 'number') return;
+  if (m.stockRoundsPerSet <= 1) return;
+  if (m._stockRoundsPerSetAdvised) return;
+  m._stockRoundsPerSetAdvised = true;
+  if (typeof console !== 'undefined' && console.info) {
+    console.info(
+      '[rounds-panel] state.mechanics.stockRoundsPerSet=' + m.stockRoundsPerSet +
+      ' has no canonical .rounds slot. Multi-SR-per-set loops require an explicit ' +
+      'transitionHook on the Stock tab — see EXPORT_COHERENCE.md §6.'
+    );
+  }
 }
 
 // Mutate a round slot in place: route legacy `subclass.body` content into
@@ -1594,8 +1735,9 @@ const _ROUND_END_PRESETS = [
       "  float_minor(arr[0])\n" +
       "end\n" +
       "\n" +
-      "# Every minor with no bids will export a L/2 train. If no bid on first minors bidbox an additional\n" +
+      "# Every minor with no bids will export a L/2 train. If no bid on first minors bidbidbox an additional\n" +
       "# train will be exported, additionally the minor is also removed from the game.\n" +
+      "# This will procced the whole game\n" +
       "remove_l_trains(remove_l_count) if remove_l_count.positive? && @game.depot.upcoming.first.name == 'L'\n" +
       "remove_minor_and_first_train(remove_minor) if remove_minor\n" +
       "\n" +

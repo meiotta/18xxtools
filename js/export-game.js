@@ -560,7 +560,9 @@ function _grbInitRoundBody(rounds) {
   const className = hasEndHook
     ? _grbReadEndHookName(r, _grbCapitalize(cls))
     : _GRB_INITIAL_CLASS[cls];
-  if (!className) return `# TODO: unknown initial round class '${cls}'`;
+  if (!className) {
+    return `raise NotImplementedError, "Unknown initial round class '${cls}'. Edit Tier A on the Initial sub-tab or paste a custom subclass body."`;
+  }
 
   const parts = [_grbStepArrayLiteral(steps)];
   if (optsStr) parts.push(optsStr);
