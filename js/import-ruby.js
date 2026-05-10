@@ -1123,7 +1123,7 @@ function _rbParseCompany(hashStr) {
     color, textColor,
     companyType: isConc ? 'concession' : 'private',
     closesOn: '', buyerType,
-    ability: desc,
+    desc: desc,
     abilities: isConc
       ? abilities.filter(a => a.type !== 'exchange' && a.type !== 'blocks_hexes_consent' && a.type !== 'blocks_hexes')
       : abilities,
