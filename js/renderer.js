@@ -2600,7 +2600,7 @@ function buildHexSvg(r, c, hex) {
   // Neutral hex-grid stroke only — selection and borders are drawn in a
   // separate overlay pass in render() so that later hex fills can't cover them.
   let g = `<g id="hex_${r}_${c}" data-id="${escSvg(id)}" transform="translate(${center.x.toFixed(2)},${center.y.toFixed(2)})">`;
-  g += `<polygon points="${hexPts}" fill="${color}" stroke="#666" stroke-width="1"/>`;
+  g += `<polygon points="${hexPts}" fill="${color}" stroke-width="1" style="stroke:var(--border-mid)"/>`;
 
   if (!hex?.killed) {
     // Determine whether this hex has a city/town/oo symbol that occupies hex centre.
@@ -3022,10 +3022,11 @@ function render() {
       const _isMulti = selectedHexes?.has(_oid);
       const _isDrag  = (typeof dragOverHex !== 'undefined') && dragOverHex === _oid;
       if (_isSel || _isMulti || _isDrag) {
-        let _sc = '#ffd700', _sw = 2, _sd = '';
-        if (_isDrag)        { _sc = '#ffffff'; _sw = 3; _sd = ' stroke-dasharray="5,3"'; }
-        else if (_isMulti)  { _sc = '#00ccff'; _sw = 2; _sd = ' stroke-dasharray="4,3"'; }
-        selOverlay += `<polygon transform="translate(${_otx},${_oty})" points="${_overlayPts}" fill="none" stroke="${_sc}" stroke-width="${_sw}"${_sd}/>`;
+        // stroke via style so CSS custom properties resolve (presentation attrs don't support vars).
+        let _sw = 2, _sd = '', _ss = 'style="stroke:var(--accent)"';
+        if (_isDrag)       { _ss = 'style="stroke:var(--text-primary)"'; _sw = 3; _sd = ' stroke-dasharray="5,3"'; }
+        else if (_isMulti) { _ss = 'style="stroke:#00ccff"';             _sw = 2; _sd = ' stroke-dasharray="4,3"'; }
+        selOverlay += `<polygon transform="translate(${_otx},${_oty})" points="${_overlayPts}" fill="none" stroke-width="${_sw}"${_sd} ${_ss}/>`;
       }
     }
   }
