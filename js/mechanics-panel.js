@@ -1731,10 +1731,12 @@ function renderRoundStructure(m) {
 
 function renderTileLays(m) {
   const tl = m.tileLays || {};
+  const defSlots = tl.default || [DEFAULT_TILE_LAY_SLOT];
   return `
     ${toggle('Allow removing town dits', 'allowRemovingTowns', m.allowRemovingTowns)}
     <p class="mech-hint" style="margin-top:12px;">Default (all entity types):</p>
-    ${renderSlotEditor(tl.default || [DEFAULT_TILE_LAY_SLOT], 'tileLays.default')}
+    ${renderSlotEditor(defSlots, 'tileLays.default', true)}
+    <button class="mech-btn-small" data-add-slot="tileLays.default" style="margin-top:4px;">+ Add slot</button>
     <p class="mech-hint" style="margin-top:12px;">Override for major corporations:</p>
     ${renderSlotEditorOrNull(tl.byType && tl.byType.major, 'tileLays.byType.major')}
     <p class="mech-hint" style="margin-top:12px;">Override for minor corporations:</p>
@@ -1746,7 +1748,7 @@ function renderTileLays(m) {
     </p>`;
 }
 
-function renderSlotEditor(slots, keyPrefix) {
+function renderSlotEditor(slots, keyPrefix, allowRemove) {
   return slots.map((s, i) => `
     <div class="mech-slot" data-slot-prefix="${keyPrefix}.${i}">
       <span class="mech-slot-num">Slot ${i + 1}</span>
@@ -1761,6 +1763,7 @@ function renderSlotEditor(slots, keyPrefix) {
       </select></label>
       <label>Cost <input type="number" min="0" data-slotkey="cost" value="${s.cost || 0}"></label>
       ${toggleSlot("Can't reuse same hex", 'cannot_reuse_same_hex', s.cannot_reuse_same_hex)}
+      ${allowRemove && i > 0 ? `<button class="mech-btn-small mech-btn-danger" data-remove-slot="${keyPrefix}.${i}" style="margin-left:auto;">✕</button>` : ''}
     </div>`).join('');
 }
 
@@ -2080,6 +2083,37 @@ function onRemoveOverride(keyPath) {
   renderMechanicsLeft();
   renderMechanicsRight();
 }
+function onAddSlot(keyPath) {
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  const path = keyPath.split('.');
+  let obj = state.mechanics;
+  for (let i = 0; i < path.length - 1; i++) { if (!obj[path[i]]) obj[path[i]] = {}; obj = obj[path[i]]; }
+  const key = path[path.length - 1];
+  if (!Array.isArray(obj[key])) obj[key] = [Object.assign({}, DEFAULT_TILE_LAY_SLOT)];
+  const arr = obj[key];
+  arr.push(Object.assign({}, DEFAULT_TILE_LAY_SLOT, { cost: 0 }));
+  const rubyKey = _tileFmKey(keyPath);
+  if (rubyKey) _fmWrite(rubyKey, arr);
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
+function onRemoveSlot(slotPath) {
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  const parts = slotPath.split('.');
+  const idx   = Number(parts.pop());
+  const keyPath = parts.join('.');
+  const path  = parts;
+  let obj = state.mechanics;
+  for (const seg of path) { if (!obj[seg]) return; obj = obj[seg]; }
+  if (!Array.isArray(obj) || obj.length <= 1) return;
+  obj.splice(idx, 1);
+  const rubyKey = _tileFmKey(keyPath);
+  if (rubyKey) _fmWrite(rubyKey, obj);
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
 
 // ---------------------------------------------------------------------------
 // Show / hide
@@ -2185,6 +2219,8 @@ function wireMechanicsPanel() {
     if (e.target.dataset.removeEvent !== undefined)   onRemoveEvent(Number(e.target.dataset.removeEvent));
     if (e.target.dataset.overrideKey)                 onEnableOverride(e.target.dataset.overrideKey);
     if (e.target.dataset.removeOverride)              onRemoveOverride(e.target.dataset.removeOverride);
+    if (e.target.dataset.addSlot)                     onAddSlot(e.target.dataset.addSlot);
+    if (e.target.dataset.removeSlot)                  onRemoveSlot(e.target.dataset.removeSlot);
   });
 }
 
