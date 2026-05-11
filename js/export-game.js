@@ -124,18 +124,18 @@ function _rbPrivate(priv) {
   const ii = '    ';
   const lines = [];
   lines.push(i + '{');
-  lines.push(ii + 'name: '    + _rbQuote(priv.name || ''));
-  lines.push(ii + 'value: '   + (priv.cost != null ? priv.cost : (priv.value || 0)));
+  lines.push(ii + 'name: '    + _rbQuote(priv.name || '') + ',');
+  lines.push(ii + 'value: '   + (priv.cost != null ? priv.cost : (priv.value || 0)) + ',');
   const rev = priv.revenue;
-  if (Array.isArray(rev)) lines.push(ii + 'revenue: ' + _rbNumArr(rev));
-  else                    lines.push(ii + 'revenue: ' + (rev != null ? rev : 0));
+  if (Array.isArray(rev)) lines.push(ii + 'revenue: ' + _rbNumArr(rev) + ',');
+  else                    lines.push(ii + 'revenue: ' + (rev != null ? rev : 0) + ',');
   const desc = priv.ability || priv.desc || '';
-  if (desc) lines.push(ii + 'desc: ' + _rbQuote(desc));
-  lines.push(ii + 'sym: ' + _rbQuote(priv.sym || priv.abbr || ''));
-  if (priv.minPrice != null) lines.push(ii + 'min_price: ' + priv.minPrice);
-  if (priv.maxPrice != null) lines.push(ii + 'max_price: ' + priv.maxPrice);
+  if (desc) lines.push(ii + 'desc: ' + _rbQuote(desc) + ',');
+  lines.push(ii + 'sym: ' + _rbQuote(priv.sym || priv.abbr || '') + ',');
+  if (priv.minPrice != null) lines.push(ii + 'min_price: ' + priv.minPrice + ',');
+  if (priv.maxPrice != null) lines.push(ii + 'max_price: ' + priv.maxPrice + ',');
   if (priv.color && !/^#(000|666)/.test(priv.color))
-    lines.push(ii + 'color: ' + _rbColor(priv.color));
+    lines.push(ii + 'color: ' + _rbColor(priv.color) + ',');
   const abs = priv.abilities || [];
   if (abs.length) {
     lines.push(ii + 'abilities: [');
@@ -162,29 +162,29 @@ function _rbCorp(co, pack, gameCap) {
   const maxOwn   = pack.maxOwnershipPct ?? 60;
   const amp      = pack.alwaysMarketPrice || false;
   lines.push(i + '{');
-  lines.push(ii + 'sym: '  + _rbQuote(co.sym  || ''));
-  lines.push(ii + 'name: ' + _rbQuote(co.name || ''));
-  if (co.logo)  lines.push(ii + 'logo: ' + _rbQuote(co.logo));
-  lines.push(ii + 'color: ' + _rbColor(co.color || '#666666'));
+  lines.push(ii + 'sym: '  + _rbQuote(co.sym  || '') + ',');
+  lines.push(ii + 'name: ' + _rbQuote(co.name || '') + ',');
+  if (co.logo)  lines.push(ii + 'logo: ' + _rbQuote(co.logo) + ',');
+  lines.push(ii + 'color: ' + _rbColor(co.color || '#666666') + ',');
   if (co.textColor && !/^#fff/i.test(co.textColor))
-    lines.push(ii + 'text_color: ' + _rbColor(co.textColor));
-  lines.push(ii + 'tokens: ' + _rbNumArr(tokens));
+    lines.push(ii + 'text_color: ' + _rbColor(co.textColor) + ',');
+  lines.push(ii + 'tokens: ' + _rbNumArr(tokens) + ',');
   if (co.coordinates)
-    lines.push(ii + 'coordinates: ' + _rbQuote(co.coordinates));
+    lines.push(ii + 'coordinates: ' + _rbQuote(co.coordinates) + ',');
   if (co.city && parseInt(co.city) !== 0)
-    lines.push(ii + 'city: ' + parseInt(co.city));
+    lines.push(ii + 'city: ' + parseInt(co.city) + ',');
   if (co.destinationCoordinates)
-    lines.push(ii + 'destination_coordinates: ' + _rbQuote(co.destinationCoordinates));
+    lines.push(ii + 'destination_coordinates: ' + _rbQuote(co.destinationCoordinates) + ',');
   if (JSON.stringify(shares) !== _RB_DEFAULT_SHARES)
-    lines.push(ii + 'shares: ' + _rbNumArr(shares));
+    lines.push(ii + 'shares: ' + _rbNumArr(shares) + ',');
   if (floatPct !== 60)
-    lines.push(ii + 'float_percent: ' + floatPct);
+    lines.push(ii + 'float_percent: ' + floatPct + ',');
   if (maxOwn !== 60)
-    lines.push(ii + 'max_ownership_percent: ' + maxOwn);
+    lines.push(ii + 'max_ownership_percent: ' + maxOwn + ',');
   if (amp)
-    lines.push(ii + 'always_market_price: true');
+    lines.push(ii + 'always_market_price: true,');
   if (cap !== gameCap)
-    lines.push(ii + 'capitalization: :' + cap);
+    lines.push(ii + 'capitalization: :' + cap + ',');
   const abs = co.abilities || [];
   if (abs.length) {
     lines.push(ii + 'abilities: [');

@@ -166,25 +166,25 @@ function _eiPrivateEntry(priv) {
   const lines = [];
 
   lines.push(i2 + '{');
-  lines.push(i4 + 'name: '  + _eiStr(priv.name  || ''));
-  lines.push(i4 + 'value: ' + (priv.cost || 0));
+  lines.push(i4 + 'name: '  + _eiStr(priv.name  || '') + ',');
+  lines.push(i4 + 'value: ' + (priv.cost || 0) + ',');
 
   // Revenue — number or phase array
   const rev = priv.revenue;
-  if (Array.isArray(rev)) lines.push(i4 + 'revenue: ' + _eiNumArr(rev));
-  else                    lines.push(i4 + 'revenue: ' + (rev != null ? rev : 0));
+  if (Array.isArray(rev)) lines.push(i4 + 'revenue: ' + _eiNumArr(rev) + ',');
+  else                    lines.push(i4 + 'revenue: ' + (rev != null ? rev : 0) + ',');
 
   if (priv.ability)
-    lines.push(i4 + 'desc: ' + _eiStr(priv.ability));
+    lines.push(i4 + 'desc: ' + _eiStr(priv.ability) + ',');
 
-  lines.push(i4 + 'sym: ' + _eiStr(priv.sym || ''));
+  lines.push(i4 + 'sym: ' + _eiStr(priv.sym || '') + ',');
 
-  if (priv.minPrice != null) lines.push(i4 + 'min_price: ' + priv.minPrice);
-  if (priv.maxPrice != null) lines.push(i4 + 'max_price: ' + priv.maxPrice);
+  if (priv.minPrice != null) lines.push(i4 + 'min_price: ' + priv.minPrice + ',');
+  if (priv.maxPrice != null) lines.push(i4 + 'max_price: ' + priv.maxPrice + ',');
 
   // Color — omit if it's the default placeholder gray
   if (priv.color && priv.color !== '#666666' && priv.color !== '#000000')
-    lines.push(i4 + 'color: ' + _eiColor(priv.color));
+    lines.push(i4 + 'color: ' + _eiColor(priv.color) + ',');
 
   // Abilities
   const abilities = priv.abilities || [];
