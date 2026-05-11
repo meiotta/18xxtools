@@ -87,7 +87,7 @@ function _igExtractAllConstants(src) {
     const trimmed = line.trim();
 
     // Skip structural wrappers and method boundaries
-    if (!trimmed || /^(require|module|class|include|def|end)\b/.test(trimmed) ||
+    if (!trimmed || /^(require_relative|require|module|class|include|def|end)\b/.test(trimmed) ||
         trimmed.startsWith('#')) {
       i++;
       continue;

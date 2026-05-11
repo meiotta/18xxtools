@@ -762,6 +762,44 @@ const _GRB_MODULES = [
     },
   },
 
+  // ── Market ───────────────────────────────────────────────────────────────────
+  {
+    id: 'market',
+    emit(state) {
+      const f = state.financials || {};
+      const rows = f.market || [];
+      if (!rows.length) {
+        return { stock_round: "MARKET = [\n          [100,110,120,130,140,150,160,170,180,190,200]\n        ].freeze" };
+      }
+      const oneD = !Array.isArray(rows[0]);
+      if (oneD) {
+        const cells = rows.map(c => {
+          if (typeof c === 'object' && c !== null) {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return { stock_round: `MARKET = [\n          [${cells.join(', ')}]\n        ].freeze` };
+      }
+      const rbRows = rows.map(row => {
+        if (!Array.isArray(row)) return '          []';
+        const cells = row.map(c => {
+          if (c === null || c === undefined) return 'nil';
+          if (typeof c === 'object') {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return `          [${cells.join(', ')}]`;
+      });
+      return { stock_round: `MARKET = [\n${rbRows.join(',\n')}\n        ].freeze` };
+    },
+  },
+
   // ── Operating Round ──────────────────────────────────────────────────────────
   {
     id: 'or_rules',
@@ -1065,7 +1103,7 @@ require_relative 'map'
 
 module Engine
   module Game
-    module G{{MODULE}}
+    module {{MODULE}}
       class Game < Engine::Game::Base
         include Entities
         include Map
@@ -1115,7 +1153,7 @@ const _ENTITIES_RB_SKELETON = `\
 
 module Engine
   module Game
-    module G{{MODULE}}
+    module {{MODULE}}
       module Entities
         # ── Private Companies ─────────────────────────────────────────────────
 {{SLOT_COMPANIES}}
