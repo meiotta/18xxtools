@@ -1984,8 +1984,14 @@ function applyMapImport(content, sourceName) {
 
   const collisions = Object.keys(result.customTiles).length > 0
     ? TileRegistry.detectEmbeddedCollisions(result.customTiles) : [];
-  if (collisions.length > 0) _showTileCollisionDialog(collisions, applyResult);
-  else applyResult({}, {});
+  // When the Erin test harness sets __erinSkipCollisionDialog, auto-apply
+  // pack-wins without showing the interactive modal.  Regular UI usage is
+  // unaffected (flag is always falsy in the browser).
+  if (collisions.length > 0 && !window.__erinSkipCollisionDialog) {
+    _showTileCollisionDialog(collisions, applyResult);
+  } else {
+    applyResult({}, {});
+  }
 }
 
 // Parses entities content and applies to state.
