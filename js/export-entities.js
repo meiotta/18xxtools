@@ -1,5 +1,5 @@
 // js/export-entities.js
-// Converts state.privates + state.corpPacks → COMPANIES / CORPORATIONS / MINORS
+// Converts state.privates + state.companies + state.minors → COMPANIES / CORPORATIONS / MINORS
 // Wired to #exportEntitiesBtn (⬆ Export → Entities (.rb)).
 //
 // Field names follow tobymao lib/engine/corporation.rb exactly.
@@ -224,7 +224,11 @@ function exportEntitiesRb() {
   }
 
   // ── CORPORATIONS ───────────────────────────────────────────────────────────
-  const corps  = state.companies || [];
+  // state.companies may contain entries with type:'minor' when the importer
+  // places all entities into one array; split here so they land in the right block.
+  const allCompanies = state.companies || [];
+  const corps   = allCompanies.filter(c => (c.type || 'major') !== 'minor');
+  const corpMin = allCompanies.filter(c => c.type === 'minor');
 
   if (corps.length) {
     out.push('CORPORATIONS = [');
@@ -234,7 +238,7 @@ function exportEntitiesRb() {
   }
 
   // ── MINORS ─────────────────────────────────────────────────────────────────
-  const minors = state.minors || [];
+  const minors = [...corpMin, ...(state.minors || [])];
 
   if (minors.length) {
     out.push('MINORS = [');
