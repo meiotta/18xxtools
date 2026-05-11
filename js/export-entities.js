@@ -256,14 +256,19 @@ function exportEntitiesRb() {
 // ── Button wiring ─────────────────────────────────────────────────────────────
 
 document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
+  if (!state?.meta?.title?.trim()) {
+    alert('Set a game title before exporting.\n\nOpen the Config tab (right panel) and enter a title in the "Game Title" field.');
+    const inp = document.getElementById('gameTitleInput');
+    if (inp) inp.focus();
+    return;
+  }
   try {
     const src  = exportEntitiesRb();
     const blob = new Blob([src], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    const slug = ((state.meta && state.meta.title) || 'game')
-      .replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+    const slug = state.meta.title.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
     a.download = slug + '_entities.rb';
     document.body.appendChild(a);
     a.click();

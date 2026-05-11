@@ -43,6 +43,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     if (typeof renderLogicRules === 'function') renderLogicRules();
     buildPalette();
     syncOrientationSelect();
+    if (typeof syncTitleInput === 'function') syncTitleInput();
     syncDimInputs();
     render();
     autosave();
@@ -115,6 +116,7 @@ function _applyAutosave(data) {
   if (bl) bl.textContent = state.meta.baseGame ? 'Base: ' + state.meta.baseGame : '';
   syncDimInputs();
   if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
+  if (typeof syncTitleInput        === 'function') syncTitleInput();
   if (typeof syncFinancialsUI      === 'function') syncFinancialsUI();
   if (typeof renderMarketEditor    === 'function') renderMarketEditor();
   if (typeof renderLogicRules      === 'function') renderLogicRules();
@@ -163,6 +165,7 @@ document.getElementById('newMapBtn').addEventListener('click', () => {
   document.getElementById('baseGameLabel').textContent = '';
   syncDimInputs();
   if (typeof syncOrientationSelect === 'function') syncOrientationSelect();
+  if (typeof syncTitleInput        === 'function') syncTitleInput();
   if (typeof buildPalette          === 'function') buildPalette();
   if (typeof renderCompaniesTable  === 'function') renderCompaniesTable();
   if (typeof renderMarketEditor    === 'function') renderMarketEditor();

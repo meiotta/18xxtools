@@ -1971,6 +1971,7 @@ function applyMapImport(content, sourceName) {
         TileRegistry.setEmbeddedTiles(result.customTiles);
     }
     syncOrientationSelect();
+    if (typeof syncTitleInput === 'function') syncTitleInput();
     syncDimInputs();
     panX = 0; panY = 0; zoom = 1;
     render();

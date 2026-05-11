@@ -1219,7 +1219,18 @@ function _grbDownload(content, filename) {
 
 // ── Button wiring ─────────────────────────────────────────────────────────────
 
+function _requireTitle() {
+  if (!state?.meta?.title?.trim()) {
+    alert('Set a game title before exporting.\n\nOpen the Config tab (right panel) and enter a title in the "Game Title" field.');
+    const inp = document.getElementById('gameTitleInput');
+    if (inp) inp.focus();
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('exportGameBtn').addEventListener('click', () => {
+  if (!_requireTitle()) return;
   try {
     const src  = renderGameRb();
     const slug = _grbModuleName(state).toLowerCase();
@@ -1232,6 +1243,7 @@ document.getElementById('exportGameBtn').addEventListener('click', () => {
 });
 
 document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
+  if (!_requireTitle()) return;
   try {
     const src  = renderEntitiesRb();
     const slug = _grbModuleName(state).toLowerCase();
@@ -1244,6 +1256,7 @@ document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
 });
 
 document.getElementById('exportMetaBtn').addEventListener('click', () => {
+  if (!_requireTitle()) return;
   try {
     const src  = renderMetaRb();
     const slug = _grbModuleName(state).toLowerCase();
