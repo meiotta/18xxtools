@@ -156,11 +156,16 @@ function _rbCorp(co, pack, gameCap) {
   const ii = '    ';
   const lines = [];
   const floatPct = co.floatPctOverride != null ? co.floatPctOverride : (pack.floatPct ?? 60);
-  const tokens   = co.tokensOverride   != null ? co.tokensOverride   : (pack.tokens || [0, 40, 100]);
+  const rawTok   = co.tokensOverride   != null ? co.tokensOverride   : (pack.tokens || [0, 40, 100]);
+  // tokens may arrive as a count (e.g. 3) rather than a cost array — normalize
+  const tokens   = Array.isArray(rawTok) ? rawTok
+                 : (typeof rawTok === 'number' && rawTok < 20) ? new Array(rawTok).fill(0)
+                 : rawTok;
   const shares   = pack.shares || [20, 10, 10, 10, 10, 10, 10, 10, 10];
   const cap      = pack.capitalization  || 'full';
   const maxOwn   = pack.maxOwnershipPct ?? 60;
   const amp      = pack.alwaysMarketPrice || false;
+  const coord    = co.coordinates || co.homeHex || '';
   lines.push(i + '{');
   lines.push(ii + 'sym: '  + _rbQuote(co.sym  || '') + ',');
   lines.push(ii + 'name: ' + _rbQuote(co.name || '') + ',');
@@ -169,8 +174,8 @@ function _rbCorp(co, pack, gameCap) {
   if (co.textColor && !/^#fff/i.test(co.textColor))
     lines.push(ii + 'text_color: ' + _rbColor(co.textColor) + ',');
   lines.push(ii + 'tokens: ' + _rbNumArr(tokens) + ',');
-  if (co.coordinates)
-    lines.push(ii + 'coordinates: ' + _rbQuote(co.coordinates) + ',');
+  if (coord)
+    lines.push(ii + 'coordinates: ' + _rbQuote(coord) + ',');
   if (co.city && parseInt(co.city) !== 0)
     lines.push(ii + 'city: ' + parseInt(co.city) + ',');
   if (co.destinationCoordinates)
@@ -994,12 +999,10 @@ const _GRB_MODULES = [
     id: 'corporations',
     emit(state) {
       const gameCap = state.mechanics?.capitalization || 'full';
-      const packs   = (state.corpPacks || []).filter(pk => pk.type !== 'minor');
-      const entries = [];
-      packs.forEach(pack => (pack.companies || []).forEach(co => entries.push({ co, pack })));
-      if (!entries.length) return null;
+      const corps   = (state.companies || []).filter(c => (c.type || 'major') !== 'minor');
+      if (!corps.length) return null;
       const lines = ['CORPORATIONS = ['];
-      entries.forEach(({ co, pack }) => lines.push(_rbCorp(co, pack, gameCap)));
+      corps.forEach(co => lines.push(_rbCorp(co, co, gameCap)));
       lines.push('].freeze');
       return { corporations: lines.join('\n') };
     },
@@ -1046,12 +1049,13 @@ const _GRB_MODULES = [
     id: 'minors',
     emit(state) {
       const gameCap = state.mechanics?.capitalization || 'full';
-      const packs   = (state.corpPacks || []).filter(pk => pk.type === 'minor');
-      const entries = [];
-      packs.forEach(pack => (pack.companies || []).forEach(co => entries.push({ co, pack })));
-      if (!entries.length) return null;
+      const minors  = [
+        ...(state.companies || []).filter(c => c.type === 'minor'),
+        ...(state.minors    || []),
+      ];
+      if (!minors.length) return null;
       const lines = ['MINORS = ['];
-      entries.forEach(({ co, pack }) => lines.push(_rbCorp(co, pack, gameCap)));
+      minors.forEach(co => lines.push(_rbCorp(co, co, gameCap)));
       lines.push('].freeze');
       return { minors: lines.join('\n') };
     },
@@ -1305,3 +1309,6 @@ document.getElementById('exportMetaBtn').addEventListener('click', () => {
     alert('Export failed: ' + err.message);
   }
 });
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
