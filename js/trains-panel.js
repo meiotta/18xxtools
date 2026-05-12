@@ -84,11 +84,11 @@ function renderTrainsTable() {
                 <div class="phase-sliver" style="background:${phaseColor}; width:6px; position:absolute; top:0; bottom:0; left:0;"></div>
             </td>
             <td>
-                <span class="train-auto-label">${label}</span>
+                <input type="text" class="tr-label" value="${tr.label || ''}" placeholder="${label}" style="width:64px;font-size:11px;background:transparent;border:none;border-bottom:1px solid var(--border-mid);color:var(--text-primary);padding:0;" title="Custom label (blank = auto-compute)">
                 ${hasVariants ? `<button class="var-toggle" title="${tr._expanded ? 'Collapse variants' : 'Show variants'}">${tr._expanded ? '▼' : '▶'} ${tr.variants.length}</button>` : ''}
                 ${!hasVariants ? `<button class="add-variant-btn" title="Add a variant train" style="background:transparent;border:none;color:var(--text-dim);font-size:10px;opacity:0.5;cursor:pointer;margin-left:4px;padding:1px 4px;">+ Add Variant</button>` : ''}
                 ${isLinked ? `<span class="train-linked-badge" title="Granted by private company ${linkedSym}">🔗 ${linkedSym}</span>` : ''}
-                ${hasEvents ? `<span class="train-events-badge" title="${(tr.events||[]).map(function(ev){return ev.type;}).join(', ')}">⚡ ${(tr.events||[]).length}</span>` : ''}
+                <button class="events-toggle-btn" title="${hasEvents ? 'Events: ' + (tr.events||[]).map(function(ev){return ev.type;}).join(', ') : 'Add train events'}" style="background:transparent;border:none;cursor:pointer;padding:1px 5px;font-size:10px;color:${hasEvents ? '#e8d44d' : 'var(--text-dim)'};opacity:${hasEvents ? '1' : '0.45'};">⚡${hasEvents ? ' ' + (tr.events||[]).length : ''}</button>
                 ${isSpecial && tr.grantedBy && tr.grantedBy.length ? `<div class="train-granted-line">${tr.grantedBy.map(function(g){return g.name?g.sym+' \u2014 '+g.name:g.sym;}).join(' &middot; ')}</div>` : ''}
                 ${isSpecial && (!tr.grantedBy || !tr.grantedBy.length) ? '<div class="train-granted-line">Permanent — not in open depot</div>' : ''}
             </td>
@@ -157,6 +157,8 @@ function renderTrainsTable() {
         });
 
         trRow.querySelector('.tr-cost').addEventListener('change', (e) => { tr.cost = parseInt(e.target.value) || 0; autosave(); });
+        trRow.querySelector('.tr-label').addEventListener('change', (e) => { tr.label = e.target.value.trim(); renderTrainsTable(); autosave(); });
+        trRow.querySelector('.events-toggle-btn').addEventListener('click', () => { tr._eventsOpen = !tr._eventsOpen; renderTrainsTable(); });
 
         trRow.querySelector('.qty-dec').addEventListener('click', () => { if (tr.count === null) return; tr.count = Math.max(0, (tr.count || 0) - 1); renderTrainsTable(); autosave(); });
         trRow.querySelector('.qty-inc').addEventListener('click', () => { if (tr.count === null) return; tr.count = (tr.count || 0) + 1; renderTrainsTable(); autosave(); });
@@ -212,6 +214,51 @@ function renderTrainsTable() {
             });
         }
 
+        // Events editor sub-row
+        if (tr._eventsOpen) {
+            const evRow = document.createElement('tr');
+            evRow.className = 'variant-sub-row';
+            const evList = tr.events || [];
+            evRow.innerHTML = `
+                <td></td>
+                <td colspan="7" style="padding:6px 8px 6px 18px;">
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                        <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.07em;">Events:</span>
+                        ${evList.map((ev, ei) => `
+                            <span class="status-chip" style="display:inline-flex;align-items:center;gap:4px;">
+                                <span style="font-size:11px;">${ev.type}</span>
+                                <button class="status-chip-remove ev-del" data-ei="${ei}">×</button>
+                            </span>
+                        `).join('')}
+                        <input type="text" class="ev-add-input" placeholder="event type…" style="width:130px;font-size:11px;">
+                        <button class="ev-add-btn" style="font-size:11px;padding:2px 8px;cursor:pointer;background:var(--bg-elevated);border:1px solid var(--border-mid);border-radius:4px;color:var(--text-primary);">Add</button>
+                    </div>
+                </td>
+            `;
+            evRow.querySelectorAll('.ev-del').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const ei = parseInt(btn.dataset.ei, 10);
+                    tr.events.splice(ei, 1);
+                    if (!tr.events.length) { delete tr.events; tr._eventsOpen = false; }
+                    renderTrainsTable();
+                    autosave();
+                });
+            });
+            const evInput = evRow.querySelector('.ev-add-input');
+            evRow.querySelector('.ev-add-btn').addEventListener('click', function() {
+                const val = evInput.value.trim();
+                if (!val) return;
+                if (!tr.events) tr.events = [];
+                tr.events.push({ type: val });
+                renderTrainsTable();
+                autosave();
+            });
+            evInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { evRow.querySelector('.ev-add-btn').click(); }
+            });
+            tbody.appendChild(evRow);
+        }
+
         // Variant sub-rows (rendered immediately after parent)
         if (hasVariants && tr._expanded) {
             tr.variants.forEach(function(vtr, vi) {
@@ -246,6 +293,16 @@ function renderTrainsTable() {
                         <span class="qty-val${isUnlimited ? ' is-inf' : ''}" style="opacity:0.45;" title="Shares pool with ${label}">${isUnlimited ? '∞' : (tr.count || 0)}</span>
                     </td>
                     <td>
+                        <div class="rust-zone" style="margin-bottom:3px;">
+                            <label class="compact-switch" title="This variant rusts another train">
+                                <input type="checkbox" class="vtr-rust-check" ${vtr.rusts ? 'checked' : ''}>
+                                <span class="compact-slider"></span>
+                            </label>
+                            <select class="vtr-rust-sel" ${!vtr.rusts ? 'style="display:none;"' : ''}>
+                                <option value="">Rusts on…</option>
+                                ${state.trains.filter(function(t){return !t.isVariant && t !== tr;}).map(function(t){return `<option value="${t.id}" ${vtr.rustsOn === t.id ? 'selected' : ''}>${calculateTrainLabel(t)}</option>`;}).join('')}
+                            </select>
+                        </div>
                         <div class="input-with-label">
                             <span class="input-prefix" style="font-size:9px;">ON</span>
                             <input type="text" class="vtr-available-on" value="${vtr.available_on || ''}" placeholder="always" style="width:52px;font-size:11px;" title="Train name that unlocks this variant (blank = always available)">
@@ -260,6 +317,9 @@ function renderTrainsTable() {
                 vRow.querySelector('.vtr-cost').addEventListener('change', function(e) { vtr.cost = parseInt(e.target.value) || 0; autosave(); });
                 vRow.querySelector('.vtr-del').addEventListener('click', function() { tr.variants.splice(vi, 1); renderTrainsTable(); autosave(); });
                 vRow.querySelector('.vtr-available-on').addEventListener('change', function(e) { vtr.available_on = e.target.value; autosave(); });
+                vRow.querySelector('.vtr-rust-check').addEventListener('change', function(e) { vtr.rusts = e.target.checked; if (!vtr.rusts) vtr.rustsOn = ''; renderTrainsTable(); autosave(); });
+                const vtrRustSel = vRow.querySelector('.vtr-rust-sel');
+                if (vtrRustSel) vtrRustSel.addEventListener('change', function(e) { vtr.rustsOn = e.target.value; autosave(); });
                 tbody.appendChild(vRow);
             });
 
@@ -417,13 +477,17 @@ function renderPhasesTable() {
             </td>
             <td><input type="number" class="ph-ors" value="${ph.ors || 2}" style="width:60px;"></td>
             <td>${(ph.limitMinor != null)
-                ? `<div style="display:flex;gap:4px;align-items:center;">
-                     <input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:46px;" title="Major corp train limit">
+                ? `<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+                     <input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:40px;" title="Major corp train limit">
                      <span style="opacity:0.5;font-size:11px;">maj</span>
-                     <input type="number" class="ph-limit-minor" value="${ph.limitMinor}" style="width:46px;" title="Minor corp train limit">
+                     <input type="number" class="ph-limit-minor" value="${ph.limitMinor}" style="width:40px;" title="Minor corp train limit">
                      <span style="opacity:0.5;font-size:11px;">min</span>
+                     <button class="ph-split-btn" title="Switch to single limit" style="background:transparent;border:1px solid var(--border-mid);border-radius:3px;color:var(--text-dim);font-size:9px;cursor:pointer;padding:1px 4px;">1×</button>
                    </div>`
-                : `<input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:60px;">`
+                : `<div style="display:flex;gap:4px;align-items:center;">
+                     <input type="number" class="ph-limit" value="${ph.limit || 4}" style="width:50px;">
+                     <button class="ph-split-btn" title="Split into major/minor limits" style="background:transparent;border:1px solid var(--border-mid);border-radius:3px;color:var(--text-dim);font-size:9px;cursor:pointer;padding:1px 4px;">maj/min</button>
+                   </div>`
               }</td>
             <td>
                 <select class="ph-tiles">
@@ -431,6 +495,7 @@ function renderPhasesTable() {
                     <option value="green" ${ph.tiles === 'green' ? 'selected' : ''}>+ Green</option>
                     <option value="brown" ${ph.tiles === 'brown' ? 'selected' : ''}>+ Brown</option>
                     <option value="grey" ${ph.tiles === 'grey' ? 'selected' : ''}>+ Grey</option>
+                    <option value="blue" ${ph.tiles === 'blue' ? 'selected' : ''}>+ Blue</option>
                 </select>
             </td>
             <td class="status-picker-cell"></td>
@@ -447,6 +512,12 @@ function renderPhasesTable() {
         const minorInput = row.querySelector('.ph-limit-minor');
         if (minorInput) minorInput.addEventListener('change', (e) => { ph.limitMinor = parseInt(e.target.value) || 1; autosave(); });
         row.querySelector('.ph-tiles').addEventListener('change', (e) => { ph.tiles = e.target.value; autosave(); });
+        row.querySelector('.ph-split-btn').addEventListener('click', () => {
+            if (ph.limitMinor != null) { ph.limitMinor = null; }
+            else { ph.limitMinor = Math.max(1, (ph.limit || 4) - 1); }
+            renderPhasesTable();
+            autosave();
+        });
 
         row.querySelector('.delete-btn').addEventListener('click', () => {
             state.phases.splice(idx, 1);
