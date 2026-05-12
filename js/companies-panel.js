@@ -640,7 +640,7 @@ function renderPrivatesSection() {
     item.className = 'pc-rail-item' + (idx === _selectedPrivateIdx ? ' active' : '');
     item.dataset.idx = idx;
     const dotColor = buyerTypeColor(p);
-    const sym      = `P${idx + 1}`;
+    const sym      = p.sym || `P${idx + 1}`;
     const name     = escHtml(p.name || 'Unnamed');
     const isConc   = (p.companyType || 'private') === 'concession';
     const hasGameRbAbilities = !p.abilities?.length && p.ability &&
@@ -733,7 +733,7 @@ function buildPrivateDetailEl(idx) {
 
   el.innerHTML = `
     <div class="pc-charter-band" style="background:${btData.color}; color:${btData.textColor};">
-      <span class="pc-charter-sym">P${idx + 1}</span>
+      <span class="pc-charter-sym">${p.sym || ('P' + (idx + 1))}</span>
       <div class="pc-type-toggle">
         <button type="button" class="pc-type-pill${currentType === 'private'     ? ' active' : ''}" data-ptype="private">Private</button>
         <button type="button" class="pc-type-pill${currentType === 'concession'  ? ' active' : ''}" data-ptype="concession">Concession</button>
@@ -741,8 +741,18 @@ function buildPrivateDetailEl(idx) {
       <select class="pc-buyer-sel">${btOptionsHTML}</select>
     </div>
     <div class="pc-det-header">
+      <input type="text" class="pc-det-sym" maxlength="8" placeholder="SYM" value="${escHtml(p.sym || '')}" title="Symbol exported to sym: in entities.rb">
       <input type="text" class="pc-det-name" placeholder="Name" value="${escHtml(p.name || '')}">
       <button class="pc-det-delete" title="Delete this private">Delete</button>
+    </div>
+
+    <div class="pc-det-section pc-det-colors">
+      <div class="pc-det-field">
+        <label class="pc-det-label">Charter color</label>
+        ${_buildColorPickerHTML(p.color || '#666666', 'prv-color', CORP_COLORS)}
+        <label class="pc-det-label" style="margin-left:12px;">Text color</label>
+        ${_buildColorPickerHTML(p.textColor || '#ffffff', 'prv-textcolor', TEXT_COLORS)}
+      </div>
     </div>
 
     <div class="pc-det-section pc-det-financials">
@@ -760,6 +770,24 @@ function buildPrivateDetailEl(idx) {
           placeholder="—" value="${p.auctionRow != null ? p.auctionRow : ''}"
           title="auction_row: groups companies into tiers (1828-style tiered waterfall). Leave blank for default single-row.">
         <span class="pc-field-hint">Tier / row (tiered waterfall only)</span>
+      </div>
+      <div class="pc-det-field">
+        <label class="pc-det-label">Min sale price</label>
+        <div class="pc-det-money">$<input type="number" class="pc-det-min-price" min="0" placeholder="—"
+          value="${p.minPrice != null ? p.minPrice : ''}" title="min_price: floor on player-to-player sales"></div>
+        <label class="pc-det-label" style="margin-left:8px;">Max sale price</label>
+        <div class="pc-det-money">$<input type="number" class="pc-det-max-price" min="0" placeholder="—"
+          value="${p.maxPrice != null ? p.maxPrice : ''}" title="max_price: ceiling on player-to-player sales"></div>
+      </div>
+      <div class="pc-det-field">
+        <label class="pc-det-label">Discount</label>
+        <div class="pc-det-money">$<input type="number" class="pc-det-discount" min="0" placeholder="—"
+          value="${p.discount != null ? p.discount : ''}"
+          title="discount: raises minimum bid by this amount above face value (negative top-level discount)"></div>
+        <label class="pc-det-label" style="margin-left:8px;">Min players</label>
+        <input type="number" class="pc-det-min-players" min="2" max="9" placeholder="—"
+          value="${p.minPlayers != null ? p.minPlayers : ''}"
+          title="min_players: company only enters auction in games with at least this many players">
       </div>
     </div>
 
@@ -855,13 +883,43 @@ function buildPrivateDetailEl(idx) {
     const dot = document.querySelector(`.pc-rail-item[data-idx="${idx}"] .pc-rail-dot`);
     if (dot) dot.style.background = bd.color;
   });
+  el.querySelector('.pc-det-sym').addEventListener('change', e => {
+    const v = e.target.value.trim().toUpperCase();
+    state.privates[idx].sym = v || null;
+    el.querySelector('.pc-charter-sym').textContent = v || ('P' + (idx + 1));
+    const railSym = document.querySelector(`.pc-rail-item[data-idx="${idx}"] .pc-rail-sym`);
+    if (railSym) railSym.textContent = v || ('P' + (idx + 1));
+    autosave();
+  });
   el.querySelector('.pc-det-name').addEventListener('change', e => {
     state.privates[idx].name = e.target.value; autosave();
     const railItem = document.querySelector(`.pc-rail-item:nth-child(${idx + 1}) .pc-rail-name`);
     if (railItem) railItem.textContent = state.privates[idx].name || 'Unnamed';
   });
+  _wireColorPicker(el, 'prv-color',     hex => { state.privates[idx].color     = hex; autosave(); });
+  _wireColorPicker(el, 'prv-textcolor', hex => { state.privates[idx].textColor = hex; autosave(); });
   el.querySelector('.pc-det-cost').addEventListener('change',    e => { state.privates[idx].cost    = parseInt(e.target.value) || 0; autosave(); });
   el.querySelector('.pc-det-revenue').addEventListener('change', e => { state.privates[idx].revenue = parseInt(e.target.value) || 0; autosave(); });
+  el.querySelector('.pc-det-min-price').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    state.privates[idx].minPrice = v === '' ? null : (parseInt(v) || 0);
+    autosave();
+  });
+  el.querySelector('.pc-det-max-price').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    state.privates[idx].maxPrice = v === '' ? null : (parseInt(v) || 0);
+    autosave();
+  });
+  el.querySelector('.pc-det-discount').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    state.privates[idx].discount = v === '' ? null : (parseInt(v) || 0);
+    autosave();
+  });
+  el.querySelector('.pc-det-min-players').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    state.privates[idx].minPlayers = v === '' ? null : (parseInt(v) || 2);
+    autosave();
+  });
   el.querySelector('.pc-det-auction-row').addEventListener('change', e => {
     const v = e.target.value.trim();
     state.privates[idx].auctionRow = v === '' ? null : (parseInt(v) || null);
@@ -1833,6 +1891,12 @@ function _buildCompanyDetailEl(pi, ci) {
         </div>
         <div class="cp-co-coords-err"></div>
         <div class="cp-co-field-row">
+          <label class="cp-co-field-label">Destination</label>
+          <input type="text" class="cp-co-dest-coords" placeholder="e.g. G7 (optional)"
+            value="${escHtml(company.destinationCoordinates || '')}"
+            title="destination_coordinates: hex the corp must reach to collect destination bonus">
+        </div>
+        <div class="cp-co-field-row">
           <label class="cp-co-field-label">Logo path</label>
           <input type="text" class="cp-co-logo" placeholder="e.g. 1882/NYC" value="${escHtml(company.logo || '')}">
         </div>
@@ -1973,7 +2037,12 @@ function _buildCompanyDetailEl(pi, ci) {
     );
   });
 
-  el.querySelector('.cp-co-logo').addEventListener('change',      e => { company.logo         = e.target.value;                 autosave(); });
+  el.querySelector('.cp-co-logo').addEventListener('change', e => { company.logo = e.target.value; autosave(); });
+  el.querySelector('.cp-co-dest-coords').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    company.destinationCoordinates = v || null;
+    autosave();
+  });
 
   const assocMajorEl = el.querySelector('.cp-co-assoc-major');
   if (assocMajorEl) {

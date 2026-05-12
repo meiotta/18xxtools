@@ -1782,6 +1782,20 @@ canvas { display: block; }
   z-index: 2;
 }
 
+.pc-det-sym {
+  width: 60px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+}
+.pc-det-sym:focus { outline: none; border-color: var(--accent); }
+
 .pc-det-name {
   flex: 1;
   font-size: 15px;
