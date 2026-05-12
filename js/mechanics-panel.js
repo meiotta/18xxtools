@@ -811,6 +811,7 @@ function buildFramework() {
         { id: 'corp_mkt_limit',   label: 'Market Share Limit',  value: (m.marketShareLimit ?? 50) + '%', status: 'green' },
         { id: 'corp_bankruptcy',  label: 'Bankruptcy',          value: m.bankruptcyAllowed ? 'allowed' : 'disabled', status: 'green' },
         { id: 'corp_track',       label: 'Track Restriction',   value: m.trackRestriction || 'semi_restrictive', status: 'green' },
+        { id: 'corp_status_text', label: 'Status Text',         value: _describeStatusText(m.statusText),         status: 'green' },
         ...( corps.length === 0
           ? [{ id: 'corp_roster_empty', label: 'No corporations yet — use Companies screen', value: '', status: 'red' }]
           : [{ id: 'corp_roster', label: corps.length + ' corporations defined', value: '', status: 'green', readonly: true }]
@@ -938,6 +939,11 @@ function _describeGameEnd(gec) {
   const active = Object.entries(gec).filter(([, v]) => v.enabled)
     .map(([k]) => _GEC_LABELS[k] || k);
   return active.length ? active.join(', ') : 'none';
+}
+function _describeStatusText(st) {
+  if (!st || !Object.keys(st).length) return 'none';
+  const keys = Object.keys(st);
+  return keys.length === 1 ? keys[0] : `${keys.length} entries`;
 }
 function _gameEndStatus(gec) {
   if (!gec) return 'red';
@@ -1141,6 +1147,30 @@ function renderMechanicsRight() {
   el.querySelectorAll('[data-remove-event]').forEach(btn => {
     btn.addEventListener('click', () => onRemoveEvent(Number(btn.dataset.removeEvent)));
   });
+  // Status Text add/remove/edit
+  const addStBtn = el.querySelector('#mechAddStBtn');
+  if (addStBtn) addStBtn.addEventListener('click', onAddStatusText);
+  el.querySelectorAll('.mech-st-short').forEach(inp => {
+    inp.addEventListener('change', e => {
+      const key = e.target.dataset.stKey;
+      if (!key || !state.mechanics.statusText?.[key]) return;
+      state.mechanics.statusText[key][0] = e.target.value;
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+    });
+  });
+  el.querySelectorAll('.mech-st-long').forEach(inp => {
+    inp.addEventListener('change', e => {
+      const key = e.target.dataset.stKey;
+      if (!key || !state.mechanics.statusText?.[key]) return;
+      state.mechanics.statusText[key][1] = e.target.value;
+      if (typeof autosave === 'function') autosave();
+      renderMechanicsLeft();
+    });
+  });
+  el.querySelectorAll('[data-remove-status-text]').forEach(btn => {
+    btn.addEventListener('click', () => onRemoveStatusText(btn.dataset.removeStatusText));
+  });
   // Player count chip steppers (minPlayers / maxPlayers)
   el.querySelectorAll('[data-stepper]').forEach(btn => {
     btn.addEventListener('click', e => {
@@ -1229,6 +1259,8 @@ function renderEditorFor(itemId) {
   // ── Corporation game-level rules ──
   if (['corp_home_token','corp_mkt_limit','corp_bankruptcy','corp_track'].includes(itemId))
     return wrap(back, 'Corporation Rules', renderCorpRules(m));
+  if (itemId === 'corp_status_text')
+    return wrap(back, 'Status Text', renderStatusTextEditor(m));
 
   // Corp roster line — show info about CORPORATIONS array
   if (itemId === 'corp_roster' || itemId === 'corp_roster_empty')
@@ -1454,6 +1486,43 @@ function renderCorpRules(m) {
         </label>`
       : `<p class="mech-hint" style="margin:4px 0 0 0;padding:6px 8px;background:var(--accent-dim);border-left:3px solid var(--accent);border-radius:3px;font-size:11px;">Bankruptcy disabled — configure how the shortfall resolves in the <strong>Emergency Buy</strong> section (president must help, player loans, share issuance).</p>`
     }`;
+}
+
+function renderStatusTextEditor(m) {
+  const st = m.statusText || {};
+  const form = m.statusTextForm || 'merge';
+  const rows = Object.entries(st).map(([key, [short, long]], i) => `
+    <div class="mech-st-row" data-st-key="${key}">
+      <strong style="display:block;margin-bottom:4px;font-size:11px;color:var(--label)">${key}</strong>
+      <label>Short
+        <input type="text" class="mech-st-short" data-st-key="${key}" value="${short.replace(/"/g,'&quot;')}" placeholder="short description">
+      </label>
+      <label>Long
+        <input type="text" class="mech-st-long" data-st-key="${key}" value="${long.replace(/"/g,'&quot;')}" placeholder="long description">
+      </label>
+      <button class="mech-remove-btn" data-remove-status-text="${key}" title="Remove">✕</button>
+    </div>`).join('');
+  return `
+    <p class="mech-hint">Per-status-type label pairs shown in the status indicator. Each entry maps a symbol key to a short and long description.</p>
+    <label>Form
+      <select data-mkey="statusTextForm">
+        <option value="merge" ${form === 'merge' ? 'selected' : ''}>Merge with Base (Base::STATUS_TEXT.merge)</option>
+        <option value="plain" ${form === 'plain' ? 'selected' : ''}>Plain hash ({ })</option>
+      </select>
+    </label>
+    <div id="mechStRows">${rows}</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;flex-wrap:wrap;">
+      <label style="flex:1;min-width:90px">Key
+        <input type="text" id="mechNewStKey" placeholder="e.g. connected">
+      </label>
+      <label style="flex:2;min-width:120px">Short
+        <input type="text" id="mechNewStShort" placeholder="short text">
+      </label>
+      <label style="flex:2;min-width:120px">Long
+        <input type="text" id="mechNewStLong" placeholder="long text">
+      </label>
+      <button id="mechAddStBtn" class="mech-add-btn">Add</button>
+    </div>`;
 }
 
 function renderStockRoundRules(m) {
@@ -2059,6 +2128,29 @@ function onRemoveEvent(idx) {
   renderMechanicsLeft();
   renderMechanicsRight();
 }
+function onAddStatusText() {
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  const keyEl   = document.getElementById('mechNewStKey');
+  const shortEl = document.getElementById('mechNewStShort');
+  const longEl  = document.getElementById('mechNewStLong');
+  if (!keyEl || !shortEl || !longEl) return;
+  const key = keyEl.value.trim();
+  if (!key) return;
+  state.mechanics.statusText = state.mechanics.statusText || {};
+  state.mechanics.statusText[key] = [shortEl.value, longEl.value];
+  keyEl.value = ''; shortEl.value = ''; longEl.value = '';
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
+function onRemoveStatusText(key) {
+  if (typeof state === 'undefined' || !state.mechanics || !state.mechanics.statusText) return;
+  delete state.mechanics.statusText[key];
+  if (!Object.keys(state.mechanics.statusText).length) delete state.mechanics.statusText;
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
 function onEnableOverride(keyPath) {
   if (typeof state === 'undefined' || !state.mechanics) return;
   const path = keyPath.split('.');
@@ -2215,8 +2307,10 @@ function wireMechanicsPanel() {
       document.querySelectorAll('.mech-item-row').forEach(r => r.classList.remove('selected'));
       renderMechanicsRight();
     }
-    if (e.target.id === 'mechAddEventBtn')            onAddEvent();
-    if (e.target.dataset.removeEvent !== undefined)   onRemoveEvent(Number(e.target.dataset.removeEvent));
+    if (e.target.id === 'mechAddEventBtn')               onAddEvent();
+    if (e.target.dataset.removeEvent !== undefined)      onRemoveEvent(Number(e.target.dataset.removeEvent));
+    if (e.target.id === 'mechAddStBtn')                  onAddStatusText();
+    if (e.target.dataset.removeStatusText !== undefined) onRemoveStatusText(e.target.dataset.removeStatusText);
     if (e.target.dataset.overrideKey)                 onEnableOverride(e.target.dataset.overrideKey);
     if (e.target.dataset.removeOverride)              onRemoveOverride(e.target.dataset.removeOverride);
     if (e.target.dataset.addSlot)                     onAddSlot(e.target.dataset.addSlot);

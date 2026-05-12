@@ -953,7 +953,10 @@ const _GRB_MODULES = [
         const entries = Object.entries(m.statusText)
           .map(([k, [short, long]]) => `'${k}' => ['${short}', '${long}']`)
           .join(',\n  ');
-        lines.push(`STATUS_TEXT = Base::STATUS_TEXT.merge(\n  ${entries},\n).freeze`);
+        if (m.statusTextForm === 'plain')
+          lines.push(`STATUS_TEXT = {\n  ${entries},\n}.freeze`);
+        else
+          lines.push(`STATUS_TEXT = Base::STATUS_TEXT.merge(\n  ${entries},\n).freeze`);
       }
       return { corp_rules: lines.join('\n') };
     },

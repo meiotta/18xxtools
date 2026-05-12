@@ -1480,19 +1480,36 @@ function _rbConstSymSymHash(src, name) {
   return Object.keys(result).length ? result : null;
 }
 
-// STATUS_TEXT = Base::STATUS_TEXT.merge({ 'key' => ['short', 'long'] }).freeze
-// Returns { key: ['short', 'long'], ... } or null if constant absent.
+// Join Ruby adjacent single-quoted string literals connected by line continuation.
+// 'abc'\    =>  applied to inner hash content before pair-regex scanning.
+// 'def'
+function _rbJoinStrContinuations(str) {
+  return str.replace(/'\s*\\\s*\n\s*'/g, '');
+}
+
+// STATUS_TEXT — two forms supported:
+//   Merge: NAME = Base::STATUS_TEXT.merge({ 'key' => ['short', 'long'] }).freeze
+//   Plain: NAME = { 'key' => ['short', 'long'] }.freeze
+// Returns { key: ['short', 'long'], ..., _form: 'merge'|'plain' } or null.
 function _rbConstStatusTextHash(src) {
-  const re = /STATUS_TEXT\s*=\s*(?:\w+::)*STATUS_TEXT\.merge\s*\(\s*\{/;
-  const start = re.exec(src);
-  if (!start) return null;
-  const inner = _rbExtractBraces(src, start.index + start[0].length - 1);
+  let inner = null, form = null;
+  const reM = /STATUS_TEXT\s*=\s*(?:\w+::)*STATUS_TEXT\.merge\s*\(\s*\{/;
+  const mM = reM.exec(src);
+  if (mM) { inner = _rbExtractBraces(src, mM.index + mM[0].length - 1); form = 'merge'; }
+  if (!inner) {
+    const reP = /^[ \t]*STATUS_TEXT\s*=\s*\{/m;
+    const mP = reP.exec(src);
+    if (mP) { inner = _rbExtractBraces(src, mP.index + mP[0].length - 1); form = 'plain'; }
+  }
   if (!inner) return null;
+  const normalized = _rbJoinStrContinuations(inner);
   const result = {};
   const pairRe = /'([^']+)'\s*=>\s*\[\s*'([^']*)'\s*,\s*'([^']*)'\s*\]/g;
   let m;
-  while ((m = pairRe.exec(inner)) !== null) result[m[1]] = [m[2], m[3]];
-  return Object.keys(result).length ? result : null;
+  while ((m = pairRe.exec(normalized)) !== null) result[m[1]] = [m[2], m[3]];
+  if (!Object.keys(result).length) return null;
+  result._form = form;
+  return result;
 }
 
 // NAME = [{ lay: true, upgrade: true, cost: 0 }].freeze → slot array
@@ -1641,8 +1658,14 @@ function _rbParseMechanics(src) {
   const capitalization = _rbConstSym(src, 'CAPITALIZATION');
   if (capitalization) m.capitalization = capitalization;
 
-  const statusText = _rbConstStatusTextHash(src);
-  if (statusText) m.statusText = statusText;
+  const stRaw = _rbConstStatusTextHash(src);
+  if (stRaw) {
+    const form = stRaw._form;
+    const entries = {};
+    for (const [k, v] of Object.entries(stRaw)) { if (k !== '_form') entries[k] = v; }
+    m.statusText = entries;
+    if (form) m.statusTextForm = form;
+  }
 
   const homeTokenTiming = _rbConstSym(src, 'HOME_TOKEN_TIMING');
   if (homeTokenTiming) m.homeTokenTiming = homeTokenTiming;
