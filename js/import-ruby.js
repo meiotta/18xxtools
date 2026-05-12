@@ -989,7 +989,20 @@ function _rbSplitHashes(content) {
 
 function _rbStr(str, key) {
   const m = str.match(new RegExp('\\b' + key + ':\\s*[\'"]([^\'"]*)[\'"]'));
-  return m ? m[1] : null;
+  if (!m) return null;
+  // Unescape \\ → \ (Ruby single-quoted string escaping).
+  // _rbStr's [^'"]* stops before \', so \\ is the only escape that can appear here.
+  return m[1].replace(/\\\\/g, '\\');
+}
+
+// Reads a Ruby color value: either a quoted string ('blue') or a symbol (:blue).
+// The exporter emits named colors as Ruby symbols; this handles the re-import path.
+function _rbColorStr(str, key) {
+  const qm = str.match(new RegExp('\\b' + key + ':\\s*[\'"]([^\'"]*)[\'"]'));
+  if (qm) return qm[1];
+  const sm = str.match(new RegExp('\\b' + key + ':\\s*:([a-zA-Z][a-zA-Z0-9_]*)'));
+  if (sm) return sm[1];
+  return null;
 }
 
 function _rbNum(str, key) {
@@ -1102,8 +1115,8 @@ function _rbParseCompany(hashStr) {
   const name       = _rbStr(hashStr, 'name')       || '';
   const value      = _rbNum(hashStr, 'value')      || 0;
   const revenue    = _rbNum(hashStr, 'revenue')    || 0;
-  const color      = _rbStr(hashStr, 'color')      || '#666666';
-  const textColor  = _rbStr(hashStr, 'text_color') || '#ffffff';
+  const color      = _rbColorStr(hashStr, 'color')      || '#666666';
+  const textColor  = _rbColorStr(hashStr, 'text_color') || '#ffffff';
   // company.rb: @discount = opts[:discount] || 0; @min_auction_price = -@discount
   // A negative top-level discount raises the floor bid above $0.
   const discount   = _rbNum(hashStr, 'discount');      // null if absent
@@ -1121,7 +1134,7 @@ function _rbParseCompany(hashStr) {
   // _rbStr's [^'"]* stops at both, so use a proper single-quoted-string regex.
   const _descM = hashStr.match(/\bdesc:\s*'((?:[^'\\]|\\.)*)'/) ||
                  hashStr.match(/\bdesc:\s*"([^"]*)"/);
-  const desc = _descM ? _descM[1].replace(/\\'/g, "'") : '';
+  const desc = _descM ? _descM[1].replace(/\\(['\\])/g, '$1') : '';
   let buyerType = 'any';
   if (/^CANNOT\s+BE\s+ACQUIRED/i.test(desc)) buyerType = 'no_acquire';
   else if (/^MAJOR\/MINOR[,\s]/i.test(desc)) buyerType = 'major_minor';
@@ -1177,8 +1190,8 @@ function _rbParseCorp(hashStr) {
   // Use metaStr (abilities stripped) for type so ability type: values don't leak.
   // Default to 'major' — standard public companies omit type: in tobymao.
   const type        = _rbStr(metaStr, 'type')         || 'major';
-  const color       = _rbStr(hashStr, 'color')        || '#ffffff';
-  const textColor   = _rbStr(hashStr, 'text_color')   || '#000000';
+  const color       = _rbColorStr(hashStr, 'color')        || '#ffffff';
+  const textColor   = _rbColorStr(hashStr, 'text_color')   || '#000000';
   const coordinates     = _rbStr(hashStr, 'coordinates')          || '';
   const destCoordinates = _rbStr(hashStr, 'destination_coordinates'); // null if absent
   const city            = _rbNum(hashStr, 'city')                  || 0;
