@@ -91,8 +91,8 @@ function _rbTileSlot(s) {
   if (s.upgrade === true)          p.push('upgrade: true');
   else if (s.upgrade === false)    p.push('upgrade: false');
   else if (s.upgrade)              p.push(`upgrade: :${s.upgrade}`);
-  if (s.cost)                      p.push(`cost: ${s.cost}`);
-  if (s.upgrade_cost)              p.push(`upgrade_cost: ${s.upgrade_cost}`);
+  if (s.cost != null)              p.push(`cost: ${s.cost}`);
+  if (s.upgrade_cost != null)      p.push(`upgrade_cost: ${s.upgrade_cost}`);
   if (s.cannot_reuse_same_hex)     p.push('cannot_reuse_same_hex: true');
   if (s.hex_must_be_connected === false) p.push('hex_must_be_connected: false');
   if (s.special)                   p.push('special: true');
@@ -156,11 +156,16 @@ function _rbCorp(co, pack, gameCap) {
   const ii = '    ';
   const lines = [];
   const floatPct = co.floatPctOverride != null ? co.floatPctOverride : (pack.floatPct ?? 60);
-  const tokens   = co.tokensOverride   != null ? co.tokensOverride   : (pack.tokens || [0, 40, 100]);
+  const rawTok   = co.tokensOverride   != null ? co.tokensOverride   : (pack.tokens || [0, 40, 100]);
+  // tokens may arrive as a count (e.g. 3) rather than a cost array — normalize
+  const tokens   = Array.isArray(rawTok) ? rawTok
+                 : (typeof rawTok === 'number' && rawTok < 20) ? new Array(rawTok).fill(0)
+                 : rawTok;
   const shares   = pack.shares || [20, 10, 10, 10, 10, 10, 10, 10, 10];
   const cap      = pack.capitalization  || 'full';
   const maxOwn   = pack.maxOwnershipPct ?? 60;
   const amp      = pack.alwaysMarketPrice || false;
+  const coord    = co.coordinates || co.homeHex || '';
   lines.push(i + '{');
   lines.push(ii + 'sym: '  + _rbQuote(co.sym  || '') + ',');
   lines.push(ii + 'name: ' + _rbQuote(co.name || '') + ',');
@@ -224,7 +229,7 @@ function _grbDistance(tr) {
       // Hex-distance trains — TODO: identify tobymao Ruby format (no confirmed pattern)
       return String(tr.h || 4);
     default: // 'n'
-      return String(tr.n || 2);
+      return String(tr.n != null ? tr.n : 2);
   }
 }
 
@@ -241,10 +246,14 @@ function _grbTrainHash(tr, variants, state) {
   if (tr.cost != null)   kv.push(`price: ${tr.cost}`);
   // count semantics (see _rbParseTrain comments):
   //   null  → unlimited → emit num: 99
-  //   0     → absent in source (dynamic) → omit num: entirely
+  //   0     → absent in source (count unknown) → emit num: 99 as safe default
+  //           (omitting num: entirely causes Array.new(nil) TypeError in base.rb:2661)
   //   N > 0 → explicit → emit num: N
   if (tr.count === null)         kv.push('num: 99');
-  else if (tr.count > 0)         kv.push(`num: ${tr.count}`);
+  else if (tr.count === 0)       kv.push('num: 99');
+  else                           kv.push(`num: ${tr.count}`);
+
+  if (tr.multiplier && tr.multiplier > 1) kv.push(`multiplier: ${tr.multiplier}`);
 
   if (tr.rusts && tr.rustsOn) {
     const tgt = allTrains.find(t => t.id === tr.rustsOn);
@@ -267,6 +276,8 @@ function _grbTrainHash(tr, variants, state) {
       const vKv = [`name: ${_rbQuote(vLabel)}`, `distance: ${_grbDistance(vtr)}`];
       // multiplier: required for E-train / revenue-doubling variants (g_1822 E-train)
       if (vtr.multiplier && vtr.multiplier > 1) vKv.push(`multiplier: ${vtr.multiplier}`);
+      if (vtr.count === null)  vKv.push('num: 99');
+      else if (vtr.count > 0)  vKv.push(`num: ${vtr.count}`);
       if (vtr.cost != null) vKv.push(`price: ${vtr.cost}`);
       if (vtr.rusts && vtr.rustsOn) {
         const vtgt = allTrains.find(t => t.id === vtr.rustsOn);
@@ -338,7 +349,11 @@ function _grbPhaseHash(ph, state) {
   // Source: g_1830/game.rb PHASES, g_1822/game.rb PHASES — confirmed %w usage.
   // TODO (Evan Q3): if any game uses symbol status keys (%i[...]), update here.
   if (ph.status && ph.status.length) {
-    kv.push(`status: %w[${ph.status.join(' ')}]`);
+    // Use quoted array when any value contains a space (%w[] would split on it)
+    if (ph.status.some(s => String(s).includes(' ')))
+      kv.push(`status: [${ph.status.map(s => `'${s}'`).join(', ')}]`);
+    else
+      kv.push(`status: %w[${ph.status.join(' ')}]`);
   }
 
   return '  {\n' + kv.map(s => '    ' + s).join(',\n') + ',\n  }';
@@ -911,8 +926,10 @@ const _GRB_MODULES = [
       const sc  = m.startingCash || {};
       lines.push(`STARTING_CASH = { ${pRange.map(p => `${p} => ${sc[p] ?? 0}`).join(', ')} }.freeze`);
 
-      const cl  = m.certLimit || {};
-      lines.push(`CERT_LIMIT = { ${pRange.map(p => `${p} => ${cl[p] ?? 0}`).join(', ')} }.freeze`);
+      const cl    = m.certLimit || {};
+      const clRng = Object.keys(cl).map(Number).sort((a, b) => a - b);
+      const clRange = clRng.length ? clRng : pRange;
+      lines.push(`CERT_LIMIT = { ${clRange.map(p => `${p} => ${cl[p] ?? 0}`).join(', ')} }.freeze`);
 
       return { bank: lines.join('\n') };
     },
@@ -932,6 +949,12 @@ const _GRB_MODULES = [
         `BANKRUPTCY_ALLOWED = ${m.bankruptcyAllowed ?? true}`,
         `BANKRUPTCY_ENDS_GAME_AFTER = :${m.bankruptcyEndsGameAfter || 'one'}`,
       ];
+      if (m.statusText && Object.keys(m.statusText).length) {
+        const entries = Object.entries(m.statusText)
+          .map(([k, [short, long]]) => `'${k}' => ['${short}', '${long}']`)
+          .join(',\n  ');
+        lines.push(`STATUS_TEXT = Base::STATUS_TEXT.merge(\n  ${entries},\n).freeze`);
+      }
       return { corp_rules: lines.join('\n') };
     },
   },
@@ -955,6 +978,44 @@ const _GRB_MODULES = [
     },
   },
 
+  // ── Market ───────────────────────────────────────────────────────────────────
+  {
+    id: 'market',
+    emit(state) {
+      const f = state.financials || {};
+      const rows = f.market || [];
+      if (!rows.length) {
+        return { stock_round: "MARKET = [\n          [100,110,120,130,140,150,160,170,180,190,200]\n        ].freeze" };
+      }
+      const oneD = !Array.isArray(rows[0]);
+      if (oneD) {
+        const cells = rows.map(c => {
+          if (typeof c === 'object' && c !== null) {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return { stock_round: `MARKET = [\n          [${cells.join(', ')}]\n        ].freeze` };
+      }
+      const rbRows = rows.map(row => {
+        if (!Array.isArray(row)) return '          []';
+        const cells = row.map(c => {
+          if (c === null || c === undefined) return 'nil';
+          if (typeof c === 'object') {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return `          [${cells.join(', ')}]`;
+      });
+      return { stock_round: `MARKET = [\n${rbRows.join(',\n')}\n        ].freeze` };
+    },
+  },
+
   // ── Operating Round ──────────────────────────────────────────────────────────
   {
     id: 'or_rules',
@@ -971,7 +1032,7 @@ const _GRB_MODULES = [
         `EBUY_OWNER_MUST_HELP = ${m.ebuyOwnerMustHelp ?? false}`,
         `EBUY_CAN_SELL_SHARES = ${m.ebuyCanSellShares ?? true}`,
         `EBUY_PRES_SWAP = ${m.ebuyPresSwap ?? true}`,
-        `EBUY_CAN_TAKE_PLAYER_LOAN = ${loanOn ? ':' + loan : false}`,
+        `EBUY_CAN_TAKE_PLAYER_LOAN = ${loanOn ? (loan === true ? 'true' : ':' + loan) : false}`,
       ];
       if (loanOn) {
         lines.push(`PLAYER_LOAN_INTEREST_RATE = ${m.playerLoanInterestRate ?? 50}`);
@@ -1032,11 +1093,14 @@ const _GRB_MODULES = [
   {
     id: 'game_end',
     emit(state) {
-      const m   = state.mechanics || {};
-      const gec = m.gameEndCheck  || {};
-      const active = Object.entries(gec).filter(([,v]) => v.enabled);
-      if (!active.length) return { game_end: '# GAME_END_CHECK not configured' };
-      const pairs = active.map(([k, v]) => `${k}: :${v.timing}`).join(', ');
+      const m       = state.mechanics || {};
+      const gec     = m.gameEndCheck     || {};
+      const gecKeys = m.gameEndCheckKeys || null;
+      if (!gecKeys) return { game_end: '# GAME_END_CHECK not configured' };
+      const pairs = gecKeys.map(k => {
+        const v = gec[k];
+        return v?.enabled ? `${k}: :${v.timing}` : `${k}: nil`;
+      }).join(', ');
       return { game_end: `GAME_END_CHECK = { ${pairs} }.freeze` };
     },
   },
@@ -1244,12 +1308,10 @@ const _GRB_MODULES = [
     id: 'corporations',
     emit(state) {
       const gameCap = state.mechanics?.capitalization || 'full';
-      const packs   = (state.corpPacks || []).filter(pk => pk.type !== 'minor');
-      const entries = [];
-      packs.forEach(pack => (pack.companies || []).forEach(co => entries.push({ co, pack })));
-      if (!entries.length) return null;
+      const corps   = (state.companies || []).filter(c => (c.type || 'major') !== 'minor');
+      if (!corps.length) return null;
       const lines = ['CORPORATIONS = ['];
-      entries.forEach(({ co, pack }) => lines.push(_rbCorp(co, pack, gameCap)));
+      corps.forEach(co => lines.push(_rbCorp(co, co, gameCap)));
       lines.push('].freeze');
       return { corporations: lines.join('\n') };
     },
@@ -1307,12 +1369,13 @@ const _GRB_MODULES = [
     id: 'minors',
     emit(state) {
       const gameCap = state.mechanics?.capitalization || 'full';
-      const packs   = (state.corpPacks || []).filter(pk => pk.type === 'minor');
-      const entries = [];
-      packs.forEach(pack => (pack.companies || []).forEach(co => entries.push({ co, pack })));
-      if (!entries.length) return null;
+      const minors  = [
+        ...(state.companies || []).filter(c => c.type === 'minor'),
+        ...(state.minors    || []),
+      ];
+      if (!minors.length) return null;
       const lines = ['MINORS = ['];
-      entries.forEach(({ co, pack }) => lines.push(_rbCorp(co, pack, gameCap)));
+      minors.forEach(co => lines.push(_rbCorp(co, co, gameCap)));
       lines.push('].freeze');
       return { minors: lines.join('\n') };
     },
@@ -1542,7 +1605,18 @@ function _grbDownload(content, filename) {
 
 // ── Button wiring ─────────────────────────────────────────────────────────────
 
+function _requireTitle() {
+  if (!state?.meta?.title?.trim()) {
+    alert('Set a game title before exporting.\n\nOpen the Config tab (right panel) and enter a title in the "Game Title" field.');
+    const inp = document.getElementById('gameTitleInput');
+    if (inp) inp.focus();
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('exportGameBtn').addEventListener('click', () => {
+  if (!_requireTitle()) return;
   try {
     const src  = renderGameRb();
     const slug = _grbModuleName(state).toLowerCase();
@@ -1555,6 +1629,7 @@ document.getElementById('exportGameBtn').addEventListener('click', () => {
 });
 
 document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
+  if (!_requireTitle()) return;
   try {
     const src  = renderEntitiesRb();
     const slug = _grbModuleName(state).toLowerCase();
@@ -1630,6 +1705,7 @@ end
 const _exportFor18xxBtn = document.getElementById('exportFor18xxBtn');
 if (_exportFor18xxBtn) {
   _exportFor18xxBtn.addEventListener('click', async () => {
+    if (!_requireTitle()) return;
     try {
       if (typeof JSZip === 'undefined') {
         alert('JSZip not loaded — cannot bundle export. Refresh the page.');
@@ -1684,6 +1760,7 @@ function renderMetaRb() {
 const _exportMetaBtn = document.getElementById('exportMetaBtn');
 if (_exportMetaBtn) {
   _exportMetaBtn.addEventListener('click', () => {
+    if (!_requireTitle()) return;
     try {
       const src  = renderMetaRb();
       const slug = _grbSlug(state);

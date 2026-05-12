@@ -1473,6 +1473,25 @@ function _rbConstSymSymHash(src, name) {
   while ((m = reColon.exec(inner)) !== null) result[m[1]] = m[2];
   const reArrow = /:(\w+)\s*=>\s*:(\w+)/g;
   while ((m = reArrow.exec(inner)) !== null) result[m[1]] = m[2];
+  const reColonNil = /(\w+):\s*nil(?!\w)/g;
+  while ((m = reColonNil.exec(inner)) !== null) if (!(m[1] in result)) result[m[1]] = null;
+  const reArrowNil = /:(\w+)\s*=>\s*nil(?!\w)/g;
+  while ((m = reArrowNil.exec(inner)) !== null) if (!(m[1] in result)) result[m[1]] = null;
+  return Object.keys(result).length ? result : null;
+}
+
+// STATUS_TEXT = Base::STATUS_TEXT.merge({ 'key' => ['short', 'long'] }).freeze
+// Returns { key: ['short', 'long'], ... } or null if constant absent.
+function _rbConstStatusTextHash(src) {
+  const re = /STATUS_TEXT\s*=\s*(?:\w+::)*STATUS_TEXT\.merge\s*\(\s*\{/;
+  const start = re.exec(src);
+  if (!start) return null;
+  const inner = _rbExtractBraces(src, start.index + start[0].length - 1);
+  if (!inner) return null;
+  const result = {};
+  const pairRe = /'([^']+)'\s*=>\s*\[\s*'([^']*)'\s*,\s*'([^']*)'\s*\]/g;
+  let m;
+  while ((m = pairRe.exec(inner)) !== null) result[m[1]] = [m[2], m[3]];
   return Object.keys(result).length ? result : null;
 }
 
@@ -1619,6 +1638,12 @@ function _rbParseMechanics(src) {
   if (certLimit) m.certLimit = certLimit;
 
   // ── Corporation Rules ───────────────────────────────────────────────────────
+  const capitalization = _rbConstSym(src, 'CAPITALIZATION');
+  if (capitalization) m.capitalization = capitalization;
+
+  const statusText = _rbConstStatusTextHash(src);
+  if (statusText) m.statusText = statusText;
+
   const homeTokenTiming = _rbConstSym(src, 'HOME_TOKEN_TIMING');
   if (homeTokenTiming) m.homeTokenTiming = homeTokenTiming;
 
@@ -1693,11 +1718,12 @@ function _rbParseMechanics(src) {
   const ebuyPresSwap = _rbConstBool(src, 'EBUY_PRES_SWAP');
   if (ebuyPresSwap !== null) m.ebuyPresSwap = ebuyPresSwap;
 
-  // EBUY_CAN_TAKE_PLAYER_LOAN is false | :after_sell | :no_sell (true unsupported in UI)
+  // EBUY_CAN_TAKE_PLAYER_LOAN is true | false | :after_sell | :no_sell
   const loanSym  = _rbConstSym(src,  'EBUY_CAN_TAKE_PLAYER_LOAN');
   const loanBool = _rbConstBool(src, 'EBUY_CAN_TAKE_PLAYER_LOAN');
-  if (loanSym)                    m.ebuyCanTakePlayerLoan = loanSym;  // :after_sell | :no_sell
-  else if (loanBool === false)    m.ebuyCanTakePlayerLoan = 'false';  // explicit false
+  if (loanSym)                    m.ebuyCanTakePlayerLoan = loanSym;   // :after_sell | :no_sell
+  else if (loanBool === true)     m.ebuyCanTakePlayerLoan = true;      // bare true
+  else if (loanBool === false)    m.ebuyCanTakePlayerLoan = 'false';   // explicit false
 
   const loanRate = _rbConstInt(src, 'PLAYER_LOAN_INTEREST_RATE');
   if (loanRate !== null) m.playerLoanInterestRate = loanRate;
@@ -1724,6 +1750,7 @@ function _rbParseMechanics(src) {
         ? { enabled: true,  timing: gecRaw[key] }
         : { enabled: false, timing: defTiming };
     }
+    m.gameEndCheckKeys = Object.keys(gecRaw);
   }
 
   console.log(`[importGameRb] parsed mechanics: ${Object.keys(m).join(', ')}`);
@@ -2116,6 +2143,7 @@ function applyMapImport(content, sourceName) {
         TileRegistry.setEmbeddedTiles(result.customTiles);
     }
     syncOrientationSelect();
+    if (typeof syncTitleInput === 'function') syncTitleInput();
     syncDimInputs();
     panX = 0; panY = 0; zoom = 1;
     render();
@@ -2129,8 +2157,14 @@ function applyMapImport(content, sourceName) {
 
   const collisions = Object.keys(result.customTiles).length > 0
     ? TileRegistry.detectEmbeddedCollisions(result.customTiles) : [];
-  if (collisions.length > 0) _showTileCollisionDialog(collisions, applyResult);
-  else applyResult({}, {});
+  // When the Erin test harness sets __erinSkipCollisionDialog, auto-apply
+  // pack-wins without showing the interactive modal.  Regular UI usage is
+  // unaffected (flag is always falsy in the browser).
+  if (collisions.length > 0 && !window.__erinSkipCollisionDialog) {
+    _showTileCollisionDialog(collisions, applyResult);
+  } else {
+    applyResult({}, {});
+  }
 }
 
 // Parses entities content and applies to state.
