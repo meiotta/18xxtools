@@ -1493,9 +1493,19 @@ function _rbJoinStrContinuations(str) {
 // Returns { key: ['short', 'long'], ..., _form: 'merge'|'plain' } or null.
 function _rbConstStatusTextHash(src) {
   let inner = null, form = null;
-  const reM = /STATUS_TEXT\s*=\s*(?:\w+::)*STATUS_TEXT\.merge\s*\(\s*\{/;
+  const reM = /STATUS_TEXT\s*=\s*(?:\w+::)*STATUS_TEXT\.merge\s*\(/;
   const mM = reM.exec(src);
-  if (mM) { inner = _rbExtractBraces(src, mM.index + mM[0].length - 1); form = 'merge'; }
+  if (mM) {
+    const parenIdx = mM.index + mM[0].length - 1;
+    const afterParen = src.slice(parenIdx + 1).match(/^\s*\{/);
+    if (afterParen) {
+      const braceIdx = src.indexOf('{', parenIdx);
+      inner = _rbExtractBraces(src, braceIdx);
+    } else {
+      inner = _rbExtractParens(src, parenIdx);
+    }
+    form = 'merge';
+  }
   if (!inner) {
     const reP = /^[ \t]*STATUS_TEXT\s*=\s*\{/m;
     const mP = reP.exec(src);
@@ -1621,6 +1631,17 @@ function _rbExtractBraces(src, openIdx) {
   while (i < src.length) {
     if (src[i] === '{') depth++;
     else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(openIdx + 1, i); }
+    i++;
+  }
+  return null;
+}
+
+// Walk a (…) block starting at the opening paren index, return inner content.
+function _rbExtractParens(src, openIdx) {
+  let depth = 0, i = openIdx;
+  while (i < src.length) {
+    if (src[i] === '(') depth++;
+    else if (src[i] === ')') { depth--; if (depth === 0) return src.slice(openIdx + 1, i); }
     i++;
   }
   return null;
