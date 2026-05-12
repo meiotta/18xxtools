@@ -1514,9 +1514,10 @@ function _rbConstStatusTextHash(src) {
   if (!inner) return null;
   const normalized = _rbJoinStrContinuations(inner);
   const result = {};
-  const pairRe = /'([^']+)'\s*=>\s*\[\s*'([^']*)'\s*,\s*'([^']*)'\s*\]/g;
+  const pairRe = /'([^']+)'\s*=>\s*\[\s*'([^']*)'\s*,\s*'([^']*)'\s*,?\s*\]/g;
   let m;
-  while ((m = pairRe.exec(normalized)) !== null) result[m[1]] = [m[2], m[3]];
+  while ((m = pairRe.exec(normalized)) !== null)
+    result[m[1]] = [m[2].replace(/\s*\n\s*/g, ' ').trim(), m[3].replace(/\s*\n\s*/g, ' ').trim()];
   if (!Object.keys(result).length) return null;
   result._form = form;
   return result;
