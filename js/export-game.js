@@ -1389,11 +1389,20 @@ const _GAME_RB_SKELETON = `\
 require_relative '../base'
 require_relative 'entities'
 require_relative 'map'
+require_relative 'meta'
 
 module Engine
   module Game
     module {{MODULE}}
       class Game < Engine::Game::Base
+        # include_meta must come before include Entities/Map.
+        # base.rb:542-550 (include_meta) copies the meta module's constants
+        # (PLAYER_RANGE, GAME_TITLE, …) onto this game class so methods like
+        # base.rb:3605 self.class.min_players can resolve self::PLAYER_RANGE.
+        # Without this call, every game class inherits PLAYER_RANGE = nil from
+        # the base meta and the engine throws on first player-range check.
+        # Reference: g_1889/game.rb:13 — include_meta(G1889::Meta).
+        include_meta({{MODULE}}::Meta)
         include Entities
         include Map
 
