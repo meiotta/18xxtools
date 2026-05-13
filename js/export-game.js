@@ -100,35 +100,17 @@ function _rbTileSlot(s) {
 }
 
 // ── Ability hash → Ruby literal ───────────────────────────────────────────────
-// Covers all known ability fields used by tobymao ability/*.rb.
+// Thin delegate to the shared serializer in js/serialize-ability.js. The
+// serializer's per-type allowlist is derived from lib/engine/ability/*.rb
+// `setup` signatures, replacing the prior pattern of two parallel emitters
+// (this and _eiAbilityLine in export-entities.js) that drifted independently
+// and required synchronised type-gating patches for shares:, revenue:, etc.
 function _rbAbility(ab) {
-  const kv = [];
-  const p  = (k, v) => kv.push(k + ': ' + v);
-  if (ab.type)        p('type',       _rbQuote(ab.type));
-  if (ab.owner_type)  p('owner_type', _rbQuote(ab.owner_type));
-  const wen = _rbWhen(ab.when);
-  if (wen)            p('when', wen);
-  if (ab.hexes?.length)        p('hexes',        _grbStrArr(ab.hexes));
-  if (ab.corporations?.length) p('corporations', _grbStrArr(ab.corporations));
-  if (ab.count        != null) p('count',        String(ab.count));
-  if (ab.count_per_or != null) p('count_per_or', String(ab.count_per_or));
-  if (ab.cost         != null) p('cost',         String(ab.cost));
-  if (ab.discount     != null) p('discount',     String(ab.discount));
-  if (ab.amount       != null) p('amount',       String(ab.amount));
-  if (ab.price        != null) p('price',        String(ab.price));
-  if (ab.from != null)
-    p('from', Array.isArray(ab.from) ? _grbStrArr(ab.from) : _rbQuote(ab.from));
-  if (ab.terrain)              p('terrain',      _rbQuote(ab.terrain));
-  if (ab.tiles?.length)        p('tiles',        _grbStrArr(ab.tiles));
-  if (ab.corporation)          p('corporation',  _rbQuote(ab.corporation));
-  if (ab.shares != null)       p('shares', Array.isArray(ab.shares) ? _grbStrArr(ab.shares) : _rbQuote(ab.shares));
-  if (ab.description)          p('description',  _rbQuote(ab.description));
-  if (ab.on_phase)             p('on_phase',     _rbQuote(ab.on_phase));
-  if (ab.closed_when_used_up != null)
-    p('closed_when_used_up', ab.closed_when_used_up ? 'true' : 'false');
-  if (ab.free      != null) p('free',      ab.free      ? 'true' : 'false');
-  if (ab.reachable != null) p('reachable', ab.reachable ? 'true' : 'false');
-  return '{ ' + kv.join(', ') + ' }';
+  return _serializeAbility(ab, {
+    quote:  _rbQuote,
+    strArr: _grbStrArr,
+    when:   _rbWhen,
+  });
 }
 
 // ── Entity serializers ────────────────────────────────────────────────────────

@@ -1053,10 +1053,13 @@ function _rbParseAbilityHash(h) {
 
   // Integer scalars — base.rb: count, count_per_or; token.rb: price, teleport_price,
   //   discount, city; tile_lay.rb: discount, cost, lay_count, upgrade_count;
-  //   tile_income.rb: income, amount; reservation: slot, city
+  //   tile_income.rb: income, amount; reservation: slot, city;
+  //   revenue_change.rb: revenue (REQUIRED kwarg — must round-trip or load throws
+  //   "missing keyword: :revenue" — see lib/engine/ability/revenue_change.rb:10).
   for (const k of [
     'count', 'count_per_or', 'discount', 'price', 'teleport_price',
     'lay_count', 'upgrade_count', 'cost', 'income', 'slot', 'city', 'amount',
+    'revenue',
   ]) {
     const v = _rbNum(h, k);
     if (v !== null) ab[k] = v;

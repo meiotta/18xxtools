@@ -52,46 +52,17 @@ function _eiNumArr(arr) {
 const _EI_DEFAULT_SHARES = JSON.stringify([20, 10, 10, 10, 10, 10, 10, 10, 10]);
 
 // ── Ability serializer ────────────────────────────────────────────────────────
-// Emits a compact single-line Ruby hash: { type: 'foo', hexes: %w[A1 B2], ... }
-
+// Thin delegate to the shared serializer in js/serialize-ability.js. The
+// per-type allowlist is derived from lib/engine/ability/*.rb `setup`
+// signatures, replacing the prior parallel emitters (this and _rbAbility in
+// export-game.js) that needed synchronised one-off gating fixes for shares:,
+// revenue:, etc. as each new ability type's kwarg leak surfaced.
 function _eiAbilityLine(ab) {
-  const kv = [];
-  const push  = (k, v) => kv.push(k + ': ' + v);
-  const pushB = (k)    => { if (ab[k] != null) push(k, ab[k] ? 'true' : 'false'); };
-  const pushN = (k)    => { if (ab[k] != null) push(k, String(ab[k])); };
-  const pushS = (k)    => { if (ab[k])         push(k, _eiStr(ab[k])); };
-
-  if (ab.type)                                    push('type',             _eiStr(ab.type));
-  if (ab.owner_type)                              push('owner_type',       _eiStr(ab.owner_type));
-  const wen = _eiWhen(ab.when);
-  if (wen)                                        push('when',             wen);
-  if (ab.hexes && ab.hexes.length)                push('hexes',            _eiStrArr(ab.hexes));
-  if (ab.corporations && ab.corporations.length)  push('corporations',     _eiStrArr(ab.corporations));
-  if (ab.combo_entities && ab.combo_entities.length) push('combo_entities', _eiStrArr(ab.combo_entities));
-  pushN('count');        pushN('count_per_or');
-  pushN('cost');         pushN('discount');      pushN('amount');
-  pushN('price');        pushN('teleport_price');
-  pushN('lay_count');    pushN('upgrade_count');
-  pushN('income');       pushN('slot');          pushN('city');
-  if (ab.from != null) {
-    push('from', Array.isArray(ab.from) ? _eiStrArr(ab.from) : _eiStr(ab.from));
-  }
-  pushS('terrain');      pushS('partition_type');  pushS('hex');
-  if (ab.tiles && ab.tiles.length)                push('tiles',            _eiStrArr(ab.tiles));
-  pushS('corporation');
-  if (ab.shares != null) push('shares', Array.isArray(ab.shares) ? _eiStrArr(ab.shares) : _eiStr(ab.shares));
-  pushS('description');  pushS('desc_detail');
-  pushS('remove');       pushS('on_phase');       pushS('after_phase');
-  pushB('closed_when_used_up');  pushB('free');        pushB('reachable');
-  pushB('special');      pushB('connect');        pushB('passive');
-  pushB('must_lay_together');    pushB('must_lay_all');
-  pushB('consume_tile_lay');     pushB('blocks');
-  pushB('extra_action');         pushB('from_owner');  pushB('special_only');
-  pushB('extra_slot');           pushB('neutral');     pushB('check_tokenable');
-  pushB('connected');            pushB('same_hex_allowed');
-  pushB('use_across_ors');       pushB('hidden');
-
-  return '{ ' + kv.join(', ') + ' }';
+  return _serializeAbility(ab, {
+    quote:  _eiStr,
+    strArr: _eiStrArr,
+    when:   _eiWhen,
+  });
 }
 
 // ── Corporation / Minor entry ─────────────────────────────────────────────────
