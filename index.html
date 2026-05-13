@@ -565,8 +565,11 @@
               </div>
             </label>
           </div>
-          <button id="wizGenerateBtn" type="button" class="mkt-btn mkt-btn-primary mkt-btn-block">Generate prices</button>
-          <p class="mkt-hint">Locked cells anchor the solver. Empty cells get filled.</p>
+          <div class="mkt-wiz-actions">
+            <button id="wizGenerateBtn" type="button" class="mkt-btn mkt-btn-primary">Generate</button>
+            <button id="wizResetBtn"    type="button" class="mkt-btn"                 title="Clear all unlocked cells so Generate can recompute from min/max">Reset</button>
+          </div>
+          <p class="mkt-hint">Generate fills empty cells <em>between</em> existing prices, never past them. Use Reset to clear unlocked cells and recompute from min/max.</p>
           <input type="number" id="wizRows" style="display:none;" value="8">
           <input type="number" id="wizCols" style="display:none;" value="16">
         </section>
@@ -598,13 +601,13 @@
           <div class="mkt-toolbar-divider" aria-hidden="true"></div>
 
           <div class="mkt-toolbar-group mkt-brushes" role="group" aria-label="Flag brushes">
-            <button class="mkt-brush" data-brush="par"           type="button" aria-pressed="false" style="--brush-color:#e15f5f" title="Par &mdash; companies par here">
+            <button class="mkt-brush" data-brush="par"           type="button" aria-pressed="false" style="--brush-color:#e15f5f" title="Par — companies par here">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Par</span>
             </button>
             <button class="mkt-brush" data-brush="endgame"       type="button" aria-pressed="false" style="--brush-color:#3f7fc6" title="Endgame trigger">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Endgame</span>
             </button>
-            <button class="mkt-brush" data-brush="close"         type="button" aria-pressed="false" style="--brush-color:#1a1a1a" title="Close &mdash; corporation closes">
+            <button class="mkt-brush" data-brush="close"         type="button" aria-pressed="false" style="--brush-color:#1a1a1a" title="Close — corporation closes">
               <span class="mkt-brush-swatch"></span><span class="mkt-brush-label">Close</span>
             </button>
             <button class="mkt-brush" data-brush="no_cert_limit" type="button" aria-pressed="false" style="--brush-color:#dab836" title="No cert limit (yellow band)">
@@ -631,8 +634,8 @@
 
         <!-- Nudge: shown when user adds cells without regenerating -->
         <div id="marketRegenNudge" class="mkt-nudge" style="display:none;">
-          <span>Values added &mdash; <button id="marketNudgeRegenBtn" class="mkt-nudge-link">regenerate</button> to balance</span>
-          <button id="marketNudgeDismissBtn" class="mkt-nudge-x" title="Dismiss" aria-label="Dismiss">&times;</button>
+          <span>Values added — <button id="marketNudgeRegenBtn" class="mkt-nudge-link">regenerate</button> to balance</span>
+          <button id="marketNudgeDismissBtn" class="mkt-nudge-x" title="Dismiss" aria-label="Dismiss">×</button>
         </div>
 
         <div id="marketLegend" class="mkt-legend" aria-label="Flag legend"></div>
@@ -1294,6 +1297,7 @@
 <script src="js/market-painter.js?v=20260503b"></script>
 <script src="js/financials-panel.js?v=20260509a"></script>
 <script src="js/rule-builder.js?v=20260419c"></script>
+<script src="js/dividend-rules.js?v=20260504a"></script>
 <script src="js/setup.js?v=20260425b"></script>
 <script src="js/io.js?v=20260509a"></script>
 <script src="js/import-ruby.js?v=20260502a"></script>

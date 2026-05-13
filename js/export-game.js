@@ -869,14 +869,10 @@ const _GRB_MODULES = [
       const f = state.financials || {};
       const m = f.market;
 
-      // Synthetic-corp setups (C/D/E in erin/gen_matrix.js — Build 6 Majors,
-      // Build 12 Minors, Build 5 Majors + National) skip the market panel
-      // entirely, so state.financials.market stays empty. Without a MARKET
+      // Synthetic-corp setups (C/D/E in erin/gen_matrix.js) skip the market
+      // panel entirely, so state.financials.market stays []. Without a MARKET
       // constant the engine raises `uninitialized constant ... MARKET` at
-      // config_spec load. Emit a minimum-viable default in that case: a 1D
-      // strip with four par cells covering a generic 18xx price range,
-      // labelled as a fallback so anyone editing the generated game.rb
-      // knows where to look.
+      // config_spec load. Emit a minimum-viable default in that case.
       const FALLBACK = [
         '# Default fallback — no market grid was configured. Populate via the',
         '# Market panel to override; the engine accepts any valid 2D array.',
