@@ -22,4 +22,5 @@ COLLISION_SYSTEM_PLAN.md
 tile-render-test.html
 # Autotest generated artifacts
 sidecar/autotest/output/
+sidecar/autotest/preview/
 sidecar/autotest/test_log.md
