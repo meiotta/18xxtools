@@ -371,13 +371,14 @@ async function applyEdit(page, editNum, mapName) {
           if (!corps.length) return { ok: false, note: 'No majors to anchor exchange' };
           const target = corps[Math.floor(Math.random() * corps.length)];
           state.privates[idx].revenue  = 10;
+          state.privates[idx].desc = 'Tradeable for a 10% share of ' + target + ' from the IPO at phase 3 if desired, otherwise pays $10/OR to the holder.';
           state.privates[idx].abilities = [{
             type: 'exchange', owner_type: 'player',
             corporations: [target], when: 'phase_3',
-            from: ['reserved'], shares: ['reserved'],
+            from: 'ipo',
           }];
-          state.privates[idx].name = 'Reserve-Share Concession (' + target + ')';
-          return { ok: true, note: 'Private exchangeable for reserved ' + target + ' share at phase 3 / else $10' };
+          state.privates[idx].name = 'Exchange Concession (' + target + ')';
+          return { ok: true, note: 'Private exchangeable for IPO share of ' + target + ' at phase 3 / else $10' };
         }
         case 7: {
           const idx = findFirstTrainOfType('2');
@@ -682,7 +683,3 @@ async function main() {
     if (ids.length && !ids.includes(t.id)) continue;
     await runTest(t);
   }
-  if (_browser) await _browser.close();
-}
-
-main().catch(err => { console.error('FATAL:', err); process.exit(1); });
