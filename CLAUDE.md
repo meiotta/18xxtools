@@ -8,7 +8,9 @@ Read `PROJECT_REFERENCE.md` before doing anything. It defines the full project c
 
 A vanilla JS map editor for designing 18xx board games. No build step. All editable code is in `js/`. The renderer is `js/renderer.js`.
 
-**Tobymao** (`C:\Users\meiot\Rail\18xx-master`) is Toby Mao's open-source Ruby 18xx game engine at https://18xx.games. It is the ground truth for every rendering decision — how cities are positioned, how revenue bubbles are placed, how location names are positioned, how track is drawn. It is read-only. Never edit it.
+**Tobymao** (`C:\Users\meiot\Rail\18xx-master`) is Toby Mao's open-source Ruby 18xx game engine at https://18xx.games. It is the ground truth for every rendering decision — how cities are positioned, how revenue bubbles are placed, how location names are positioned, how track is drawn.
+
+**Tobymao source is read-only. Never hand-edit tobymao files.** The one exception: the autotest pipeline (`sidecar/autotest/runner_linux.js`, formerly `erin/runner_linux.js`) drops generated `g_forgeNN/` directories into `lib/engine/game/` as deploy artifacts. Those directories are pipeline output, not source — they're regenerated from the JS exporters on every run. Do not hand-author or hand-edit anything inside `g_forge*/`; if a forge file is wrong, fix the exporter (`js/export-*.js`), not the file.
 
 ---
 
