@@ -88,6 +88,7 @@ JSON array of 60 forge IDs. Each row:
 One subdirectory per matrix row (`forge01/` … `forge60/`). Each contains:
 
 - `game.rb`, `entities.rb`, `meta.rb`, `map.rb` — the four Ruby exports
+- `namespace.rb` — the top-level namespace file (see below)
 - `edits.json` — `[{ edit, ok, note }, …]` for the two applied edits
 
 `forge01/` is the canonical reference and is committed once a PASS is verified end-to-end. The other directories are regenerated per run.
@@ -156,6 +157,25 @@ Each new ability-kwarg fix must be applied to both. Jeff's RCA (verbatim):
 > Two parallel ability serialisers maintained separately is the structural shape of this whole class of bug. `hexes:`, `corporations:`, `tiles:` etc. carry the same blind-emit risk in both `_rbAbility` and `_eiAbilityLine`. A more durable fix would be per-type kwarg allowlists driven by a table mirroring `ability/*.rb` `setup` signatures.
 
 When patching one emitter, search the other for the same field name.
+
+### The namespace file
+
+Every tobymao game requires a **top-level namespace file** at `lib/engine/game/g_<slug>.rb`, sitting **next to** the `g_<slug>/` directory (not inside it). Without it, Zeitwerk cannot autoload the subdirectory and the engine raises `LoadError: cannot load such file -- engine/game/g_forge01` on first `require`.
+
+Content is just the empty module declaration:
+
+```ruby
+# frozen_string_literal: true
+
+module Engine
+  module Game
+    module GForge01
+    end
+  end
+end
+```
+
+The exporter generates this via `renderNamespaceRb()` (in `js/export-game.js`). The pipeline writes it as `output/forgeNN/namespace.rb` and `deployGame()` copies it to `ENGINE_DIR/g_forgeNN.rb`. The bundled zip export (`exportFor18xxBtn`) has always included it. The `ruby_sanityCheck()` will flag a missing namespace file the same way it flags a missing `map.rb`.
 
 ### Other open items
 

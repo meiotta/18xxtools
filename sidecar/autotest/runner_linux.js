@@ -432,7 +432,7 @@ async function applyEdit(page, editNum, mapName) {
 
 async function captureExports(page) {
   return await page.evaluate(() => {
-    const out = { game: null, entities: null, meta: null, map: null, err: [] };
+    const out = { game: null, entities: null, meta: null, map: null, namespace: null, err: [] };
     try { out.entities = (typeof renderEntitiesRb === 'function') ? renderEntitiesRb() : null; }
     catch (e) { out.err.push('entities: ' + e.message); }
     try {
@@ -446,6 +446,8 @@ async function captureExports(page) {
     } catch (e) { out.err.push('meta: ' + e.message); }
     try { out.map = (typeof exportRubyMap === 'function') ? exportRubyMap() : null; }
     catch (e) { out.err.push('map: ' + e.message); }
+    try { out.namespace = (typeof renderNamespaceRb === 'function') ? renderNamespaceRb() : null; }
+    catch (e) { out.err.push('namespace: ' + e.message); }
     return out;
   });
 }
@@ -470,14 +472,16 @@ function extractGameModuleName(rbText) {
 // Does NOT fail on empty CORPORATIONS/COMPANIES/MINORS — base.rb supplies defaults.
 function ruby_sanityCheck(out) {
   const errs = [];
-  if (!out.entities) errs.push('no entities.rb output');
-  if (!out.game)     errs.push('no game.rb output');
-  if (!out.map)      errs.push('no map.rb output');
+  if (!out.entities)  errs.push('no entities.rb output');
+  if (!out.game)      errs.push('no game.rb output');
+  if (!out.map)       errs.push('no map.rb output');
+  if (!out.namespace) errs.push('no namespace.rb output');
   if (out.game && !/TRAINS|PHASES|MARKET|BANK/.test(out.game))
     errs.push('game.rb missing core constants (TRAINS/PHASES/MARKET/BANK)');
 
   const files = { 'game.rb': out.game, 'entities.rb': out.entities,
-                  'meta.rb': out.meta,  'map.rb':      out.map };
+                  'meta.rb': out.meta,  'map.rb':      out.map,
+                  'namespace.rb': out.namespace };
   const modules = {};
   for (const [name, text] of Object.entries(files)) {
     if (!text) continue;
@@ -505,6 +509,10 @@ function deployGame(id, outDir) {
     const src = path.join(outDir, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(destDir, f));
   }
+  // Namespace file sits NEXT TO the directory: ENGINE_DIR/g_forgeNN.rb
+  const nsSrc  = path.join(outDir, 'namespace.rb');
+  const nsDest = path.join(ENGINE_DIR, dirName + '.rb');
+  if (fs.existsSync(nsSrc)) fs.copyFileSync(nsSrc, nsDest);
   return { ok: true, dir: dirName };
 }
 
@@ -595,10 +603,11 @@ async function runTest(test) {
 
     // 4. Export to disk
     const out = await captureExports(page);
-    if (out.entities) fs.writeFileSync(path.join(outDir, 'entities.rb'), out.entities, 'utf8');
-    if (out.game)     fs.writeFileSync(path.join(outDir, 'game.rb'),     out.game,     'utf8');
-    if (out.meta)     fs.writeFileSync(path.join(outDir, 'meta.rb'),     out.meta,     'utf8');
-    if (out.map)      fs.writeFileSync(path.join(outDir, 'map.rb'),      out.map,      'utf8');
+    if (out.entities)  fs.writeFileSync(path.join(outDir, 'entities.rb'),  out.entities,  'utf8');
+    if (out.game)      fs.writeFileSync(path.join(outDir, 'game.rb'),      out.game,      'utf8');
+    if (out.meta)      fs.writeFileSync(path.join(outDir, 'meta.rb'),      out.meta,      'utf8');
+    if (out.map)       fs.writeFileSync(path.join(outDir, 'map.rb'),       out.map,       'utf8');
+    if (out.namespace) fs.writeFileSync(path.join(outDir, 'namespace.rb'), out.namespace, 'utf8');
     fs.writeFileSync(path.join(outDir, 'edits.json'), JSON.stringify(editResults, null, 2), 'utf8');
 
     await page.close();

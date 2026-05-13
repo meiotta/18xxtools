@@ -386,10 +386,11 @@ function runConfig(ctx, cfg) {
 
   const out = {};
   for (const [fn, key] of [
-    ['renderGameRb',     'game.rb'],
-    ['renderEntitiesRb', 'entities.rb'],
-    ['renderMetaRb',     'meta.rb'],
-    ['exportRubyMap',    'map.rb'],
+    ['renderGameRb',      'game.rb'],
+    ['renderEntitiesRb',  'entities.rb'],
+    ['renderMetaRb',      'meta.rb'],
+    ['exportRubyMap',     'map.rb'],
+    ['renderNamespaceRb', 'namespace.rb'],
   ]) {
     try {
       out[key] = vm.runInContext(`${fn}()`, ctx);

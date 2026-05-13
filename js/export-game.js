@@ -1747,6 +1747,15 @@ function renderMetaRb() {
   return _grbMetaRb(state);
 }
 
+// renderNamespaceRb() — the top-level lib/engine/game/g_<slug>.rb file.
+// Declares the bare module namespace so Zeitwerk can autoload the subdirectory.
+// Goes next to g_<slug>/ (not inside it) — see _grbNamespaceRb for content.
+function renderNamespaceRb() {
+  if (typeof state === 'undefined')
+    return '# No state loaded.\n';
+  return _grbNamespaceRb(state);
+}
+
 const _exportMetaBtn = document.getElementById('exportMetaBtn');
 if (_exportMetaBtn) {
   _exportMetaBtn.addEventListener('click', () => {
