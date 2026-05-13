@@ -1650,7 +1650,7 @@ module Engine
   module Game
     module ${modName}
       module Meta
-        include Game::Meta
+        include ::Engine::Game::Meta
 
         DEV_STAGE = :alpha
 
