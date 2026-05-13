@@ -220,48 +220,44 @@ function baseMechanics() {
   };
 }
 
-// ── Corp-pack builders ────────────────────────────────────────────────────────
-// renderEntitiesRb() uses state.corpPacks[].type + state.corpPacks[].companies[].
-// The flat {sym, homeHex} objects from runner_linux.js's belt-and-suspenders
-// sync do NOT work — the corporations module iterates pack.companies, not the
-// pack object itself.
+// ── Corp builders ─────────────────────────────────────────────────────────────
+// corporations/minors modules read state.companies[] and state.minors[] as flat
+// arrays.  _rbCorp(co, co, gameCap) passes the corp object as both corp and pack,
+// so pack-level fields (tokens, shares, floatPct, capitalization) must live on
+// the company object itself.
 
 const COLORS = ['#EF1D24', '#0066A5', '#00A651', '#FFCC00', '#F47C20', '#7E2D86'];
 
-function mkMajorPack(corps) {
-  return {
+function mkMajors(defs) {
+  return defs.map((c, i) => ({
     type: 'major',
-    floatPct: 60,
+    sym: c.sym,
+    name: c.name,
+    color: c.color || COLORS[i % COLORS.length],
+    textColor: '#fff',
+    coordinates: c.home,
     tokens: [0, 40, 100],
     shares: [20, 10, 10, 10, 10, 10, 10, 10, 10],
+    floatPct: 60,
     capitalization: 'full',
-    companies: corps.map((c, i) => ({
-      sym: c.sym,
-      name: c.name,
-      color: c.color || COLORS[i % COLORS.length],
-      textColor: '#fff',
-      coordinates: c.home,
-      abilities: [],
-    })),
-  };
+    abilities: [],
+  }));
 }
 
-function mkMinorPack(minors) {
-  return {
+function mkMinors(defs) {
+  return defs.map((c, i) => ({
     type: 'minor',
-    floatPct: 50,
+    sym: c.sym,
+    name: c.name,
+    color: c.color || COLORS[i % COLORS.length],
+    textColor: '#fff',
+    coordinates: c.home,
     tokens: [0],
     shares: [100],
+    floatPct: 50,
     capitalization: 'full',
-    companies: minors.map((c, i) => ({
-      sym: c.sym,
-      name: c.name,
-      color: c.color || COLORS[i % COLORS.length],
-      textColor: '#fff',
-      coordinates: c.home,
-      abilities: [],
-    })),
-  };
+    abilities: [],
+  }));
 }
 
 // ── Preview configurations ────────────────────────────────────────────────────
@@ -277,16 +273,15 @@ const CONFIGS = [
       phases: PHASES,
       financials: { market: MARKET_2D },
       mechanics: baseMechanics(),
-      corpPacks: [
-        mkMajorPack([
-          { sym: 'AA', name: 'Alpha Railway',   home: 'A2' },
-          { sym: 'AB', name: 'Beta Railway',    home: 'C2' },
-          { sym: 'AC', name: 'Gamma Railway',   home: 'B1' },
-          { sym: 'AD', name: 'Delta Railway',   home: 'D1' },
-          { sym: 'AE', name: 'Epsilon Railway', home: 'A4' },
-          { sym: 'AF', name: 'Zeta Railway',    home: 'C4' },
-        ]),
-      ],
+      companies: mkMajors([
+        { sym: 'AA', name: 'Alpha Railway',   home: 'A1' },
+        { sym: 'AB', name: 'Beta Railway',    home: 'C2' },
+        { sym: 'AC', name: 'Gamma Railway',   home: 'B2' },
+        { sym: 'AD', name: 'Delta Railway',   home: 'D1' },
+        { sym: 'AE', name: 'Epsilon Railway', home: 'A3' },
+        { sym: 'AF', name: 'Zeta Railway',    home: 'C4' },
+      ]),
+      minors: [],
       privates: [],
     }),
     coordParity: 1,
@@ -302,23 +297,21 @@ const CONFIGS = [
       phases: PHASES,
       financials: { market: MARKET_2D },
       mechanics: Object.assign(baseMechanics(), { capitalization: 'incremental' }),
-      corpPacks: [
-        mkMajorPack([
-          { sym: 'AA', name: 'Alpha Railway', home: 'A2' },
-          { sym: 'AB', name: 'Beta Railway',  home: 'C2' },
-          { sym: 'AC', name: 'Gamma Railway', home: 'B1' },
-        ]),
-        mkMinorPack([
-          { sym: 'MA', name: 'Minor MA', home: 'D1' },
-          { sym: 'MB', name: 'Minor MB', home: 'A4' },
-          { sym: 'MC', name: 'Minor MC', home: 'C4' },
-          { sym: 'MD', name: 'Minor MD', home: 'B3' },
-          { sym: 'ME', name: 'Minor ME', home: 'D3' },
-          { sym: 'MF', name: 'Minor MF', home: 'A6' },
-          { sym: 'MG', name: 'Minor MG', home: 'C6' },
-          { sym: 'MH', name: 'Minor MH', home: 'B5' },
-        ]),
-      ],
+      companies: mkMajors([
+        { sym: 'AA', name: 'Alpha Railway', home: 'A2' },
+        { sym: 'AB', name: 'Beta Railway',  home: 'C2' },
+        { sym: 'AC', name: 'Gamma Railway', home: 'B1' },
+      ]),
+      minors: mkMinors([
+        { sym: 'MA', name: 'Minor MA', home: 'D1' },
+        { sym: 'MB', name: 'Minor MB', home: 'A4' },
+        { sym: 'MC', name: 'Minor MC', home: 'C4' },
+        { sym: 'MD', name: 'Minor MD', home: 'B3' },
+        { sym: 'ME', name: 'Minor ME', home: 'D3' },
+        { sym: 'MF', name: 'Minor MF', home: 'A6' },
+        { sym: 'MG', name: 'Minor MG', home: 'C6' },
+        { sym: 'MH', name: 'Minor MH', home: 'B5' },
+      ]),
       privates: [],
     }),
     coordParity: 0,
@@ -337,16 +330,15 @@ const CONFIGS = [
         national_operates: true,
         export_train: true,
       }),
-      corpPacks: [
-        mkMajorPack([
-          { sym: 'AA', name: 'Alpha Railway', home: 'A2', color: '#EF1D24' },
-          { sym: 'AB', name: 'Beta Railway',  home: 'C2', color: '#0066A5' },
-          { sym: 'AC', name: 'Gamma Railway', home: 'B1', color: '#00A651' },
-          { sym: 'AD', name: 'Delta Railway', home: 'D1', color: '#FFCC00' },
-          { sym: 'AE', name: 'Epsilon Railway', home: 'A4', color: '#F47C20' },
-          { sym: 'NTL', name: 'National Railway', home: 'C4', color: '#222222' },
-        ]),
-      ],
+      companies: mkMajors([
+        { sym: 'AA', name: 'Alpha Railway',    home: 'A2', color: '#EF1D24' },
+        { sym: 'AB', name: 'Beta Railway',     home: 'C2', color: '#0066A5' },
+        { sym: 'AC', name: 'Gamma Railway',    home: 'B1', color: '#00A651' },
+        { sym: 'AD', name: 'Delta Railway',    home: 'D1', color: '#FFCC00' },
+        { sym: 'AE', name: 'Epsilon Railway',  home: 'A4', color: '#F47C20' },
+        { sym: 'NTL', name: 'National Railway', home: 'C4', color: '#222222' },
+      ]),
+      minors: [],
       privates: [
         { sym: 'AC1', name: 'Alpha Concession', cost: 20,  revenue: 5,  abilities: [] },
         { sym: 'BC1', name: 'Beta Concession',  cost: 45,  revenue: 10, abilities: [] },
@@ -373,14 +365,13 @@ const CONFIGS = [
       phases: PHASES,
       financials: { market: MARKET_2D },
       mechanics: baseMechanics(),
-      corpPacks: [
-        mkMajorPack([
-          { sym: 'AA', name: 'Alpha Railway', home: 'A2' },
-          { sym: 'AB', name: 'Beta Railway',  home: 'C2' },
-          { sym: 'AC', name: 'Gamma Railway', home: 'B1' },
-          { sym: 'AD', name: 'Delta Railway', home: 'D1' },
-        ]),
-      ],
+      companies: mkMajors([
+        { sym: 'AA', name: 'Alpha Railway', home: 'A2' },
+        { sym: 'AB', name: 'Beta Railway',  home: 'C2' },
+        { sym: 'AC', name: 'Gamma Railway', home: 'B1' },
+        { sym: 'AD', name: 'Delta Railway', home: 'D1' },
+      ]),
+      minors: [],
       privates: [],
     }),
     coordParity: 0,
