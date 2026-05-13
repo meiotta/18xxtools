@@ -1,0 +1,12 @@
+[
+  {
+    "edit": 3,
+    "ok": true,
+    "note": "Added private + linked permanent L train (generic ability)"
+  },
+  {
+    "edit": 8,
+    "ok": true,
+    "note": "Added two-tile-lay; second tile costs $20"
+  }
+]

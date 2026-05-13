@@ -1,0 +1,422 @@
+[
+  {
+    "id": "forge01",
+    "map": "1830",
+    "setup": "A",
+    "edit1": 1,
+    "edit2": 6
+  },
+  {
+    "id": "forge02",
+    "map": "1889",
+    "setup": "A",
+    "edit1": 1,
+    "edit2": 6
+  },
+  {
+    "id": "forge03",
+    "map": "1846",
+    "setup": "A",
+    "edit1": 1,
+    "edit2": 6
+  },
+  {
+    "id": "forge04",
+    "map": "1882",
+    "setup": "A",
+    "edit1": 1,
+    "edit2": 6
+  },
+  {
+    "id": "forge05",
+    "map": "18Chesapeake",
+    "setup": "A",
+    "edit1": 1,
+    "edit2": 6
+  },
+  {
+    "id": "forge06",
+    "map": "1856",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge07",
+    "map": "18SJ",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge08",
+    "map": "1870",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge09",
+    "map": "1830",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge10",
+    "map": "1889",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge11",
+    "map": "1846",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge12",
+    "map": "1882",
+    "setup": "A",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge13",
+    "map": "18Chesapeake",
+    "setup": "B",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge14",
+    "map": "1856",
+    "setup": "B",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge15",
+    "map": "18SJ",
+    "setup": "B",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge16",
+    "map": "1870",
+    "setup": "B",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge17",
+    "map": "1830",
+    "setup": "B",
+    "edit1": 2,
+    "edit2": 7
+  },
+  {
+    "id": "forge18",
+    "map": "1889",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge19",
+    "map": "1846",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge20",
+    "map": "1882",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge21",
+    "map": "18Chesapeake",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge22",
+    "map": "1856",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge23",
+    "map": "18SJ",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge24",
+    "map": "1870",
+    "setup": "B",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge25",
+    "map": "1830",
+    "setup": "C",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge26",
+    "map": "1889",
+    "setup": "C",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge27",
+    "map": "1846",
+    "setup": "C",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge28",
+    "map": "1882",
+    "setup": "C",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge29",
+    "map": "18Chesapeake",
+    "setup": "C",
+    "edit1": 3,
+    "edit2": 8
+  },
+  {
+    "id": "forge30",
+    "map": "1856",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge31",
+    "map": "18SJ",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge32",
+    "map": "1870",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge33",
+    "map": "1830",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge34",
+    "map": "1889",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge35",
+    "map": "1846",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge36",
+    "map": "1882",
+    "setup": "C",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge37",
+    "map": "18Chesapeake",
+    "setup": "D",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge38",
+    "map": "1856",
+    "setup": "D",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge39",
+    "map": "18SJ",
+    "setup": "D",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge40",
+    "map": "1870",
+    "setup": "D",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge41",
+    "map": "1830",
+    "setup": "D",
+    "edit1": 4,
+    "edit2": 9
+  },
+  {
+    "id": "forge42",
+    "map": "1889",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge43",
+    "map": "1846",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge44",
+    "map": "1882",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge45",
+    "map": "18Chesapeake",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge46",
+    "map": "1856",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge47",
+    "map": "18SJ",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge48",
+    "map": "1870",
+    "setup": "D",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge49",
+    "map": "1830",
+    "setup": "E",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge50",
+    "map": "1889",
+    "setup": "E",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge51",
+    "map": "1846",
+    "setup": "E",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge52",
+    "map": "1882",
+    "setup": "E",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge53",
+    "map": "18Chesapeake",
+    "setup": "E",
+    "edit1": 5,
+    "edit2": 10
+  },
+  {
+    "id": "forge54",
+    "map": "1856",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge55",
+    "map": "18SJ",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge56",
+    "map": "1870",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge57",
+    "map": "1830",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge58",
+    "map": "1889",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge59",
+    "map": "1846",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  },
+  {
+    "id": "forge60",
+    "map": "1882",
+    "setup": "E",
+    "edit1": 6,
+    "edit2": 1
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "edit": 2,
+    "ok": true,
+    "note": "Replaced private 2 with extra-tile-lay ability"
+  },
+  {
+    "edit": 7,
+    "ok": false,
+    "note": "No 2-train present"
+  }
+]
