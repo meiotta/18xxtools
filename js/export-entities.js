@@ -85,42 +85,42 @@ function _eiCorpEntry(co, pack, gameCap) {
   const amp      = pack.alwaysMarketPrice || false;
 
   lines.push(i2 + '{');
-  lines.push(i4 + 'sym: '   + _eiStr(co.sym  || ''));
-  lines.push(i4 + 'name: '  + _eiStr(co.name || ''));
+  lines.push(i4 + 'sym: '   + _eiStr(co.sym  || '') + ',');
+  lines.push(i4 + 'name: '  + _eiStr(co.name || '') + ',');
   if (co.logo)
-    lines.push(i4 + 'logo: ' + _eiStr(co.logo));
-  lines.push(i4 + 'color: ' + _eiColor(co.color || '#666666'));
+    lines.push(i4 + 'logo: ' + _eiStr(co.logo) + ',');
+  lines.push(i4 + 'color: ' + _eiColor(co.color || '#666666') + ',');
   // Corp textColor default is #000000 — omit if default.
   // Use _eiStr (not _eiColor) so named colors like 'black' round-trip as quoted strings.
   if (co.textColor && co.textColor !== '#000000' && co.textColor !== '#000000'.toUpperCase())
-    lines.push(i4 + 'text_color: ' + _eiStr(co.textColor));
-  lines.push(i4 + 'tokens: ' + _eiNumArr(tokens));
+    lines.push(i4 + 'text_color: ' + _eiStr(co.textColor) + ',');
+  lines.push(i4 + 'tokens: ' + _eiNumArr(tokens) + ',');
   if (co.coordinates)
-    lines.push(i4 + 'coordinates: ' + _eiStr(co.coordinates));
+    lines.push(i4 + 'coordinates: ' + _eiStr(co.coordinates) + ',');
   if (co.city && parseInt(co.city) !== 0)
-    lines.push(i4 + 'city: ' + parseInt(co.city));
+    lines.push(i4 + 'city: ' + parseInt(co.city) + ',');
   if (co.destinationCoordinates)
-    lines.push(i4 + 'destination_coordinates: ' + _eiStr(co.destinationCoordinates));
+    lines.push(i4 + 'destination_coordinates: ' + _eiStr(co.destinationCoordinates) + ',');
 
   // Shares — omit if standard 9-share structure [20,10,10,10,10,10,10,10,10]
   if (JSON.stringify(shares) !== _EI_DEFAULT_SHARES)
-    lines.push(i4 + 'shares: ' + _eiNumArr(shares));
+    lines.push(i4 + 'shares: ' + _eiNumArr(shares) + ',');
 
   // Float percent — omit if engine default (60)
   if (floatPct !== 60)
-    lines.push(i4 + 'float_percent: ' + floatPct);
+    lines.push(i4 + 'float_percent: ' + floatPct + ',');
 
   // Max ownership — omit if engine default (60)
   if (maxOwn !== 60)
-    lines.push(i4 + 'max_ownership_percent: ' + maxOwn);
+    lines.push(i4 + 'max_ownership_percent: ' + maxOwn + ',');
 
   // Always market price — omit if false
   if (amp)
-    lines.push(i4 + 'always_market_price: true');
+    lines.push(i4 + 'always_market_price: true,');
 
   // Capitalization — omit if matches game-level CAPITALIZATION
   if (cap !== gameCap)
-    lines.push(i4 + 'capitalization: :' + cap);
+    lines.push(i4 + 'capitalization: :' + cap + ',');
 
   // Abilities
   const abilities = co.abilities || [];
@@ -142,33 +142,33 @@ function _eiPrivateEntry(priv) {
   const lines = [];
 
   lines.push(i2 + '{');
-  lines.push(i4 + 'name: '  + _eiStr(priv.name  || ''));
-  lines.push(i4 + 'value: ' + (priv.cost || 0));
+  lines.push(i4 + 'name: '  + _eiStr(priv.name  || '') + ',');
+  lines.push(i4 + 'value: ' + (priv.cost || 0) + ',');
 
   // Revenue — number or phase array
   const rev = priv.revenue;
-  if (Array.isArray(rev)) lines.push(i4 + 'revenue: ' + _eiNumArr(rev));
-  else                    lines.push(i4 + 'revenue: ' + (rev != null ? rev : 0));
+  if (Array.isArray(rev)) lines.push(i4 + 'revenue: ' + _eiNumArr(rev) + ',');
+  else                    lines.push(i4 + 'revenue: ' + (rev != null ? rev : 0) + ',');
 
   const privDesc = priv.desc ?? priv.ability;
   if (privDesc)
-    lines.push(i4 + 'desc: ' + _eiStr(privDesc));
+    lines.push(i4 + 'desc: ' + _eiStr(privDesc) + ',');
 
-  lines.push(i4 + 'sym: ' + _eiStr(priv.sym || ''));
+  lines.push(i4 + 'sym: ' + _eiStr(priv.sym || '') + ',');
 
-  if (priv.minPrice    != null) lines.push(i4 + 'min_price: '   + priv.minPrice);
-  if (priv.maxPrice    != null) lines.push(i4 + 'max_price: '   + priv.maxPrice);
-  if (priv.discount    != null) lines.push(i4 + 'discount: '    + priv.discount);
-  if (priv.minPlayers  != null) lines.push(i4 + 'min_players: ' + priv.minPlayers);
+  if (priv.minPrice    != null) lines.push(i4 + 'min_price: '   + priv.minPrice   + ',');
+  if (priv.maxPrice    != null) lines.push(i4 + 'max_price: '   + priv.maxPrice   + ',');
+  if (priv.discount    != null) lines.push(i4 + 'discount: '    + priv.discount   + ',');
+  if (priv.minPlayers  != null) lines.push(i4 + 'min_players: ' + priv.minPlayers + ',');
 
   // Color — omit if it's the default placeholder gray
   if (priv.color && priv.color !== '#666666' && priv.color !== '#000000')
-    lines.push(i4 + 'color: ' + _eiColor(priv.color));
+    lines.push(i4 + 'color: ' + _eiColor(priv.color) + ',');
 
   // Private textColor default is #ffffff — omit if default.
   // Use _eiStr so named colors like 'white' round-trip as quoted strings.
   if (priv.textColor && priv.textColor !== '#ffffff' && priv.textColor !== '#FFFFFF')
-    lines.push(i4 + 'text_color: ' + _eiStr(priv.textColor));
+    lines.push(i4 + 'text_color: ' + _eiStr(priv.textColor) + ',');
 
   // Abilities — for concessions, reconstruct the exchange ability that was
   // extracted at import time into linkedMajor / blocksHexes.
