@@ -943,12 +943,16 @@ const _GRB_MODULES = [
         lines.push(`CURRENCY_FORMAT_STR = '${m.currency}'`);
 
       const sc  = m.startingCash || {};
-      lines.push(`STARTING_CASH = { ${pRange.map(p => `${p} => ${sc[p] ?? 0}`).join(', ')} }.freeze`);
+      const scVals = pRange.filter(p => sc[p] != null && sc[p] > 0);
+      if (scVals.length)
+        lines.push(`STARTING_CASH = { ${pRange.map(p => `${p} => ${sc[p] ?? 0}`).join(', ')} }.freeze`);
 
       const cl    = m.certLimit || {};
       const clRng = Object.keys(cl).map(Number).sort((a, b) => a - b);
       const clRange = clRng.length ? clRng : pRange;
-      lines.push(`CERT_LIMIT = { ${clRange.map(p => `${p} => ${cl[p] ?? 0}`).join(', ')} }.freeze`);
+      const clVals = clRange.filter(p => cl[p] != null && cl[p] > 0);
+      if (clVals.length)
+        lines.push(`CERT_LIMIT = { ${clRange.map(p => `${p} => ${cl[p] ?? 0}`).join(', ')} }.freeze`);
 
       return { bank: lines.join('\n') };
     },
