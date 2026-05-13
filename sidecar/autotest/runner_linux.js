@@ -509,10 +509,20 @@ function deployGame(id, outDir) {
     const src = path.join(outDir, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(destDir, f));
   }
-  // Namespace file sits NEXT TO the directory: ENGINE_DIR/g_forgeNN.rb
-  const nsSrc  = path.join(outDir, 'namespace.rb');
-  const nsDest = path.join(ENGINE_DIR, dirName + '.rb');
-  if (fs.existsSync(nsSrc)) fs.copyFileSync(nsSrc, nsDest);
+  // Namespace stub sits NEXT TO the directory: ENGINE_DIR/g_forgeNN.rb.
+  // Always written from a hardcoded template — content is invariant per slug.
+  const modName = 'GForge' + num.padStart(2, '0');
+  const nsDest  = path.join(ENGINE_DIR, dirName + '.rb');
+  const nsContent = `# frozen_string_literal: true
+
+module Engine
+  module Game
+    module ${modName}
+    end
+  end
+end
+`;
+  fs.writeFileSync(nsDest, nsContent, 'utf8');
   return { ok: true, dir: dirName };
 }
 
