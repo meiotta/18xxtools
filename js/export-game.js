@@ -1639,9 +1639,23 @@ end
 // from showing in 18xx.games' production list. state.meta has no description
 // field today (per js/setup.js inspection on 2026-05-10), so the stub is
 // minimal — designers can flesh it out post-export.
+//
+// PLAYER_RANGE is required by the engine's base meta.rb min_players/max_players
+// methods (lib/engine/game/meta.rb:141-147 in tobymao master):
+//   def min_players(_optional_rules, _num_players)
+//     self::PLAYER_RANGE[0]
+//   end
+// Without it, base.rb's PLAYER_RANGE = nil is inherited, and the loader throws
+// `undefined method '[]' for nil:NilClass` on first access. Each game's
+// meta.rb must declare `PLAYER_RANGE = [min, max].freeze` (see g_1889/meta.rb:22).
+// The min/max values mirror what the game.rb bank module emits (state.mechanics
+// minPlayers/maxPlayers with the same 2..6 defaults).
 function _grbMetaRb(state) {
   const modName = _grbModuleName(state);
   const title   = (state && state.meta && state.meta.title) || modName;
+  const m       = (state && state.mechanics) || {};
+  const minP    = m.minPlayers ?? 2;
+  const maxP    = m.maxPlayers ?? 6;
   return `# frozen_string_literal: true
 
 require_relative '../meta'
@@ -1655,6 +1669,8 @@ module Engine
         DEV_STAGE = :alpha
 
         GAME_TITLE = ${_rbQuote(title)}
+
+        PLAYER_RANGE = [${minP}, ${maxP}].freeze
       end
     end
   end
