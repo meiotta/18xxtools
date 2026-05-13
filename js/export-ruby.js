@@ -416,7 +416,14 @@ function exportRubyMap() {
   }
   out += `}.freeze\n`;
 
-  return out;
+  // Wrap in tobymao module hierarchy: Engine > Game > G<Name> > Map
+  const modName = (typeof _grbModuleName === 'function') ? _grbModuleName(state) : 'GGame';
+  const allLines   = out.split('\n');
+  const firstBody  = allLines.findIndex(l => /^[A-Z_]/.test(l));
+  const hdr        = allLines.slice(0, firstBody).join('\n').trimEnd();
+  const body       = allLines.slice(firstBody).join('\n').trimEnd();
+  const indented   = body.split('\n').map(l => (l.trim() ? '        ' + l : '')).join('\n');
+  return `${hdr}\n\nmodule Engine\n  module Game\n    module ${modName}\n      module Map\n${indented}\n      end\n    end\n  end\nend\n`;
 }
 
 // ── Wire up button ────────────────────────────────────────────────────────────
