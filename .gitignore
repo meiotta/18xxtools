@@ -24,3 +24,7 @@ tile-render-test.html
 sidecar/autotest/output/
 sidecar/autotest/preview/
 sidecar/autotest/test_log.md
+
+# Runner/autotest generated
+node_modules/
+.cache/
