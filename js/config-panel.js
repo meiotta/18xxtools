@@ -156,11 +156,25 @@ function syncOrientationSelect() {
   if (sel) sel.value = state.meta.orientation || 'flat';
 }
 
+function syncTitleInput() {
+  const inp = document.getElementById('gameTitleInput');
+  if (inp) inp.value = state.meta.title || '';
+}
+
 // ── Initialisation ───────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   // Tile Packs — rendered after state is initialized, defer slightly
   setTimeout(renderTilePackToggles, 0);
+
+  // Game title
+  const gameTitleInput = document.getElementById('gameTitleInput');
+  if (gameTitleInput) {
+    gameTitleInput.addEventListener('input', (e) => {
+      state.meta.title = e.target.value;
+      autosave();
+    });
+  }
 
   // Orientation
   const configOrientation = document.getElementById('configOrientation');

@@ -1,5 +1,5 @@
 // js/export-entities.js
-// Converts state.privates + state.corpPacks → COMPANIES / CORPORATIONS / MINORS
+// Converts state.privates + state.companies + state.minors → COMPANIES / CORPORATIONS / MINORS
 // Wired to #exportEntitiesBtn (⬆ Export → Entities (.rb)).
 //
 // Field names follow tobymao lib/engine/corporation.rb exactly.
@@ -91,18 +91,16 @@ function _eiCorpEntry(co, gameCap) {
   const coordinates = co.coordinates || co.homeHex || '';
 
   lines.push(i2 + '{');
-  lines.push(i4 + 'sym: '   + _eiStr(co.sym  || '') + ',');
+  lines.push(i4 + 'sym: '   + _eiStr(sym) + ',');
   lines.push(i4 + 'name: '  + _eiStr(co.name || '') + ',');
   if (co.logo)
     lines.push(i4 + 'logo: ' + _eiStr(co.logo) + ',');
   lines.push(i4 + 'color: ' + _eiColor(co.color || '#666666') + ',');
-  // Corp textColor default is #000000 — omit if default.
-  // Use _eiStr (not _eiColor) so named colors like 'black' round-trip as quoted strings.
   if (co.textColor && co.textColor !== '#000000' && co.textColor !== '#000000'.toUpperCase())
     lines.push(i4 + 'text_color: ' + _eiStr(co.textColor) + ',');
   lines.push(i4 + 'tokens: ' + _eiNumArr(tokens) + ',');
-  if (co.coordinates)
-    lines.push(i4 + 'coordinates: ' + _eiStr(co.coordinates) + ',');
+  if (coordinates)
+    lines.push(i4 + 'coordinates: ' + _eiStr(coordinates) + ',');
   if (co.city && parseInt(co.city) !== 0)
     lines.push(i4 + 'city: ' + parseInt(co.city) + ',');
   if (co.destinationCoordinates)
@@ -226,7 +224,11 @@ function exportEntitiesRb() {
   }
 
   // ── CORPORATIONS ───────────────────────────────────────────────────────────
-  const corps  = state.companies || [];
+  // state.companies may contain entries with type:'minor' when the importer
+  // places all entities into one array; split here so they land in the right block.
+  const allCompanies = state.companies || [];
+  const corps   = allCompanies.filter(c => (c.type || 'major') !== 'minor');
+  const corpMin = allCompanies.filter(c => c.type === 'minor');
 
   if (corps.length) {
     out.push('CORPORATIONS = [');
@@ -236,7 +238,7 @@ function exportEntitiesRb() {
   }
 
   // ── MINORS ─────────────────────────────────────────────────────────────────
-  const minors = state.minors || [];
+  const minors = [...corpMin, ...(state.minors || [])];
 
   if (minors.length) {
     out.push('MINORS = [');
@@ -267,14 +269,19 @@ function exportEntitiesRb() {
 // ── Button wiring ─────────────────────────────────────────────────────────────
 
 document.getElementById('exportEntitiesBtn').addEventListener('click', () => {
+  if (!state?.meta?.title?.trim()) {
+    alert('Set a game title before exporting.\n\nOpen the Config tab (right panel) and enter a title in the "Game Title" field.');
+    const inp = document.getElementById('gameTitleInput');
+    if (inp) inp.focus();
+    return;
+  }
   try {
     const src  = exportEntitiesRb();
     const blob = new Blob([src], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    const slug = ((state.meta && state.meta.title) || 'game')
-      .replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+    const slug = state.meta.title.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
     a.download = slug + '_entities.rb';
     document.body.appendChild(a);
     a.click();

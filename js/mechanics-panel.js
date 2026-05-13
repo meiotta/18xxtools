@@ -2206,6 +2206,37 @@ function onRemoveSlot(slotPath) {
   renderMechanicsLeft();
   renderMechanicsRight();
 }
+function onAddSlot(keyPath) {
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  const path = keyPath.split('.');
+  let obj = state.mechanics;
+  for (let i = 0; i < path.length - 1; i++) { if (!obj[path[i]]) obj[path[i]] = {}; obj = obj[path[i]]; }
+  const key = path[path.length - 1];
+  if (!Array.isArray(obj[key])) obj[key] = [Object.assign({}, DEFAULT_TILE_LAY_SLOT)];
+  const arr = obj[key];
+  arr.push(Object.assign({}, DEFAULT_TILE_LAY_SLOT, { cost: 0 }));
+  const rubyKey = _tileFmKey(keyPath);
+  if (rubyKey) _fmWrite(rubyKey, arr);
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
+function onRemoveSlot(slotPath) {
+  if (typeof state === 'undefined' || !state.mechanics) return;
+  const parts = slotPath.split('.');
+  const idx   = Number(parts.pop());
+  const keyPath = parts.join('.');
+  const path  = parts;
+  let obj = state.mechanics;
+  for (const seg of path) { if (!obj[seg]) return; obj = obj[seg]; }
+  if (!Array.isArray(obj) || obj.length <= 1) return;
+  obj.splice(idx, 1);
+  const rubyKey = _tileFmKey(keyPath);
+  if (rubyKey) _fmWrite(rubyKey, obj);
+  if (typeof autosave === 'function') autosave();
+  renderMechanicsLeft();
+  renderMechanicsRight();
+}
 
 // ---------------------------------------------------------------------------
 // Show / hide

@@ -2222,10 +2222,10 @@ function applyEntitiesImport(content, sourceName) {
   state.companies = companies;
   state.minors    = minors;
   _resolveGrantedByNames(state.trains, privates);
-  if (typeof _selectedPrivateIdx !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
+  if (typeof _selectedPrivateIdx    !== 'undefined' && privates.length) _selectedPrivateIdx = 0;
+  if (typeof renderPrivatesCards    === 'function') renderPrivatesCards();
   if (typeof renderCompaniesTable   === 'function') renderCompaniesTable();
   if (typeof renderMinorsTable      === 'function') renderMinorsTable();
-  if (typeof renderPrivatesCards    === 'function') renderPrivatesCards();
   if (typeof renderHomeCompanySelect === 'function') renderHomeCompanySelect();
   autosave();
   document.getElementById('fileMenu').style.display = 'none';

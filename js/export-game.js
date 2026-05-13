@@ -174,8 +174,8 @@ function _rbCorp(co, pack, gameCap) {
   if (co.textColor && !/^#fff/i.test(co.textColor))
     lines.push(ii + 'text_color: ' + _rbColor(co.textColor) + ',');
   lines.push(ii + 'tokens: ' + _rbNumArr(tokens) + ',');
-  if (co.coordinates)
-    lines.push(ii + 'coordinates: ' + _rbQuote(co.coordinates) + ',');
+  if (coord)
+    lines.push(ii + 'coordinates: ' + _rbQuote(coord) + ',');
   if (co.city && parseInt(co.city) !== 0)
     lines.push(ii + 'city: ' + parseInt(co.city) + ',');
   if (co.destinationCoordinates)
@@ -218,15 +218,15 @@ function _grbDistance(tr) {
         `]`
       );
     case 'xy':
-      // Pay X stops, visit Y stops — 1846-style split train (e.g. 3/5, 4/6)
-      // TODO (Evan Q1): confirm node types — 1846 uses %w[city offboard];
-      //   some games use %w[city town], check before extending to non-1846 games.
+      // Pay X stops, visit Y stops — 1846-style split train (e.g. 3/5, 4/6).
+      // Verified: g_1846/game.rb uses %w[city offboard] for all split-train variants.
       return `[{ 'nodes' => %w[city offboard], 'pay' => ${tr.x || 2}, 'visit' => ${tr.y || 4} }]`;
     case 'u':
       // Unlimited/diesel — distance: 999 (g_1830 D-train convention)
       return '999';
     case 'h':
-      // Hex-distance trains — TODO: identify tobymao Ruby format (no confirmed pattern)
+      // Hex-distance trains — tobymao uses a plain numeric distance scalar (g_1849, g_1862).
+      // Hex-counting is a game mechanic, not a TRAINS entry format difference.
       return String(tr.h || 4);
     default: // 'n'
       return String(tr.n != null ? tr.n : 2);
@@ -345,9 +345,8 @@ function _grbPhaseHash(ph, state) {
 
   kv.push(`operating_rounds: ${ph.ors || 2}`);
 
-  // status: string array — tobymao uses %w[...], not %i[...].
-  // Source: g_1830/game.rb PHASES, g_1822/game.rb PHASES — confirmed %w usage.
-  // TODO (Evan Q3): if any game uses symbol status keys (%i[...]), update here.
+  // status: string array — tobymao uses %w[...] everywhere, never %i[...].
+  // Verified: g_1830, g_1822, g_1846, g_1870, g_18_chesapeake all use %w.
   if (ph.status && ph.status.length) {
     // Use quoted array when any value contains a space (%w[] would split on it)
     if (ph.status.some(s => String(s).includes(' ')))
@@ -1001,6 +1000,44 @@ const _GRB_MODULES = [
       if ((m.soldOutTopRowMovement || 'none') !== 'none')
         lines.push(`SOLD_OUT_TOP_ROW_MOVEMENT = :${m.soldOutTopRowMovement}`);
       return { stock_round: lines.join('\n') };
+    },
+  },
+
+  // ── Market ───────────────────────────────────────────────────────────────────
+  {
+    id: 'market',
+    emit(state) {
+      const f = state.financials || {};
+      const rows = f.market || [];
+      if (!rows.length) {
+        return { stock_round: "MARKET = [\n          [100,110,120,130,140,150,160,170,180,190,200]\n        ].freeze" };
+      }
+      const oneD = !Array.isArray(rows[0]);
+      if (oneD) {
+        const cells = rows.map(c => {
+          if (typeof c === 'object' && c !== null) {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return { stock_round: `MARKET = [\n          [${cells.join(', ')}]\n        ].freeze` };
+      }
+      const rbRows = rows.map(row => {
+        if (!Array.isArray(row)) return '          []';
+        const cells = row.map(c => {
+          if (c === null || c === undefined) return 'nil';
+          if (typeof c === 'object') {
+            const v = c.value || c.price || c;
+            const suffix = c.type ? `_${c.type}` : '';
+            return `'${v}${suffix}'`;
+          }
+          return String(c);
+        });
+        return `          [${cells.join(', ')}]`;
+      });
+      return { stock_round: `MARKET = [\n${rbRows.join(',\n')}\n        ].freeze` };
     },
   },
 
@@ -1829,4 +1866,3 @@ if (_exportStockBtn) {
       alert('Export failed: ' + err.message);
     }
   });
-}

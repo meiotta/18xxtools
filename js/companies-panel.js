@@ -13,14 +13,14 @@ function renderCompaniesTable() {
   tbody.innerHTML = '';
   state.companies.forEach((co, idx) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td><input type="color" class="co-color"></td><td><input type="text" class="co-name"></td><td><input type="text" class="co-abbr" maxlength="4"></td><td><input type="text" class="co-home" maxlength="3"></td><td><input type="number" class="co-par"></td><td><input type="number" class="co-tokens"></td><td><input type="number" class="co-float"></td><td><button class="table-btn" style="background: #8b0000;">x</button></td>';
+    tr.innerHTML = '<td><input type="color" class="co-color"></td><td><input type="text" class="co-name"></td><td><input type="text" class="co-abbr" maxlength="4"></td><td><input type="text" class="co-home" maxlength="3"></td><td><input type="number" class="co-par"></td><td><input type="text" class="co-tokens" style="width:80px;" placeholder="0, 40, 100" title="Comma-separated token placement costs"></td><td><input type="number" class="co-float"></td><td><button class="table-btn" style="background: #8b0000;">x</button></td>';
     const inputs = tr.querySelectorAll('input');
     inputs[0].value = co.color || '#ff0000';
     inputs[1].value = co.name || '';
     inputs[2].value = co.abbr || '';
     inputs[3].value = co.homeHex || '';
     inputs[4].value = co.parValue || 100;
-    inputs[5].value = co.tokens || 5;
+    inputs[5].value = Array.isArray(co.tokens) ? co.tokens.join(', ') : (co.tokens != null ? co.tokens : '0, 40, 100');
     inputs[6].value = co.floatPct || 60;
     inputs[0].addEventListener('change', (e) => { state.companies[idx].color = e.target.value; autosave(); });
     inputs[1].addEventListener('change', (e) => { state.companies[idx].name = e.target.value; autosave(); });
@@ -42,7 +42,11 @@ function renderCompaniesTable() {
       }
     });
     inputs[4].addEventListener('change', (e) => { state.companies[idx].parValue = parseInt(e.target.value) || 100; autosave(); });
-    inputs[5].addEventListener('change', (e) => { state.companies[idx].tokens = parseInt(e.target.value) || 5; autosave(); });
+    inputs[5].addEventListener('change', (e) => {
+      const arr = e.target.value.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+      state.companies[idx].tokens = arr.length ? arr : [0, 40, 100];
+      autosave();
+    });
     inputs[6].addEventListener('change', (e) => { state.companies[idx].floatPct = parseInt(e.target.value) || 60; autosave(); });
     tr.querySelector('button').addEventListener('click', () => {
       state.companies.splice(idx, 1);
@@ -175,7 +179,8 @@ function showCompanyWizard(type) {
   document.getElementById('cwAbbr').value = '';
   document.getElementById('cwColor').value = '#ff0000';
   document.getElementById('cwHome').value = '';
-  document.getElementById('cwTokens').value = type === 'major' ? 5 : 1;
+  document.getElementById('cwTokens').value       = type === 'major' ? '0, 40, 100' : '1';
+  document.getElementById('cwTokensLabel').textContent = type === 'major' ? 'Tokens (costs)' : 'Tokens (count)';
   document.getElementById('cwPar').value = 100;
   document.getElementById('cwFloat').value = 60;
   document.getElementById('cwLocationMech').value = 'fixed';
@@ -219,18 +224,20 @@ document.getElementById('cwBtnSave').addEventListener('click', () => {
   const abbr = document.getElementById('cwAbbr').value;
   const color = document.getElementById('cwColor').value;
   const homeHex = document.getElementById('cwHome').value.toUpperCase();
-  const tokens = parseInt(document.getElementById('cwTokens').value) || 1;
+  const tokensRaw = document.getElementById('cwTokens').value;
 
   if (type === 'major') {
-    state.companies.push({ 
-      name, abbr, color, homeHex, 
-      parValue: parseInt(document.getElementById('cwPar').value) || 100, 
-      tokens, 
-      floatPct: parseInt(document.getElementById('cwFloat').value) || 60 
+    const tokensArr = tokensRaw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    state.companies.push({
+      name, abbr, color, homeHex,
+      parValue: parseInt(document.getElementById('cwPar').value) || 100,
+      tokens: tokensArr.length ? tokensArr : [0, 40, 100],
+      floatPct: parseInt(document.getElementById('cwFloat').value) || 60
     });
     renderCompaniesTable();
     renderHomeCompanySelect();
   } else {
+    const tokens = parseInt(tokensRaw, 10) || 1;
     const count = parseInt(document.getElementById('cwMinorCount').value) || 1;
     const mech = document.getElementById('cwLocationMechanism')?.value || 'fixed';
     const paletteKey = document.getElementById('cwColorPalette').value || 'charter';
@@ -417,58 +424,52 @@ const ABILITY_DEFS = {
     },
   },
   tile_income: {
-    label: 'Tile Income',
+    label: 'Terrain Income',
     fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
-      { key: 'income', label: 'Income per turn', type: 'number', default: 10 },
-      { key: 'terrain', label: 'Terrain filter', type: 'select', options: ['', 'mountain', 'hill', 'swamp', 'water', 'desert', 'forest'], default: '' },
+      { key: 'income',     label: 'Income per route', type: 'number', default: 10 },
+      { key: 'terrain',    label: 'Terrain type', type: 'select', options: ['', 'mountain', 'hill', 'water', 'swamp', 'desert', 'forest'], default: '' },
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'owner_only', label: 'Owning corp only', type: 'checkbox', default: false },
     ],
     suggest(a) {
-      const terrain = a.terrain ? ` on ${a.terrain} tiles` : '';
-      return `The owning ${a.owner_type || 'player'} collects $${a.income || 0} whenever a tile is laid${terrain}.`;
+      const t   = a.terrain ? `through ${a.terrain} terrain` : 'on routes';
+      const who = a.owner_only ? 'the owning corporation' : 'any corporation';
+      return `Pays $${a.income || 0} to ${who} for each route that passes ${t}.`;
     },
   },
   purchase_train: {
     label: 'Purchase Train',
     fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'corporation' },
-      { key: 'free', label: 'Train is free', type: 'checkbox', default: false },
-      { key: 'count', label: 'Uses', type: 'number', default: 1 },
-      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
+      { key: 'owner_type',           label: 'Owner',                  type: 'select',   options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'free',                 label: 'Train is free',          type: 'checkbox', default: false },
+      { key: 'count',                label: 'Uses',                   type: 'number',   default: 1 },
+      { key: 'closed_when_used_up',  label: 'Closes when used up',    type: 'checkbox', default: true },
     ],
     suggest(a) {
-      const free = a.free ? 'free ' : '';
-      return `Allows the owning ${a.owner_type || 'corporation'} to purchase a ${free}train directly.`;
+      const fr = a.free ? 'free of charge ' : '';
+      const n  = (a.count && a.count > 1) ? ` (${a.count} uses)` : '';
+      return `Allows the owning ${a.owner_type || 'corporation'} to purchase a train ${fr}from the depot${n}.`;
     },
   },
   borrow_train: {
     label: 'Borrow Train',
     fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
-      { key: 'train_types', label: 'Train types (comma-separated)', type: 'tags', placeholder: 'e.g. 3, 4' },
+      { key: 'owner_type',  label: 'Owner',       type: 'select', options: ['corporation', 'player'], default: 'corporation' },
+      { key: 'train_types', label: 'Train types', type: 'tags',   placeholder: 'e.g. 2, 3 — blank = any' },
     ],
     suggest(a) {
       const types = (a.train_types && a.train_types.length) ? a.train_types.join('/') : 'any';
-      return `The owning ${a.owner_type || 'corporation'} may borrow a ${types} train if it has none.`;
-    },
-  },
-  no_buy: {
-    label: 'No Buy (Block Purchase)',
-    fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
-    ],
-    suggest(a) {
-      return `This company cannot be purchased by a ${a.owner_type || 'player'}.`;
+      return `Allows the owning ${a.owner_type || 'corporation'} to borrow a ${types} train when it has none.`;
     },
   },
   close: {
     label: 'Custom Close Condition',
     fields: [
-      { key: 'when',        label: 'Closes when',    type: 'select', options: ['bought_train', 'sold', 'never', 'operated', 'par'], default: 'bought_train' },
-      { key: 'on_phase',    label: 'On phase',        type: 'text',   placeholder: 'e.g. 5 or never (overrides when:)' },
-      { key: 'owner_type',  label: 'Owner type',      type: 'select', options: ['player', 'corporation', 'any'], default: 'player' },
-      { key: 'corporation', label: 'Corporation sym', type: 'text',   placeholder: 'e.g. B&O — blank = any corp' },
-      { key: 'silent',      label: 'Silent close (no message)', type: 'checkbox', default: false },
+      { key: 'when',        label: 'Closes when',            type: 'select',   options: ['bought_train', 'sold', 'never', 'operated', 'par'], default: 'bought_train' },
+      { key: 'on_phase',    label: 'On phase',               type: 'text',     placeholder: 'e.g. 5 or never (overrides when:)' },
+      { key: 'owner_type',  label: 'Owner type',             type: 'select',   options: ['player', 'corporation', 'any'], default: 'player' },
+      { key: 'corporation', label: 'Corporation sym',        type: 'text',     placeholder: 'e.g. B&O — blank = any corp' },
+      { key: 'silent',      label: 'Silent (no announcement)', type: 'checkbox', default: false },
     ],
     suggest(a) {
       if (a.when === 'never')       return 'Never auto-closes.';
@@ -483,43 +484,12 @@ const ABILITY_DEFS = {
       return `Closes when: ${a.when}.`;
     },
   },
-  assign_hexes: {
-    label: 'Assign to Hex (Revenue Bonus)',
+  no_buy: {
+    label: 'Cannot Be Purchased',
     fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
-      { key: 'hexes', label: 'Eligible hexes', type: 'tags', placeholder: 'e.g. D6, I1' },
-      { key: 'when', label: 'Trigger', type: 'text', placeholder: 'e.g. owning_corp_or_turn, or_start, sold' },
-      { key: 'count', label: 'Uses (total)', type: 'number', default: 1 },
-      { key: 'count_per_or', label: 'Uses per OR', type: 'number' },
-      { key: 'cost', label: 'Cost to assign ($)', type: 'number', default: 0 },
-      { key: 'closed_when_used_up', label: 'Closes when used up', type: 'checkbox', default: false },
+      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
     ],
-    suggest(a) {
-      const hx  = (a.hexes && a.hexes.length) ? a.hexes.join(', ') : '?';
-      const who = a.owner_type === 'player' ? 'player' : 'corporation';
-      const wen = a.when ? ` [${Array.isArray(a.when) ? a.when.join('/') : a.when}]` : '';
-      const uses = a.count_per_or ? ', once per OR' : (a.count ? `, ${a.count} time(s)` : '');
-      const cost = (a.cost && a.cost > 0) ? ` for $${a.cost}` : '';
-      const cl   = a.closed_when_used_up ? ' Closes when used up.' : '';
-      return `The owning ${who} may assign this private to a hex (${hx})${uses}${cost}${wen}.${cl}`;
-    },
-  },
-  assign_corporation: {
-    label: 'Assign to Corporation',
-    fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['corporation', 'player'], default: 'corporation' },
-      { key: 'when', label: 'Trigger', type: 'text', placeholder: 'e.g. sold, or_start' },
-      { key: 'count', label: 'Uses (total)', type: 'number', default: 1 },
-      { key: 'count_per_or', label: 'Uses per OR', type: 'number' },
-      { key: 'closed_when_used_up', label: 'Closes when used up', type: 'checkbox', default: false },
-    ],
-    suggest(a) {
-      const who  = a.owner_type === 'player' ? 'player' : 'corporation';
-      const wen  = a.when ? ` [${Array.isArray(a.when) ? a.when.join('/') : a.when}]` : '';
-      const uses = a.count_per_or ? ', once per OR' : (a.count ? `, ${a.count} time(s)` : '');
-      const cl   = a.closed_when_used_up ? ' Closes when used up.' : '';
-      return `The owning ${who} may lock this private's bonus to a specific corporation${uses}${wen}.${cl}`;
-    },
+    suggest() { return 'This company cannot be purchased by corporations.'; },
   },
   generic: {
     label: 'Generic / Custom',
@@ -527,6 +497,41 @@ const ABILITY_DEFS = {
       { key: 'desc', label: 'Description', type: 'textarea', placeholder: 'Describe the ability in plain text…' },
     ],
     suggest(a) { return a.desc || ''; },
+  },
+  // ── Assignment abilities — require a helper method in game.rb ────────────────
+  // These let a private company be assigned to specific hexes or corporations
+  // (e.g. 1846 Steamboat assigns to a port hex and boosts revenue there).
+  // The base engine's Engine::Step::Assign handles the assign action generically,
+  // but custom step code in game.rb must reference the company by name —
+  // hence the editor auto-generates a helper method for these.
+  assign_hexes: {
+    label: 'Assign to Hex',
+    fields: [
+      { key: 'hexes', label: 'Assignable hexes', type: 'tags', placeholder: 'e.g. B4, C7 — blank = any' },
+      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
+      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
+      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const hx  = (a.hexes && a.hexes.length) ? ` to ${a.hexes.join(', ')}` : ' to a hex';
+      const n   = (a.count && a.count > 1) ? ` (up to ${a.count} hexes)` : '';
+      const who = a.owner_type === 'corporation' ? 'owning corporation' : 'owner';
+      return `The ${who} may assign this company${hx}${n} to grant its bonus. Requires a game.rb helper and custom step code.`;
+    },
+  },
+  assign_corporation: {
+    label: 'Assign to Corporation',
+    fields: [
+      { key: 'count', label: 'Max assignments', type: 'number', default: 1 },
+      { key: 'owner_type', label: 'Who assigns', type: 'select', options: ['player', 'corporation'], default: 'player' },
+      { key: 'when', label: 'When usable', type: 'select', options: ['operating_round', 'stock_round', 'anytime'], default: 'operating_round' },
+      { key: 'closed_when_used_up', label: 'Closes when all uses consumed', type: 'checkbox', default: false },
+    ],
+    suggest(a) {
+      const n = (a.count && a.count > 1) ? ` (up to ${a.count})` : '';
+      return `Can be assigned to a corporation${n} to grant its bonus while assigned. Requires a game.rb helper and custom step code.`;
+    },
   },
 };
 
