@@ -144,9 +144,14 @@ function _serializeAbility(ab, fmt) {
 
   tryS('terrain');
   tryS('partition_type');
-  tryS('hex');
 
-  tryStrArr('tiles');
+  // hex: required for reservation (reservation.rb:11). Emit unconditionally with '' fallback.
+  if (t === 'reservation') p('hex', quote(ab.hex != null ? ab.hex : ''));
+
+  // tiles: required for tile_lay (tile_lay.rb:13) and teleport (teleport.rb:11).
+  // Emit unconditionally for those types; for others use the non-empty guard.
+  if (t === 'tile_lay' || t === 'teleport') p('tiles', strArr(ab.tiles || []));
+  else tryStrArr('tiles');
 
   tryS('corporation');
 
@@ -161,6 +166,9 @@ function _serializeAbility(ab, fmt) {
   if (t === 'revenue_change') {
     p('revenue', String(ab.revenue != null ? ab.revenue : 0));
   }
+
+  // subtype: (generic.rb:8) — REQUIRED for type='generic'. Emit unconditionally.
+  if (t === 'generic') p('subtype', quote(ab.subtype != null ? ab.subtype : ''));
 
   tryS('description');
   tryS('desc_detail');
