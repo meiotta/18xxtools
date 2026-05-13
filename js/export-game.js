@@ -869,7 +869,26 @@ const _GRB_MODULES = [
     emit(state) {
       const f = state.financials || {};
       const m = f.market;
-      if (!Array.isArray(m) || m.length === 0) return null;
+
+      // Synthetic-corp setups (C/D/E in erin/gen_matrix.js — Build 6 Majors,
+      // Build 12 Minors, Build 5 Majors + National) skip the market panel
+      // entirely, so state.financials.market stays empty. Without a MARKET
+      // constant the engine raises `uninitialized constant ... MARKET` at
+      // config_spec load. Emit a minimum-viable default in that case: a 1D
+      // strip with four par cells covering a generic 18xx price range,
+      // labelled as a fallback so anyone editing the generated game.rb
+      // knows where to look.
+      const FALLBACK = [
+        '# Default fallback — no market grid was configured. Populate via the',
+        '# Market panel to override; the engine accepts any valid 2D array.',
+        'MARKET = [',
+        '  %w[60 65 70p 75 80p 85 90p 95 100p 110 120 135 150 170 190 215 240 270 300 330],',
+        '].freeze',
+      ].join('\n');
+
+      if (!Array.isArray(m) || m.length === 0) {
+        return { market: FALLBACK };
+      }
 
       const rows = Array.isArray(m[0]) ? m : [m];   // promote 1D to single-row 2D
       const lines = ['MARKET = ['];
@@ -918,7 +937,7 @@ const _GRB_MODULES = [
       const pRange = Array.from({ length: max - min + 1 }, (_, i) => min + i);
       const lines  = [];
 
-      lines.push(`PLAYERS_RANGE = [${min}, ${max}]`);
+      // PLAYER_RANGE is emitted by meta.rb (_grbMetaRb), not game.rb.
       lines.push(`BANK_CASH = ${_rbCashNum(m.bankCash ?? 12000)}`);
       if (m.currency && m.currency !== '$%s')
         lines.push(`CURRENCY_FORMAT_STR = '${m.currency}'`);
@@ -1767,6 +1786,22 @@ if (_exportMetaBtn) {
       if (typeof updateStatus === 'function') updateStatus('Exported ' + slug + '_meta.rb');
     } catch (err) {
       console.error('[renderMetaRb]', err);
+      alert('Export failed: ' + err.message);
+    }
+  });
+}
+
+const _exportNamespaceBtn = document.getElementById('exportNamespaceBtn');
+if (_exportNamespaceBtn) {
+  _exportNamespaceBtn.addEventListener('click', () => {
+    if (!_requireTitle()) return;
+    try {
+      const src  = renderNamespaceRb();
+      const slug = _grbSlug(state);
+      _grbDownload(src, 'g_' + slug + '.rb');
+      if (typeof updateStatus === 'function') updateStatus('Exported g_' + slug + '.rb (place at lib/engine/game/g_' + slug + '.rb)');
+    } catch (err) {
+      console.error('[renderNamespaceRb]', err);
       alert('Export failed: ' + err.message);
     }
   });
