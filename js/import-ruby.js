@@ -195,6 +195,9 @@ function parseHexCode(code) {
   } else if (cityCount === 2) {
     result.city = result.city || { revenue: '0', slots: 2 };
     result.city.slots = 2;
+  } else if (cityCount === 1) {
+    // Bare 'city' (no attributes) — must mark result.city truthy so hasContent fires
+    result.city = result.city || { revenue: '0', slots: 1 };
   }
   if (townCount >= 2) result.dualTown = true;
   if (townCount >= 1) result.town = true;
