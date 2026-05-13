@@ -20,3 +20,6 @@ COLLISION_SYSTEM_PLAN.md
 
 # Dev/test harnesses
 tile-render-test.html
+# Autotest generated artifacts
+sidecar/autotest/output/
+sidecar/autotest/test_log.md
