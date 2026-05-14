@@ -1862,3 +1862,4 @@ if (_exportStockBtn) {
       alert('Export failed: ' + err.message);
     }
   });
+}
