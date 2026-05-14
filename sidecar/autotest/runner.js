@@ -346,6 +346,7 @@ async function applyEdit(page, editNum, mapName) {
           if (!corps.length) return { ok: false, note: 'No majors to anchor exchange' };
           const target = corps[Math.floor(Math.random()*corps.length)];
           state.privates[idx].revenue  = 10;
+          state.privates[idx].desc = 'Tradeable for a reserved 10% share of ' + target + ' at phase 3.';
           state.privates[idx].abilities = [{
             type: 'exchange', owner_type: 'player',
             corporations: [target], when: 'phase_3',
