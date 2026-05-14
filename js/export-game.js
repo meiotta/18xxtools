@@ -1323,7 +1323,17 @@ const _GRB_MODULES = [
       if (subclasses) out.push(subclasses);
 
       const initBody = _grbInitRoundBody(rounds);
-      if (initBody !== null) out.push(_grbWrapMethod('init_round', null, initBody));
+      // base.rb:2625 init_round always calls new_auction_round. When there are
+      // no private companies, WaterfallAuction#actions returns [] → blocking?
+      // false → active_step nil → game_page.rb:419 @round.description crash.
+      // Emit an explicit init_round override to skip the auction and go straight
+      // to the stock round. Mirrors the 1822 pattern (g_1822/game.rb:1043-1044).
+      const hasPrivates = (state.privates || []).length > 0;
+      if (initBody !== null) {
+        out.push(_grbWrapMethod('init_round', null, initBody));
+      } else if (!hasPrivates) {
+        out.push(_grbWrapMethod('init_round', null, 'new_stock_round'));
+      }
 
       const stockBody = _grbStockRoundBody(rounds);
       if (stockBody !== null) out.push(_grbWrapMethod('stock_round', null, stockBody));
