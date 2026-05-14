@@ -683,3 +683,7 @@ async function main() {
     if (ids.length && !ids.includes(t.id)) continue;
     await runTest(t);
   }
+  if (_browser) await _browser.close();
+}
+
+main().catch(err => { console.error('FATAL:', err); process.exit(1); });
