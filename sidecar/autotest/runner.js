@@ -296,13 +296,14 @@ async function applyEdit(page, editNum, mapName) {
         }
         case 3: {
           // Permanent L train granted by a private.
-          // ABILITY_DEFS has no "grant permanent train" type — closest is purchase_train.
-          // We can express it via a private with a linked train. The tool does support
-          // linkedPrivateIdx on a train, so create a permanent L train and link it.
+          // tobymao has no "grant specific train" ability; purchase_train (free:true)
+          // is the closest: it immediately buys the cheapest available depot train
+          // for the owning corp at no cost (Engine::Ability::PurchaseTrain#setup).
+          // The L train is added to TRAINS so it is the cheapest entry.
           const priv = {
             name: 'L-Train Concession', cost: 100, revenue: 0, buyerType: 'any',
-            ability: 'Grants the owning corporation a permanent L train.',
-            abilities: [{ type: 'generic', desc: 'Grants permanent L train' }],
+            ability: 'Owning corporation may purchase a train from the depot for free.',
+            abilities: [{ type: 'purchase_train', free: true }],
           };
           state.privates.push(priv);
           const pIdx = state.privates.length - 1;
