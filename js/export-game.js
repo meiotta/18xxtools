@@ -167,7 +167,7 @@ function _rbCorp(co, pack, gameCap) {
   const amp      = pack.alwaysMarketPrice || false;
   const coord    = co.coordinates || co.homeHex || '';
   lines.push(i + '{');
-  lines.push(ii + 'sym: '  + _rbQuote(co.sym  || '') + ',');
+  lines.push(ii + 'sym: '  + _rbQuote(co.sym || co.abbr || '') + ',');
   lines.push(ii + 'name: ' + _rbQuote(co.name || '') + ',');
   if (co.logo)  lines.push(ii + 'logo: ' + _rbQuote(co.logo) + ',');
   lines.push(ii + 'color: ' + _rbColor(co.color || '#666666') + ',');
