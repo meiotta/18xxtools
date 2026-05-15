@@ -298,7 +298,7 @@ const ABILITY_CATEGORIES = [
   { label: 'Revenue',               types: ['hex_bonus', 'train_discount', 'tile_income'] },
   { label: 'Trains',                types: ['purchase_train', 'borrow_train'] },
   { label: 'Lifecycle',             types: ['close'] },
-  { label: 'Other',                 types: ['generic'] },
+  { label: 'Other',                 types: ['description', 'generic'] },
 ];
 
 const ABILITY_DEFS = {
@@ -483,12 +483,23 @@ const ABILITY_DEFS = {
       return `Closes when: ${a.when}.`;
     },
   },
-  generic: {
-    label: 'Generic / Custom',
+  description: {
+    label: 'Description (note only)',
     fields: [
-      { key: 'desc', label: 'Description', type: 'textarea', placeholder: 'Describe the ability in plain text…' },
+      { key: 'description', label: 'Text', type: 'textarea', placeholder: 'Plain-text note. Renders in-engine; the engine takes no action on it.' },
     ],
-    suggest(a) { return a.desc || ''; },
+    suggest(a) { return a.description || ''; },
+  },
+  generic: {
+    label: 'Generic (game.rb hook)',
+    fields: [
+      { key: 'subtype', label: 'Subtype tag', type: 'text', placeholder: 'snake_case tag — game.rb implements behaviour via abilities(entity, :tag)' },
+    ],
+    suggest(a) {
+      return a.subtype
+        ? `Tagged ability ':${a.subtype}'. The engine takes no built-in action — behaviour must be implemented in this game's game.rb (queried via abilities(entity, :${a.subtype})). Requires game.rb code.`
+        : 'Generic hook — set a Subtype tag. Inert until behaviour is implemented in game.rb. A blank subtype is not exported.';
+    },
   },
   // ── Assignment abilities ────────────────────────────────────────────────────
   // These let a private company be assigned to specific hexes or corporations

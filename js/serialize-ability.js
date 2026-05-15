@@ -83,6 +83,20 @@ function _abilityAllowed(type, key) {
   return !!(setupSet && setupSet.has(key));
 }
 
+// Structural-validity gate: false → the ability MUST NOT be emitted because it
+// would produce malformed/no-op Ruby. Currently the only rule: a `generic`
+// ability with a blank `subtype`. Generic#setup does `@type = subtype.to_sym`,
+// so subtype:'' yields the empty symbol :"" — a dead ability that previously
+// shipped into g_forge*/entities.rb. The panel now requires a subtype; this is
+// the export-time backstop. Exporters filter abilities through this before
+// serialization. New structural-invalidity rules belong here, single-source.
+function _abilityExportable(ab) {
+  if (!ab || !ab.type) return false;
+  if (ab.type === 'generic' &&
+      !(ab.subtype != null && String(ab.subtype).trim() !== '')) return false;
+  return true;
+}
+
 // ── Canonical emission order ────────────────────────────────────────────────
 // Chosen to preserve byte-for-byte output against the prior _rbAbility for
 // every ability shape currently exercised by the forge test suite. Fields
@@ -210,6 +224,7 @@ function _serializeAbility(ab, fmt) {
 if (typeof window !== 'undefined') {
   window._serializeAbility    = _serializeAbility;
   window._abilityAllowed      = _abilityAllowed;
+  window._abilityExportable   = _abilityExportable;
   window.ABILITY_BASE_KWARGS  = ABILITY_BASE_KWARGS;
   window.ABILITY_SETUP_KWARGS = ABILITY_SETUP_KWARGS;
 }
