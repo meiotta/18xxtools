@@ -17,6 +17,7 @@ recovery_sandbox/
 # Reference docs offline
 promises.md
 COLLISION_SYSTEM_PLAN.md
+will.md
 
 # Dev/test harnesses
 tile-render-test.html
