@@ -1364,12 +1364,16 @@ const _GRB_MODULES = [
       // no private companies, WaterfallAuction#actions returns [] → blocking?
       // false → active_step nil → game_page.rb:419 @round.description crash.
       // Emit an explicit init_round override to skip the auction and go straight
-      // to the stock round. Mirrors the 1822 pattern (g_1822/game.rb:1043-1044).
+      // to the stock round. Mirrors g_1822/game.rb:1043-1044 EXACTLY: it must be
+      // `stock_round` (the Round::Stock constructor, base.rb:3175 — no @round
+      // deref), NOT `new_stock_round`, which logs round_description →
+      // @round.round_num while @round is still nil during Game#initialize.
+      // (new_stock_round here crashed forge42-48 in drop e3e0b00.)
       const hasPrivates = (state.privates || []).length > 0;
       if (initBody !== null) {
         out.push(_grbWrapMethod('init_round', null, initBody));
       } else if (!hasPrivates) {
-        out.push(_grbWrapMethod('init_round', null, 'new_stock_round'));
+        out.push(_grbWrapMethod('init_round', null, 'stock_round'));
       }
 
       const stockBody = _grbStockRoundBody(rounds);
