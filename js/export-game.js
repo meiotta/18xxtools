@@ -136,7 +136,7 @@ function _rbPrivate(priv) {
   if (priv.maxPrice != null) lines.push(ii + 'max_price: ' + priv.maxPrice + ',');
   if (priv.color && !/^#(000|666)/.test(priv.color))
     lines.push(ii + 'color: ' + _rbColor(priv.color) + ',');
-  const abs = priv.abilities || [];
+  const abs = (priv.abilities || []).filter(_abilityExportable);
   if (abs.length) {
     lines.push(ii + 'abilities: [');
     abs.forEach(ab => lines.push(ii + '  ' + _rbAbility(ab) + ','));
@@ -190,7 +190,7 @@ function _rbCorp(co, pack, gameCap) {
     lines.push(ii + 'always_market_price: true,');
   if (cap !== gameCap)
     lines.push(ii + 'capitalization: :' + cap + ',');
-  const abs = co.abilities || [];
+  const abs = (co.abilities || []).filter(_abilityExportable);
   if (abs.length) {
     lines.push(ii + 'abilities: [');
     abs.forEach(ab => lines.push(ii + '  ' + _rbAbility(ab) + ','));
@@ -1175,6 +1175,43 @@ const _GRB_MODULES = [
         lines.push(`end`);
       }
       return { methods: lines.join('\n') };
+    },
+  },
+
+  // ── hex_bonus route revenue ───────────────────────────────────────────────────
+  // hex_bonus has NO core engine consumer (verified 2026-05-15: every corpus
+  // site is a per-game revenue_for — g_1812:452, g_1856:346, g_1807/map:529).
+  // Emit a generic revenue_for override whenever a private or corp-pack company
+  // carries a hex_bonus ability. The body is a verbatim union of two shipping
+  // patterns: g_1812 (corp.companies → abilities(c,:hex_bonus), README-canonical
+  // "≥1 hex in the route" semantics) + g_1856 (corp-owned via all_abilities).
+  {
+    id: 'hex_bonus_revenue',
+    emit(state) {
+      const hasHexBonus = arr =>
+        (arr || []).some(e => (e.abilities || []).some(a => a.type === 'hex_bonus'));
+      const inPrivates = hasHexBonus(state.privates);
+      const inCorps = (state.corpPacks || []).some(pk => hasHexBonus(pk.companies));
+      if (!inPrivates && !inCorps) return null;
+      const methods = [
+        `# hex_bonus: +amount to any route whose stops include one of the`,
+        `# ability's hexes. hex_bonus has no core engine consumer, so this`,
+        `# override is required (port of g_1812/g_1856).`,
+        `def revenue_for(route, stops)`,
+        `  revenue = super`,
+        `  hex_ids = stops.map { |s| s.hex.id }`,
+        `  route.corporation.companies.each do |company|`,
+        `    abilities(company, :hex_bonus) do |ability|`,
+        `      revenue += ability.amount if ability.hexes.intersect?(hex_ids)`,
+        `    end`,
+        `  end`,
+        `  route.corporation.all_abilities.select { |a| a.type == :hex_bonus }.each do |ability|`,
+        `    revenue += ability.amount if ability.hexes.intersect?(hex_ids)`,
+        `  end`,
+        `  revenue`,
+        `end`,
+      ].join('\n');
+      return { methods };
     },
   },
 

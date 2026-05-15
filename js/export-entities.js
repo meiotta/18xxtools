@@ -126,8 +126,8 @@ function _eiCorpEntry(co, gameCap) {
   if (cap !== gameCap)
     lines.push(i4 + 'capitalization: :' + cap + ',');
 
-  // Abilities
-  const abilities = co.abilities || [];
+  // Abilities — filter structurally-invalid (e.g. blank-subtype generic)
+  const abilities = (co.abilities || []).filter(_abilityExportable);
   if (abilities.length) {
     lines.push(i4 + 'abilities: [');
     abilities.forEach(ab => lines.push(i4 + '  ' + _eiAbilityLine(ab) + ','));
@@ -189,9 +189,10 @@ function _eiPrivateEntry(priv) {
     }
   }
 
-  if (abilities.length) {
+  const exportable = abilities.filter(_abilityExportable);
+  if (exportable.length) {
     lines.push(i4 + 'abilities: [');
-    abilities.forEach(ab => lines.push(i4 + '  ' + _eiAbilityLine(ab) + ','));
+    exportable.forEach(ab => lines.push(i4 + '  ' + _eiAbilityLine(ab) + ','));
     lines.push(i4 + '],');
   }
 
