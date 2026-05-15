@@ -33,14 +33,17 @@ const ABILITY_BASE_KWARGS = new Set([
 // ── Per-type setup kwargs ────────────────────────────────────────────────────
 // Each entry mirrors the `def setup(...)` keyword list in the corresponding
 // lib/engine/ability/<type>.rb. Types absent from this map accept only base
-// kwargs (additional_token, blocks_hexes_consent, description,
-// manual_close_company, no_buy, sell_company — all base-only in tobymao).
+// kwargs (additional_token, description, manual_close_company, no_buy,
+// sell_company — all base-only in tobymao). NOTE: blocks_hexes_consent is
+// NOT base-only — BlocksHexesConsent < BlocksHexes inherits
+// setup(hexes:, hidden:) with hexes: required; omitting it crashes Ruby load.
 const ABILITY_SETUP_KWARGS = {
-  acquire_company:    new Set(['company']),
-  assign_corporation: new Set(['closed_when_used_up']),
-  assign_hexes:       new Set(['hexes', 'closed_when_used_up', 'cost']),
-  blocks_hexes:       new Set(['hexes', 'hidden']),
-  blocks_partition:   new Set(['partition_type']),
+  acquire_company:      new Set(['company']),
+  assign_corporation:   new Set(['closed_when_used_up']),
+  assign_hexes:         new Set(['hexes', 'closed_when_used_up', 'cost']),
+  blocks_hexes:         new Set(['hexes', 'hidden']),
+  blocks_hexes_consent: new Set(['hexes', 'hidden']),
+  blocks_partition:     new Set(['partition_type']),
   borrow_train:       new Set(['train_types']),
   choose_ability:     new Set(['choices']),
   close:              new Set(['corporation', 'silent']),
@@ -69,6 +72,7 @@ const ABILITY_SETUP_KWARGS = {
   train_buy:          new Set(['face_value']),
   train_discount:     new Set(['discount', 'trains', 'closed_when_used_up']),
   train_limit:        new Set(['increase', 'constant']),
+  train_scrapper:     new Set(['scrap_values']),
 };
 
 // True when `key` is acceptable for an ability of `type` — either it's a base

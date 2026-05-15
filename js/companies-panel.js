@@ -297,7 +297,7 @@ const ABILITY_CATEGORIES = [
   { label: 'Corporate',             types: ['exchange', 'shares'] },
   { label: 'Revenue',               types: ['hex_bonus', 'train_discount', 'tile_income'] },
   { label: 'Trains',                types: ['purchase_train', 'borrow_train'] },
-  { label: 'Lifecycle',             types: ['close', 'no_buy'] },
+  { label: 'Lifecycle',             types: ['close'] },
   { label: 'Other',                 types: ['generic'] },
 ];
 
@@ -443,7 +443,6 @@ const ABILITY_DEFS = {
       { key: 'owner_type',           label: 'Owner',                  type: 'select',   options: ['corporation', 'player'], default: 'corporation' },
       { key: 'free',                 label: 'Train is free',          type: 'checkbox', default: false },
       { key: 'count',                label: 'Uses',                   type: 'number',   default: 1 },
-      { key: 'closed_when_used_up',  label: 'Closes when used up',    type: 'checkbox', default: true },
     ],
     suggest(a) {
       const fr = a.free ? 'free of charge ' : '';
@@ -484,13 +483,6 @@ const ABILITY_DEFS = {
       return `Closes when: ${a.when}.`;
     },
   },
-  no_buy: {
-    label: 'Cannot Be Purchased',
-    fields: [
-      { key: 'owner_type', label: 'Owner', type: 'select', options: ['player', 'corporation'], default: 'player' },
-    ],
-    suggest() { return 'This company cannot be purchased by corporations.'; },
-  },
   generic: {
     label: 'Generic / Custom',
     fields: [
@@ -498,12 +490,14 @@ const ABILITY_DEFS = {
     ],
     suggest(a) { return a.desc || ''; },
   },
-  // ── Assignment abilities — require a helper method in game.rb ────────────────
+  // ── Assignment abilities ────────────────────────────────────────────────────
   // These let a private company be assigned to specific hexes or corporations
   // (e.g. 1846 Steamboat assigns to a port hex and boosts revenue there).
-  // The base engine's Engine::Step::Assign handles the assign action generically,
-  // but custom step code in game.rb must reference the company by name —
-  // hence the editor auto-generates a helper method for these.
+  // The assign action AND the closed_when_used_up close are handled generically
+  // by the core Engine::Step::Assign (lib/engine/step/assign.rb) — no custom
+  // step is needed, but that step must be registered in the game's OR step
+  // list. Only the *effect* of being assigned (e.g. the revenue bonus) needs
+  // per-game game.rb code that reads target.assigned?(company.id).
   assign_hexes: {
     label: 'Assign to Hex',
     fields: [
@@ -517,7 +511,7 @@ const ABILITY_DEFS = {
       const hx  = (a.hexes && a.hexes.length) ? ` to ${a.hexes.join(', ')}` : ' to a hex';
       const n   = (a.count && a.count > 1) ? ` (up to ${a.count} hexes)` : '';
       const who = a.owner_type === 'corporation' ? 'owning corporation' : 'owner';
-      return `The ${who} may assign this company${hx}${n} to grant its bonus. Requires a game.rb helper and custom step code.`;
+      return `The ${who} may assign this company${hx}${n} to grant its bonus. The assign action is handled by the core Engine::Step::Assign; only the bonus effect needs per-game game.rb revenue code.`;
     },
   },
   assign_corporation: {
@@ -530,7 +524,7 @@ const ABILITY_DEFS = {
     ],
     suggest(a) {
       const n = (a.count && a.count > 1) ? ` (up to ${a.count})` : '';
-      return `Can be assigned to a corporation${n} to grant its bonus while assigned. Requires a game.rb helper and custom step code.`;
+      return `Can be assigned to a corporation${n} to grant its bonus while assigned. The assign action is handled by the core Engine::Step::Assign; only the bonus effect needs per-game game.rb revenue code.`;
     },
   },
 };
